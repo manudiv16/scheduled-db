@@ -8,49 +8,49 @@ rule_files:
 
 scrape_configs:
   # Scheduled-DB cluster monitoring
-  - job_name: 'scheduled-db'
+  - job_name: "scheduled-db"
     static_configs:
       - targets:
-          - 'scheduled-db-1:8080'
-          - 'scheduled-db-2:8080'
-          - 'scheduled-db-3:8080'
-    metrics_path: '/health'
+          - "scheduled-db-1:8080"
+          - "scheduled-db-2:8080"
+          - "scheduled-db-3:8080"
+    metrics_path: "/health"
     scrape_interval: 30s
     scrape_timeout: 10s
     scheme: http
     honor_labels: false
     honor_timestamps: true
     params:
-      format: ['prometheus']
+      format: ["prometheus"]
 
   # Nginx load balancer monitoring
-  - job_name: 'nginx'
+  - job_name: "nginx"
     static_configs:
-      - targets: ['nginx:80']
-    metrics_path: '/nginx_status'
+      - targets: ["nginx:80"]
+    metrics_path: "/nginx_status"
     scrape_interval: 30s
     scrape_timeout: 5s
 
   # Prometheus self-monitoring
-  - job_name: 'prometheus'
+  - job_name: "prometheus"
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ["localhost:9090"]
     scrape_interval: 30s
     scrape_timeout: 10s
 
   # Container metrics (if cAdvisor is available)
-  - job_name: 'cadvisor'
+  - job_name: "cadvisor"
     static_configs:
-      - targets: ['cadvisor:8080']
+      - targets: ["cadvisor:8080"]
     scrape_interval: 30s
     scrape_timeout: 10s
     honor_labels: false
     params:
       collect[]:
-        - 'container_cpu_usage_seconds_total'
-        - 'container_memory_usage_bytes'
-        - 'container_network_receive_bytes_total'
-        - 'container_network_transmit_bytes_total'
+        - "container_cpu_usage_seconds_total"
+        - "container_memory_usage_bytes"
+        - "container_network_receive_bytes_total"
+        - "container_network_transmit_bytes_total"
 
 alerting:
   alertmanagers:

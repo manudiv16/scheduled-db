@@ -49,17 +49,11 @@ help:
 	@echo "  k8s-shell          Get shell in a pod"
 	@echo "  k8s-port-forward   Port forward to access services locally"
 	@echo ""
-	@echo "Local Cluster:"
-	@echo "  cluster-start      Start local cluster using scripts"
-	@echo "  cluster-stop       Stop local cluster"
-	@echo "  cluster-test       Test cluster functionality"
-	@echo ""
 	@echo "Testing & Jobs:"
 	@echo "  create-jobs        Create test jobs (auto-detects environment)"
-	@echo "  create-jobs-local  Create jobs on local cluster"
 	@echo "  create-jobs-k8s    Create jobs on Kubernetes cluster"
-	@echo "  test-proxy-local   Test proxy functionality locally"
-	@echo "  test-proxy-k8s     Test proxy functionality on K8s"
+	@echo "  test-proxy         Test proxy functionality"
+	@echo "  test-failover      Test failover functionality"
 	@echo "  cluster-info       Show cluster information"
 	@echo ""
 	@echo "Utilities:"
@@ -151,7 +145,7 @@ docker-run: docker-build
 ## dev-up: Start development environment with docker-compose
 dev-up:
 	@echo "Starting development environment..."
-	docker-compose up -d
+	docker-compose -f docker/docker-compose.yml up -d
 	@echo "Services started. Access points:"
 	@echo "  - API: http://localhost:80"
 	@echo "  - Node 1: http://localhost:8080"
@@ -163,12 +157,12 @@ dev-up:
 ## dev-down: Stop development environment
 dev-down:
 	@echo "Stopping development environment..."
-	docker-compose down -v
+	docker-compose -f docker/docker-compose.yml down -v
 	@echo "Development environment stopped"
 
 ## dev-logs: Show logs from development environment
 dev-logs:
-	docker-compose logs -f
+	docker-compose -f docker/docker-compose.yml logs -f
 
 ## k8s-deploy: Deploy to Kubernetes
 k8s-deploy:
@@ -205,22 +199,15 @@ k8s-port-forward:
 	@echo "API will be available at http://localhost:8080"
 	$(KUBECTL) port-forward svc/$(APP_NAME)-api 8080:8080 -n $(NAMESPACE)
 
-## cluster-start: Start local cluster using scripts
-cluster-start:
-	@echo "Starting local cluster..."
-	./start-traditional-cluster-fixed.sh
+## test-proxy: Test proxy functionality
+test-proxy:
+	@echo "Testing proxy functionality..."
+	scripts/test-proxy.sh || echo "Proxy test script not found"
 
-## cluster-stop: Stop local cluster
-cluster-stop:
-	@echo "Stopping local cluster..."
-	pkill -f $(APP_NAME) || true
-	./stop-traditional-cluster.sh 2>/dev/null || true
-
-## cluster-test: Test cluster functionality
-cluster-test: build
-	@echo "Testing cluster functionality..."
-	./test-proxy.sh || echo "Proxy test script not found"
-	./test-failover.sh || echo "Failover test script not found"
+## test-failover: Test failover functionality
+test-failover:
+	@echo "Testing failover functionality..."
+	scripts/test-failover.sh || echo "Failover test script not found"
 
 ## create-jobs: Create test jobs using script
 create-jobs:
@@ -232,18 +219,15 @@ create-jobs:
 			echo "Using pod: $$pod_name"; \
 			kubectl port-forward "$$pod_name" 8080:8080 -n $(NAMESPACE) & \
 			sleep 3; \
-			./create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:8080; \
+			scripts/create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:8080; \
 			pkill -f "kubectl port-forward" || true; \
 		else \
 			echo "No scheduled-db pods found in Kubernetes"; \
 			exit 1; \
 		fi; \
-	elif curl -s --connect-timeout 2 http://127.0.0.1:12080/health >/dev/null 2>&1; then \
-		echo "Detected local cluster on port 12080"; \
-		./create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:12080; \
 	elif curl -s --connect-timeout 2 http://127.0.0.1:80/health >/dev/null 2>&1; then \
 		echo "Detected Docker cluster via nginx load balancer on port 80"; \
-		./create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:80; \
+		scripts/create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:80; \
 	elif curl -s --connect-timeout 2 http://127.0.0.1:8080/health >/dev/null 2>&1 || \
 	     curl -s --connect-timeout 2 http://127.0.0.1:8081/health >/dev/null 2>&1 || \
 	     curl -s --connect-timeout 2 http://127.0.0.1:8082/health >/dev/null 2>&1; then \
@@ -254,7 +238,7 @@ create-jobs:
 				is_leader=$$(curl -s http://127.0.0.1:$$port/health | grep -o '"is_leader":[^,}]*' | cut -d':' -f2 2>/dev/null || echo "false"); \
 				if [ "$$role" = "leader" ] || [ "$$is_leader" = "true" ]; then \
 					echo "Found leader on port $$port"; \
-					./create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:$$port; \
+					scripts/create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:$$port; \
 					exit 0; \
 				fi; \
 			fi; \
@@ -263,7 +247,7 @@ create-jobs:
 		for port in 8080 8081 8082; do \
 			if curl -s --connect-timeout 2 http://127.0.0.1:$$port/health >/dev/null 2>&1; then \
 				echo "Using node on port $$port"; \
-				./create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:$$port; \
+				scripts/create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:$$port; \
 				exit 0; \
 			fi; \
 		done; \
@@ -271,23 +255,12 @@ create-jobs:
 		exit 1; \
 	else \
 		echo "No scheduled-db cluster found. Try:"; \
-		echo "  make cluster-start    # For local cluster"; \
-		echo "  make k8s-deploy      # For Kubernetes"; \
 		echo "  make dev-up          # For Docker environment"; \
+		echo "  make k8s-deploy      # For Kubernetes"; \
 		exit 1; \
 	fi
 
-## create-jobs-local: Create jobs on local cluster
-create-jobs-local:
-	@echo "Creating jobs on local cluster..."
-	@if curl -s --connect-timeout 2 http://127.0.0.1:12080/health >/dev/null 2>&1; then \
-		./create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:12080; \
-	elif curl -s --connect-timeout 2 http://127.0.0.1:8080/health >/dev/null 2>&1; then \
-		./create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:8080; \
-	else \
-		echo "Local cluster not found. Start with: make cluster-start"; \
-		exit 1; \
-	fi
+
 
 ## create-jobs-k8s: Create jobs on Kubernetes cluster
 create-jobs-k8s:
@@ -297,28 +270,14 @@ create-jobs-k8s:
 		echo "Port forwarding to pod: $$pod_name"; \
 		kubectl port-forward "$$pod_name" 8080:8080 -n $(NAMESPACE) & \
 		sleep 5; \
-		./create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:8080; \
+		scripts/create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:8080; \
 		pkill -f "kubectl port-forward" || true; \
 	else \
 		echo "No scheduled-db pods found. Deploy with: make k8s-deploy"; \
 		exit 1; \
 	fi
 
-## test-proxy-local: Test proxy functionality on local cluster
-test-proxy-local:
-	@echo "Testing proxy on local cluster..."
-	@if [ -f "./test-proxy-debug.sh" ]; then \
-		./test-proxy-debug.sh; \
-	else \
-		echo "Creating quick proxy test..."; \
-		if curl -s --connect-timeout 2 http://127.0.0.1:12081/health | grep -q follower; then \
-			echo "Testing proxy via follower (port 12081)..."; \
-			curl -X POST http://127.0.0.1:12081/jobs -H "Content-Type: application/json" \
-				-d '{"type":"unico", "timestamp":"'$$(date -u -v+10S +%Y-%m-%dT%H:%M:%SZ)'"}'; \
-		else \
-			echo "No follower found on port 12081"; \
-		fi; \
-	fi
+
 
 ## test-proxy-k8s: Test proxy functionality on Kubernetes
 test-proxy-k8s:
@@ -345,14 +304,16 @@ cluster-info:
 		echo ""; \
 		echo "Services:"; \
 		kubectl get svc -l app=$(APP_NAME) -n $(NAMESPACE); \
-	elif curl -s --connect-timeout 2 http://127.0.0.1:12080/debug/cluster >/dev/null 2>&1; then \
-		echo "Local cluster (port 12080):"; \
-		curl -s http://127.0.0.1:12080/debug/cluster | jq . || curl -s http://127.0.0.1:12080/debug/cluster; \
+	elif curl -s --connect-timeout 2 http://127.0.0.1:80/debug/cluster >/dev/null 2>&1; then \
+		echo "Docker cluster (via load balancer):"; \
+		curl -s http://127.0.0.1:80/debug/cluster | jq . || curl -s http://127.0.0.1:80/debug/cluster; \
 	elif curl -s --connect-timeout 2 http://127.0.0.1:8080/debug/cluster >/dev/null 2>&1; then \
-		echo "Local cluster (port 8080):"; \
+		echo "Docker cluster (direct node):"; \
 		curl -s http://127.0.0.1:8080/debug/cluster | jq . || curl -s http://127.0.0.1:8080/debug/cluster; \
 	else \
-		echo "No cluster found"; \
+		echo "No cluster found. Try:"; \
+		echo "  make dev-up          # For Docker environment"; \
+		echo "  make k8s-deploy      # For Kubernetes"; \
 	fi
 
 ## install-deps: Install development dependencies
