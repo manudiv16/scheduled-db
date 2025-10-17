@@ -365,13 +365,6 @@ func (dm *DiscoveryManager) getRaftPortFromNode(node Node) int {
 }
 
 // joinRaftCluster attempts to join an existing Raft cluster
-func (dm *DiscoveryManager) joinRaftCluster(peers []string) {
-	log.Printf("Attempting to join Raft cluster via peers: %v", peers)
-
-	// For now, log the attempt - actual join logic is complex
-	// and would require contacting the leader to request addition
-	// This is handled by the leader calling AddPeer when it discovers us
-}
 
 // attemptJoinViaHTTP tries to join cluster via HTTP API
 func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {

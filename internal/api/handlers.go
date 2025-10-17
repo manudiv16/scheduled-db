@@ -168,7 +168,7 @@ func (h *Handlers) calculateHTTPAddress(raftAddr string) (string, error) {
 	if raftPort >= 12000 && raftPort <= 12010 {
 		httpPort = raftPort + 80 // 12000->12080, 12001->12081, etc.
 	} else if raftPort >= 7000 && raftPort <= 7010 {
-		httpPort = raftPort + 1000 // 7000->8000, 7001->8001, etc.
+		httpPort = raftPort + 1080 // 7000->8080, 7001->8081, etc.
 	} else {
 		// Strategy 2: Environment variable for port offset
 		offsetStr := os.Getenv("HTTP_PORT_OFFSET")
@@ -220,10 +220,11 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create job: %v", err))
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(job)
+	if err := json.NewEncoder(w).Encode(job); err != nil {
+		log.Printf("Failed to encode job response: %v", err)
+	}
 	log.Printf("Created job %s via API", job.ID)
 }
 
@@ -243,7 +244,9 @@ func (h *Handlers) GetJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(job)
+	if err := json.NewEncoder(w).Encode(job); err != nil {
+		log.Printf("Failed to encode job response: %v", err)
+	}
 }
 
 func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +294,9 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Failed to encode health response: %v", err)
+	}
 }
 
 func (h *Handlers) ClusterDebug(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +326,9 @@ func (h *Handlers) ClusterDebug(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Failed to encode cluster debug response: %v", err)
+	}
 }
 
 func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
@@ -376,7 +383,10 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
-			w.Write(buf[:n])
+			if _, err := w.Write(buf[:n]); err != nil {
+				log.Printf("Failed to write proxy response: %v", err)
+				break
+			}
 		}
 		if err != nil {
 			break
@@ -417,12 +427,16 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Failed to encode join response: %v", err)
+	}
 	log.Printf("Added node %s (%s) to cluster via join API", req.NodeID, req.Address)
 }
 
 func (h *Handlers) writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{Error: message})
+	if err := json.NewEncoder(w).Encode(ErrorResponse{Error: message}); err != nil {
+		log.Printf("Failed to encode error response: %v", err)
+	}
 }

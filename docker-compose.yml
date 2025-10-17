@@ -1,0 +1,175 @@
+version: "3.8"
+
+services:
+  scheduled-db-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scheduled-db-node-1
+    hostname: scheduled-db-1
+    environment:
+      - NODE_ID=node-1
+      - RAFT_HOST=0.0.0.0
+      - RAFT_ADVERTISE_HOST=scheduled-db-1
+      - HTTP_HOST=0.0.0.0
+      - RAFT_PORT=7000
+      - HTTP_PORT=8080
+      - DATA_DIR=/data
+      - DISCOVERY_STRATEGY=static
+      - STATIC_PEERS=scheduled-db-1:7000,scheduled-db-2:7000,scheduled-db-3:7000
+      - SLOT_GAP=10s
+    ports:
+      - "8080:8080"
+      - "7008:7000"
+    volumes:
+      - scheduled-db-1-data:/data
+    healthcheck:
+      test: ["CMD", "/scheduled-db", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - scheduled-db-cluster
+
+  scheduled-db-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scheduled-db-node-2
+    hostname: scheduled-db-2
+    environment:
+      - NODE_ID=node-2
+      - RAFT_HOST=0.0.0.0
+      - RAFT_ADVERTISE_HOST=scheduled-db-2
+      - HTTP_HOST=0.0.0.0
+      - RAFT_PORT=7000
+      - HTTP_PORT=8080
+      - DATA_DIR=/data
+      - DISCOVERY_STRATEGY=static
+      - STATIC_PEERS=scheduled-db-1:7000,scheduled-db-2:7000,scheduled-db-3:7000
+      - SLOT_GAP=10s
+    ports:
+      - "8081:8080"
+      - "7001:7000"
+    volumes:
+      - scheduled-db-2-data:/data
+    healthcheck:
+      test: ["CMD", "/scheduled-db", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - scheduled-db-cluster
+    depends_on:
+      - scheduled-db-1
+
+  scheduled-db-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scheduled-db-node-3
+    hostname: scheduled-db-3
+    environment:
+      - NODE_ID=node-3
+      - RAFT_HOST=0.0.0.0
+      - RAFT_ADVERTISE_HOST=scheduled-db-3
+      - HTTP_HOST=0.0.0.0
+      - RAFT_PORT=7000
+      - HTTP_PORT=8080
+      - DATA_DIR=/data
+      - DISCOVERY_STRATEGY=static
+      - STATIC_PEERS=scheduled-db-1:7000,scheduled-db-2:7000,scheduled-db-3:7000
+      - SLOT_GAP=10s
+    ports:
+      - "8082:8080"
+      - "7002:7000"
+    volumes:
+      - scheduled-db-3-data:/data
+    healthcheck:
+      test: ["CMD", "/scheduled-db", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - scheduled-db-cluster
+    depends_on:
+      - scheduled-db-1
+      - scheduled-db-2
+
+  # Nginx load balancer for API access
+  nginx:
+    image: nginx:alpine
+    container_name: scheduled-db-lb
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - scheduled-db-1
+      - scheduled-db-2
+      - scheduled-db-3
+    restart: unless-stopped
+    networks:
+      - scheduled-db-cluster
+
+  # Prometheus for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: scheduled-db-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=200h"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+    networks:
+      - scheduled-db-cluster
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: scheduled-db-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+    networks:
+      - scheduled-db-cluster
+    depends_on:
+      - prometheus
+
+volumes:
+  scheduled-db-1-data:
+    driver: local
+  scheduled-db-2-data:
+    driver: local
+  scheduled-db-3-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  scheduled-db-cluster:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

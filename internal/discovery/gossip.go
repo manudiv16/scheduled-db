@@ -272,7 +272,9 @@ func (g *GossipStrategy) getLocalNode() Node {
 	// Parse metadata
 	var metadata map[string]string
 	if len(local.Meta) > 0 {
-		json.Unmarshal(local.Meta, &metadata)
+		if err := json.Unmarshal(local.Meta, &metadata); err != nil {
+			log.Printf("Failed to unmarshal local node metadata: %v", err)
+		}
 	}
 	if metadata == nil {
 		metadata = make(map[string]string)
@@ -350,7 +352,9 @@ func (d *gossipDelegate) NotifyJoin(node *memberlist.Node) {
 	// Parse metadata
 	var metadata map[string]string
 	if len(node.Meta) > 0 {
-		json.Unmarshal(node.Meta, &metadata)
+		if err := json.Unmarshal(node.Meta, &metadata); err != nil {
+			log.Printf("Failed to unmarshal node metadata: %v", err)
+		}
 	}
 	if metadata == nil {
 		metadata = make(map[string]string)
@@ -401,7 +405,9 @@ func (d *gossipDelegate) NotifyUpdate(node *memberlist.Node) {
 	// Parse updated metadata
 	var metadata map[string]string
 	if len(node.Meta) > 0 {
-		json.Unmarshal(node.Meta, &metadata)
+		if err := json.Unmarshal(node.Meta, &metadata); err != nil {
+			log.Printf("Failed to unmarshal node metadata: %v", err)
+		}
 	}
 	if metadata == nil {
 		metadata = make(map[string]string)

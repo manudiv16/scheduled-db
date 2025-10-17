@@ -16,16 +16,17 @@ import (
 type JobEventHandler func(event string, job *Job)
 
 type Store struct {
-	raft         *raft.Raft
-	fsm          *FSM
-	transport    raft.Transport
-	eventHandler JobEventHandler
-	nodeID       string
-	raftBind     string
-	httpBind     string
+	raft          *raft.Raft
+	fsm           *FSM
+	transport     raft.Transport
+	eventHandler  JobEventHandler
+	nodeID        string
+	raftBind      string
+	raftAdvertise string
+	httpBind      string
 }
 
-func NewStore(dataDir, raftBind, nodeID string, peers []string) (*Store, error) {
+func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (*Store, error) {
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(nodeID)
 
@@ -43,12 +44,12 @@ func NewStore(dataDir, raftBind, nodeID string, peers []string) (*Store, error) 
 	}
 
 	// Setup Raft transport
-	addr, err := net.ResolveTCPAddr("tcp", raftBind)
+	advertiseAddr, err := net.ResolveTCPAddr("tcp", raftAdvertise)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve raft address: %v", err)
+		return nil, fmt.Errorf("failed to resolve raft advertise address: %v", err)
 	}
 
-	transport, err := raft.NewTCPTransport(raftBind, addr, 3, 10*time.Second, os.Stderr)
+	transport, err := raft.NewTCPTransport(raftBind, advertiseAddr, 3, 10*time.Second, os.Stderr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport: %v", err)
 	}
@@ -77,11 +78,12 @@ func NewStore(dataDir, raftBind, nodeID string, peers []string) (*Store, error) 
 	}
 
 	store := &Store{
-		raft:      ra,
-		fsm:       fsm,
-		transport: transport,
-		nodeID:    nodeID,
-		raftBind:  raftBind,
+		raft:          ra,
+		fsm:           fsm,
+		transport:     transport,
+		nodeID:        nodeID,
+		raftBind:      raftBind,
+		raftAdvertise: raftAdvertise,
 	}
 
 	// Only bootstrap if no peers provided (single node/bootstrap mode)
@@ -106,7 +108,7 @@ func NewStore(dataDir, raftBind, nodeID string, peers []string) (*Store, error) 
 			config.LocalID, transport.LocalAddr(), peers)
 	}
 
-	log.Printf("Raft store initialized - Node ID: %s, Bind: %s, Initial state: %s", nodeID, raftBind, ra.State())
+	log.Printf("Raft store initialized - Node ID: %s, Bind: %s, Advertise: %s, Initial state: %s", nodeID, raftBind, raftAdvertise, ra.State())
 	return store, nil
 }
 
@@ -123,6 +125,11 @@ func (s *Store) GetNodeID() string {
 // GetRaftBind returns the Raft bind address
 func (s *Store) GetRaftBind() string {
 	return s.raftBind
+}
+
+// GetRaftAdvertise returns the Raft advertise address
+func (s *Store) GetRaftAdvertise() string {
+	return s.raftAdvertise
 }
 
 // GetHTTPBind returns the HTTP bind address

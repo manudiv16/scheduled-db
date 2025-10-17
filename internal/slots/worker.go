@@ -161,8 +161,9 @@ func (w *Worker) processSlots() {
 		// If all jobs were executed, the slot was automatically removed by RemoveJob
 	}
 
-	if !processedAnyJob {
-	}
+	// If no jobs were processed in this cycle, the worker will continue checking
+	// in the next iteration based on the ticker interval
+	_ = processedAnyJob
 }
 
 func (w *Worker) shouldExecuteJob(job *store.Job, now int64) bool {

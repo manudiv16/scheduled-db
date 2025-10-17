@@ -26,6 +26,7 @@ type App struct {
 type Config struct {
 	DataDir         string
 	RaftBind        string
+	RaftAdvertise   string
 	HTTPBind        string
 	NodeID          string
 	Peers           []string
@@ -35,7 +36,7 @@ type Config struct {
 
 func NewApp(config *Config) (*App, error) {
 	// Create store with Raft (start with configured peers, discovery will handle dynamic joining)
-	jobStore, err := store.NewStore(config.DataDir, config.RaftBind, config.NodeID, config.Peers)
+	jobStore, err := store.NewStore(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create store: %v", err)
 	}
@@ -220,65 +221,62 @@ func (a *App) monitorLeadership() {
 	log.Printf("[LEADERSHIP DEBUG] Starting leadership monitoring, initial state: isLeader=%v", wasLeader)
 	noLeaderCount := 0
 
-	for {
-		select {
-		case <-ticker.C:
-			isLeader := a.store.IsLeader()
-			currentLeader := a.store.GetLeader()
+	for range ticker.C {
+		isLeader := a.store.IsLeader()
+		currentLeader := a.store.GetLeader()
 
-			if !wasLeader && isLeader {
-				// Became leader
-				log.Printf("[LEADERSHIP DEBUG] Node %s became leader", a.nodeID)
-				a.becomeLeader()
-				noLeaderCount = 0
-			} else if wasLeader && !isLeader {
-				// Lost leadership
-				log.Printf("[LEADERSHIP DEBUG] Node %s lost leadership, current leader: %s", a.nodeID, currentLeader)
-				a.loseLeadership()
-			}
-
-			// Check for orphaned cluster situation
-			if currentLeader == "" && !isLeader {
-				noLeaderCount++
-				if noLeaderCount > 60 { // Wait 60 seconds without leader (increased from 10)
-					servers, err := a.store.GetClusterConfiguration()
-					if err == nil && len(servers) == 0 {
-						// Empty cluster - attempt auto-bootstrap
-						log.Printf("[LEADERSHIP DEBUG] Node %s: No leader for 60 seconds and empty cluster, attempting auto-bootstrap", a.nodeID)
-						if err := a.attemptAutoBootstrap(); err != nil {
-							log.Printf("[LEADERSHIP DEBUG] Auto-bootstrap failed: %v", err)
-						} else {
-							log.Printf("[LEADERSHIP DEBUG] Auto-bootstrap successful")
-							noLeaderCount = 0
-						}
-					}
-				}
-			} else {
-				noLeaderCount = 0
-			}
-
-			// Periodic status log (every 30 seconds)
-			if ticker := time.Now().Unix(); ticker%30 == 0 {
-				// Get cluster configuration for debugging
-				servers, err := a.store.GetClusterConfiguration()
-				var clusterInfo string
-				if err != nil {
-					clusterInfo = fmt.Sprintf("error: %v", err)
-				} else {
-					serverList := make([]string, len(servers))
-					for i, server := range servers {
-						serverList[i] = fmt.Sprintf("%s@%s", server.ID, server.Address)
-					}
-					clusterInfo = fmt.Sprintf("servers=[%s]", strings.Join(serverList, ", "))
-				}
-
-				raftState := a.store.GetRaftState()
-				log.Printf("[LEADERSHIP DEBUG] Node %s status: isLeader=%v, currentLeader=%s, raftState=%s, cluster=%s",
-					a.nodeID, isLeader, currentLeader, raftState, clusterInfo)
-			}
-
-			wasLeader = isLeader
+		if !wasLeader && isLeader {
+			// Became leader
+			log.Printf("[LEADERSHIP DEBUG] Node %s became leader", a.nodeID)
+			a.becomeLeader()
+			noLeaderCount = 0
+		} else if wasLeader && !isLeader {
+			// Lost leadership
+			log.Printf("[LEADERSHIP DEBUG] Node %s lost leadership, current leader: %s", a.nodeID, currentLeader)
+			a.loseLeadership()
 		}
+
+		// Check for orphaned cluster situation
+		if currentLeader == "" && !isLeader {
+			noLeaderCount++
+			if noLeaderCount > 60 { // Wait 60 seconds without leader (increased from 10)
+				servers, err := a.store.GetClusterConfiguration()
+				if err == nil && len(servers) == 0 {
+					// Empty cluster - attempt auto-bootstrap
+					log.Printf("[LEADERSHIP DEBUG] Node %s: No leader for 60 seconds and empty cluster, attempting auto-bootstrap", a.nodeID)
+					if err := a.attemptAutoBootstrap(); err != nil {
+						log.Printf("[LEADERSHIP DEBUG] Auto-bootstrap failed: %v", err)
+					} else {
+						log.Printf("[LEADERSHIP DEBUG] Auto-bootstrap successful")
+						noLeaderCount = 0
+					}
+				}
+			}
+		} else {
+			noLeaderCount = 0
+		}
+
+		// Periodic status log (every 30 seconds)
+		if ticker := time.Now().Unix(); ticker%30 == 0 {
+			// Get cluster configuration for debugging
+			servers, err := a.store.GetClusterConfiguration()
+			var clusterInfo string
+			if err != nil {
+				clusterInfo = fmt.Sprintf("error: %v", err)
+			} else {
+				serverList := make([]string, len(servers))
+				for i, server := range servers {
+					serverList[i] = fmt.Sprintf("%s@%s", server.ID, server.Address)
+				}
+				clusterInfo = fmt.Sprintf("servers=[%s]", strings.Join(serverList, ", "))
+			}
+
+			raftState := a.store.GetRaftState()
+			log.Printf("[LEADERSHIP DEBUG] Node %s status: isLeader=%v, currentLeader=%s, raftState=%s, cluster=%s",
+				a.nodeID, isLeader, currentLeader, raftState, clusterInfo)
+		}
+
+		wasLeader = isLeader
 	}
 }
 

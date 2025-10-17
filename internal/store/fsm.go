@@ -130,7 +130,9 @@ func (s *Snapshot) Persist(sink raft.SnapshotSink) error {
 	}()
 
 	if err != nil {
-		sink.Cancel()
+		if err := sink.Cancel(); err != nil {
+			log.Printf("Failed to cancel sink: %v", err)
+		}
 		return err
 	}
 

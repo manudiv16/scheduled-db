@@ -25,6 +25,7 @@ func main() {
 		slotGap           = flag.Duration("slot-gap", getEnvDurationOrDefault("SLOT_GAP", 10*time.Second), "Time gap for slot intervals")
 		discoveryStrategy = flag.String("discovery-strategy", getEnvOrDefault("DISCOVERY_STRATEGY", ""), "Discovery strategy: static, kubernetes, dns, gossip")
 		raftHost          = flag.String("raft-host", getEnvOrDefault("RAFT_HOST", "localhost"), "Host for Raft communication")
+		raftAdvertiseHost = flag.String("raft-advertise-host", getEnvOrDefault("RAFT_ADVERTISE_HOST", ""), "Host to advertise for Raft communication (empty means use raft-host)")
 		httpHost          = flag.String("http-host", getEnvOrDefault("HTTP_HOST", ""), "Host for HTTP API (empty means all interfaces)")
 	)
 	flag.Parse()
@@ -57,12 +58,21 @@ func main() {
 
 	// Build bind addresses with environment variables
 	raftBind := fmt.Sprintf("%s:%s", *raftHost, *raftPort)
+
+	// Determine advertise address - use advertise host if provided, otherwise use raft host
+	advertiseHost := *raftAdvertiseHost
+	if advertiseHost == "" {
+		advertiseHost = *raftHost
+	}
+	raftAdvertise := fmt.Sprintf("%s:%s", advertiseHost, *raftPort)
+
 	httpBind := fmt.Sprintf("%s:%s", *httpHost, *httpPort)
 
 	// Create application configuration
 	config := &internal.Config{
 		DataDir:         *dataDir,
 		RaftBind:        raftBind,
+		RaftAdvertise:   raftAdvertise,
 		HTTPBind:        httpBind,
 		NodeID:          *nodeID,
 		Peers:           peerList,
@@ -82,8 +92,9 @@ func main() {
 
 	log.Printf("Application started successfully")
 	log.Printf("Node ID: %s", *nodeID)
-	log.Printf("Raft port: %s", *raftPort)
-	log.Printf("HTTP port: %s", *httpPort)
+	log.Printf("Raft bind: %s", raftBind)
+	log.Printf("Raft advertise: %s", raftAdvertise)
+	log.Printf("HTTP bind: %s", httpBind)
 	if len(peerList) > 0 {
 		log.Printf("Peers: %v", peerList)
 	} else {
