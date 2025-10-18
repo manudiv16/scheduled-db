@@ -20,7 +20,7 @@ rules:
 # Read pods for service discovery
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "list", "watch"]
+  verbs: ["get", "list", "watch", "update", "patch"]
 # Read services for discovery
 - apiGroups: [""]
   resources: ["services"]

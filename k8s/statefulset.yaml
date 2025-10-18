@@ -29,12 +29,12 @@ spec:
       serviceAccountName: scheduled-db
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65534
-        runAsGroup: 65534
-        fsGroup: 65534
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
       - name: scheduled-db
-        image: scheduled-db:latest
+        image: scheduled-db:v2
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 7000
@@ -58,6 +58,8 @@ spec:
               fieldPath: metadata.namespace
         - name: NODE_ID
           value: "$(POD_NAME)"
+        - name: RAFT_ADVERTISE_HOST
+          value: "$(POD_IP)"
         envFrom:
         - configMapRef:
             name: scheduled-db-config

@@ -377,9 +377,14 @@ func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 			continue // Skip self
 		}
 
-		// Calculate HTTP port from Raft port
+		// Calculate HTTP port from Raft port (same logic as in handlers.go)
 		raftPort := dm.getRaftPortFromNode(node)
-		httpPort := raftPort + 80 // 11000 -> 11080, etc
+		var httpPort int
+		if raftPort >= 7000 && raftPort <= 7010 {
+			httpPort = raftPort + 1080 // 7000->8080, 7001->8081, etc.
+		} else {
+			httpPort = raftPort + 80 // Default offset
+		}
 		healthURL := fmt.Sprintf("http://%s:%d/health", node.Address, httpPort)
 
 		log.Printf("Checking if node %s is leader via %s", node.ID, healthURL)

@@ -7,17 +7,17 @@ metadata:
     app: scheduled-db
     component: config
 data:
-  # Discovery Configuration
+  # Discovery Configuration - usar kubernetes
   DISCOVERY_STRATEGY: "kubernetes"
 
   # Raft Configuration
   RAFT_HOST: "0.0.0.0"
-  HTTP_HOST: ""
+  RAFT_ADVERTISE_HOST: ""  # Will be set to POD_IP in StatefulSet
+  HTTP_HOST: "0.0.0.0"
 
   # Ports
   RAFT_PORT: "7000"
   HTTP_PORT: "8080"
-  HTTP_PORT_OFFSET: "1080"
 
   # Slot Configuration
   SLOT_GAP: "10s"

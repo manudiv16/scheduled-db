@@ -67,6 +67,11 @@ func (k *KubernetesStrategy) Discover(ctx context.Context) ([]Node, error) {
 	for _, subset := range endpoints.Subsets {
 		for _, address := range subset.Addresses {
 			for _, port := range subset.Ports {
+				// Only process Raft ports (skip HTTP ports)
+				if port.Name != "raft" {
+					continue
+				}
+
 				// Extract node ID from pod name or use address
 				nodeID := address.IP
 				if address.TargetRef != nil && address.TargetRef.Name != "" {
