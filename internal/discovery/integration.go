@@ -251,7 +251,7 @@ func (dm *DiscoveryManager) getRaftPort() int {
 			return port
 		}
 	}
-	return 7000 // Default Raft port
+	return 7000 // Default
 }
 
 // CreateDiscoveryConfig creates a discovery config based on environment
@@ -345,23 +345,7 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 
 // getRaftPortFromNode extracts Raft port from discovered node
 func (dm *DiscoveryManager) getRaftPortFromNode(node Node) int {
-	// Try to get Raft port from node metadata
-	if raftPortStr, exists := node.Meta["raft_port"]; exists {
-		if port, err := strconv.Atoi(raftPortStr); err == nil {
-			return port
-		}
-	}
-
-	// Fallback: assume Raft port is gossip port - 946 + 7000
-	// gossip: 7946 -> raft: 7000
-	// gossip: 7947 -> raft: 7001
-	// gossip: 7948 -> raft: 7002
-	if node.Port >= 7946 {
-		return node.Port - 946
-	}
-
-	// Default fallback
-	return 7000
+	return node.Port // Use the port directly from the node
 }
 
 // joinRaftCluster attempts to join an existing Raft cluster
@@ -377,13 +361,12 @@ func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 			continue // Skip self
 		}
 
-		// Calculate HTTP port from Raft port (same logic as in handlers.go)
-		raftPort := dm.getRaftPortFromNode(node)
-		var httpPort int
-		if raftPort >= 7000 && raftPort <= 7010 {
-			httpPort = raftPort + 1080 // 7000->8080, 7001->8081, etc.
-		} else {
-			httpPort = raftPort + 80 // Default offset
+		// Use HTTP port directly from environment
+		httpPort := 8080
+		if portStr := os.Getenv("HTTP_PORT"); portStr != "" {
+			if port, err := strconv.Atoi(portStr); err == nil {
+				httpPort = port
+			}
 		}
 		healthURL := fmt.Sprintf("http://%s:%d/health", node.Address, httpPort)
 

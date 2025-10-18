@@ -38,7 +38,10 @@ func NewKubernetesStrategy(config Config) (Strategy, error) {
 
 	namespace := config.Namespace
 	if namespace == "" {
-		namespace = "default"
+		namespace = os.Getenv("POD_NAMESPACE")
+		if namespace == "" {
+			namespace = "default"
+		}
 	}
 
 	// Create label selector for service discovery
@@ -78,9 +81,20 @@ func (k *KubernetesStrategy) Discover(ctx context.Context) ([]Node, error) {
 					nodeID = address.TargetRef.Name
 				}
 
+				// Use stable hostname instead of IP for StatefulSet pods
+				var nodeAddress string
+				if address.TargetRef != nil && address.TargetRef.Name != "" {
+					// For StatefulSet pods, use the stable hostname
+					podName := address.TargetRef.Name
+					nodeAddress = fmt.Sprintf("%s.%s.%s.svc.cluster.local", podName, k.config.ServiceName, k.namespace)
+				} else {
+					// Fallback to IP
+					nodeAddress = address.IP
+				}
+
 				node := Node{
 					ID:      nodeID,
-					Address: address.IP,
+					Address: nodeAddress,
 					Port:    int(port.Port),
 					Meta:    make(map[string]string),
 				}

@@ -67,9 +67,13 @@ func NewGossipStrategy(config Config) (Strategy, error) {
 	mlConfig.Delegate = delegate
 	mlConfig.Events = delegate
 
-	// Force IPv4 to avoid IPv6 connection issues
-	mlConfig.BindAddr = "127.0.0.1"
-	mlConfig.AdvertiseAddr = "127.0.0.1"
+	// Use configurable bind address
+	bindAddr := os.Getenv("GOSSIP_BIND_ADDR")
+	if bindAddr == "" {
+		bindAddr = "0.0.0.0" // Bind to all interfaces by default
+	}
+	mlConfig.BindAddr = bindAddr
+	mlConfig.AdvertiseAddr = bindAddr
 
 	// Configure ports and timeouts from environment or config
 	gossipPort := getGossipPort()

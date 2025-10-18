@@ -13,6 +13,16 @@ import (
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 )
 
+// getApplyTimeout returns the Raft apply timeout from environment or default
+func getApplyTimeout() time.Duration {
+	if timeoutStr := os.Getenv("RAFT_APPLY_TIMEOUT"); timeoutStr != "" {
+		if t, err := time.ParseDuration(timeoutStr); err == nil {
+			return t
+		}
+	}
+	return 5 * time.Second // Default
+}
+
 type JobEventHandler func(event string, job *Job)
 
 type Store struct {
@@ -27,6 +37,26 @@ type Store struct {
 }
 
 func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (*Store, error) {
+	// Use stable hostname for Raft advertise address if in Kubernetes
+	if os.Getenv("POD_NAME") != "" && os.Getenv("DISCOVERY_STRATEGY") == "kubernetes" {
+		serviceName := os.Getenv("KUBERNETES_SERVICE_NAME")
+		namespace := os.Getenv("POD_NAMESPACE")
+		if serviceName == "" {
+			serviceName = "scheduled-db"
+		}
+		if namespace == "" {
+			namespace = "default"
+		}
+		podName := os.Getenv("POD_NAME")
+		
+		// Use stable hostname instead of IP
+		_, port, err := net.SplitHostPort(raftAdvertise)
+		if err == nil {
+			stableHostname := fmt.Sprintf("%s.%s.%s.svc.cluster.local", podName, serviceName, namespace)
+			raftAdvertise = fmt.Sprintf("%s:%s", stableHostname, port)
+			log.Printf("Using stable hostname for Raft: %s", raftAdvertise)
+		}
+	}
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(nodeID)
 
@@ -49,7 +79,14 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 		return nil, fmt.Errorf("failed to resolve raft advertise address: %v", err)
 	}
 
-	transport, err := raft.NewTCPTransport(raftBind, advertiseAddr, 3, 10*time.Second, os.Stderr)
+	// Get timeout from environment or use default
+	timeout := 10 * time.Second
+	if timeoutStr := os.Getenv("RAFT_TRANSPORT_TIMEOUT"); timeoutStr != "" {
+		if t, err := time.ParseDuration(timeoutStr); err == nil {
+			timeout = t
+		}
+	}
+	transport, err := raft.NewTCPTransport(raftBind, advertiseAddr, 3, timeout, os.Stderr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport: %v", err)
 	}
@@ -158,7 +195,7 @@ func (s *Store) CreateJob(job *Job) error {
 		return fmt.Errorf("failed to marshal command: %v", err)
 	}
 
-	future := s.raft.Apply(data, 5*time.Second)
+	future := s.raft.Apply(data, getApplyTimeout())
 	if err := future.Error(); err != nil {
 		return fmt.Errorf("failed to apply command: %v", err)
 	}
@@ -187,7 +224,7 @@ func (s *Store) DeleteJob(id string) error {
 		return fmt.Errorf("failed to marshal command: %v", err)
 	}
 
-	future := s.raft.Apply(data, 5*time.Second)
+	future := s.raft.Apply(data, getApplyTimeout())
 	if err := future.Error(); err != nil {
 		return fmt.Errorf("failed to apply command: %v", err)
 	}

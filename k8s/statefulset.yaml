@@ -34,7 +34,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: scheduled-db
-        image: scheduled-db:v2
+        image: scheduled-db:v4
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 7000

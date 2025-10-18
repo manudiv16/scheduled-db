@@ -65,7 +65,7 @@ func NewHandlers(store *store.Store) *Handlers {
 func (h *Handlers) buildAddressMapping() {
 	// Environment-based configuration
 	// Format: CLUSTER_NODE_1=raft_host:raft_port,http_host:http_port
-	// Example: CLUSTER_NODE_1=127.0.0.1:12000,127.0.0.1:12080
+	// Example: CLUSTER_NODE_1=127.0.0.1:7000,127.0.0.1:8080
 
 	for i := 1; i <= 10; i++ { // Support up to 10 nodes
 		envKey := fmt.Sprintf("CLUSTER_NODE_%d", i)
@@ -98,21 +98,8 @@ func (h *Handlers) buildAddressMapping() {
 
 // createDefaultMapping creates standard development mapping
 func (h *Handlers) createDefaultMapping() {
-	// Default development cluster configuration
-	defaultMappings := map[string]string{
-		"127.0.0.1:12000": "http://127.0.0.1:12080",
-		"127.0.0.1:12001": "http://127.0.0.1:12081",
-		"127.0.0.1:12002": "http://127.0.0.1:12082",
-		"localhost:12000": "http://localhost:12080",
-		"localhost:12001": "http://localhost:12081",
-		"localhost:12002": "http://localhost:12082",
-	}
-
-	for raftAddr, httpAddr := range defaultMappings {
-		h.addressMap[raftAddr] = httpAddr
-	}
-
-	log.Printf("Using default address mapping for development")
+	// No default mappings - all ports should come from environment variables
+	log.Println("No default port mappings - using environment variables only")
 }
 
 // getHTTPAddressForRaft converts Raft address to HTTP address
@@ -149,46 +136,21 @@ func (h *Handlers) calculateHTTPAddress(raftAddr string) (string, error) {
 	}
 
 	host := parts[0]
-	raftPortStr := parts[1]
 
 	// Convert localhost to 127.0.0.1 for consistency
 	if host == "localhost" {
 		host = "127.0.0.1"
 	}
 
-	raftPort, err := strconv.Atoi(raftPortStr)
-	if err != nil {
-		return "", fmt.Errorf("invalid Raft port: %s", raftPortStr)
-	}
-
-	// Calculate HTTP port based on different strategies
-	var httpPort int
-
-	// Strategy 1: Direct offset (common in development)
-	if raftPort >= 12000 && raftPort <= 12010 {
-		httpPort = raftPort + 80 // 12000->12080, 12001->12081, etc.
-	} else if raftPort >= 7000 && raftPort <= 7010 {
-		httpPort = raftPort + 1080 // 7000->8080, 7001->8081, etc.
-	} else {
-		// Strategy 2: Environment variable for port offset
-		offsetStr := os.Getenv("HTTP_PORT_OFFSET")
-		if offsetStr != "" {
-			if offset, err := strconv.Atoi(offsetStr); err == nil {
-				httpPort = raftPort + offset
-			} else {
-				httpPort = raftPort + 80 // Default offset
-			}
-		} else {
-			httpPort = raftPort + 80 // Default offset
+	// Use HTTP port from environment
+	httpPort := 8080
+	if portStr := os.Getenv("HTTP_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			httpPort = port
 		}
 	}
 
 	httpAddr := fmt.Sprintf("http://%s:%d", host, httpPort)
-
-	// Cache the calculated mapping
-	h.addressMap[raftAddr] = httpAddr
-	log.Printf("Calculated and cached mapping: Raft %s -> HTTP %s", raftAddr, httpAddr)
-
 	return httpAddr, nil
 }
 
