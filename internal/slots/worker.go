@@ -10,13 +10,13 @@ import (
 )
 
 type Worker struct {
-	slotQueue *SlotQueue
+	slotQueue *PersistentSlotQueue
 	store     *store.Store
 	stopCh    chan struct{}
 	running   bool
 }
 
-func NewWorker(slotQueue *SlotQueue, store *store.Store) *Worker {
+func NewWorker(slotQueue *PersistentSlotQueue, store *store.Store) *Worker {
 	return &Worker{
 		slotQueue: slotQueue,
 		store:     store,

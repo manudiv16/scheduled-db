@@ -18,7 +18,7 @@ import (
 
 type App struct {
 	store            *store.Store
-	slotQueue        *slots.SlotQueue
+	slotQueue        *slots.PersistentSlotQueue
 	worker           *slots.Worker
 	httpServer       *http.Server
 	discoveryManager *discovery.DiscoveryManager
@@ -81,7 +81,7 @@ func NewApp(config *Config) (*App, error) {
 	}
 
 	// Create slot queue
-	slotQueue := slots.NewSlotQueue(config.SlotGap)
+	slotQueue := slots.NewPersistentSlotQueue(config.SlotGap, jobStore)
 
 	// Create worker
 	worker := slots.NewWorker(slotQueue, jobStore)
@@ -356,14 +356,10 @@ func (a *App) monitorLeadership() {
 func (a *App) becomeLeader() {
 	log.Printf("[LEADERSHIP DEBUG] Node %s becoming leader - loading jobs and starting worker", a.nodeID)
 
-	// Load all jobs from store into slot queue
-	jobs := a.store.GetAllJobs()
-	a.slotQueue.LoadJobs(jobs)
-
-	// Start worker
+	// Start worker (slots are already loaded from persistent store)
 	a.worker.Start()
 
-	log.Printf("[LEADERSHIP DEBUG] Node %s is now leader: loaded %d jobs into slot queue, worker started", a.nodeID, len(jobs))
+	log.Printf("[LEADERSHIP DEBUG] Node %s is now leader: worker started with persistent slots", a.nodeID)
 }
 
 func (a *App) loseLeadership() {

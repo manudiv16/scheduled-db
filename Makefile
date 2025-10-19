@@ -127,7 +127,7 @@ clean:
 ## docker-build: Build Docker image
 docker-build:
 	@echo "Building Docker image $(DOCKER_IMAGE):$(DOCKER_TAG)..."
-	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) -f docker/Dockerfile .
 	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(DOCKER_IMAGE):latest
 	@echo "Docker image built: $(DOCKER_IMAGE):$(DOCKER_TAG)"
 

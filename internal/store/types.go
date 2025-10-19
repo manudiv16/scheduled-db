@@ -26,6 +26,14 @@ type Job struct {
 	CreatedAt int64   `json:"created_at"`
 }
 
+// SlotData representa un slot persistido en Raft
+type SlotData struct {
+	Key     int64    `json:"key"`
+	MinTime int64    `json:"min_time"`
+	MaxTime int64    `json:"max_time"`
+	JobIDs  []string `json:"job_ids"`
+}
+
 type CreateJobRequest struct {
 	ID        string  `json:"id,omitempty"`
 	Type      JobType `json:"type"`

@@ -253,6 +253,64 @@ func (s *Store) GetAllJobs() map[string]*Job {
 	return s.fsm.GetAllJobs()
 }
 
+// CreateSlot creates a new slot
+func (s *Store) CreateSlot(slot *SlotData) error {
+	if !s.IsLeader() {
+		return fmt.Errorf("not leader")
+	}
+
+	cmd := Command{
+		Type: CommandCreateSlot,
+		Slot: slot,
+	}
+
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %v", err)
+	}
+
+	future := s.raft.Apply(data, getApplyTimeout())
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to apply command: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteSlot deletes a slot
+func (s *Store) DeleteSlot(key int64) error {
+	if !s.IsLeader() {
+		return fmt.Errorf("not leader")
+	}
+
+	cmd := Command{
+		Type: CommandDeleteSlot,
+		ID:   fmt.Sprintf("%d", key),
+	}
+
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %v", err)
+	}
+
+	future := s.raft.Apply(data, getApplyTimeout())
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to apply command: %v", err)
+	}
+
+	return nil
+}
+
+// GetSlot returns a slot by key
+func (s *Store) GetSlot(key int64) (*SlotData, bool) {
+	return s.fsm.GetSlot(key)
+}
+
+// GetAllSlots returns all slots
+func (s *Store) GetAllSlots() map[int64]*SlotData {
+	return s.fsm.GetAllSlots()
+}
+
 // IsLeader returns true if this node is the leader
 func (s *Store) IsLeader() bool {
 	return s.raft.State() == raft.Leader

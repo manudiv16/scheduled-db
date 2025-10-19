@@ -34,7 +34,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: scheduled-db
-          image: scheduled-db:v12
+          image: docker.io/scheduled-db:9543f0d-dirty
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 7000

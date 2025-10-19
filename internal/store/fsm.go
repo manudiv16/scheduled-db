@@ -15,23 +15,28 @@ type CommandType string
 const (
 	CommandCreateJob CommandType = "create_job"
 	CommandDeleteJob CommandType = "delete_job"
+	CommandCreateSlot CommandType = "create_slot"
+	CommandDeleteSlot CommandType = "delete_slot"
 )
 
 type Command struct {
 	Type CommandType `json:"type"`
 	Job  *Job        `json:"job,omitempty"`
 	ID   string      `json:"id,omitempty"`
+	Slot *SlotData   `json:"slot,omitempty"`
 }
 
 // FSM implements the raft.FSM interface
 type FSM struct {
-	mu   sync.RWMutex
-	jobs map[string]*Job
+	mu    sync.RWMutex
+	jobs  map[string]*Job
+	slots map[int64]*SlotData
 }
 
 func NewFSM() *FSM {
 	return &FSM{
-		jobs: make(map[string]*Job),
+		jobs:  make(map[string]*Job),
+		slots: make(map[int64]*SlotData),
 	}
 }
 
@@ -61,6 +66,25 @@ func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 		delete(f.jobs, cmd.ID)
 		log.Printf("Deleted job %s from FSM", cmd.ID)
 		return nil
+	case CommandCreateSlot:
+		if cmd.Slot == nil {
+			return fmt.Errorf("slot is required for create slot command")
+		}
+		f.slots[cmd.Slot.Key] = cmd.Slot
+		log.Printf("Created slot %d in FSM", cmd.Slot.Key)
+		return cmd.Slot
+	case CommandDeleteSlot:
+		if cmd.ID == "" {
+			return fmt.Errorf("slot key is required for delete slot command")
+		}
+		// Parse key from string
+		var key int64
+		if _, err := fmt.Sscanf(cmd.ID, "%d", &key); err != nil {
+			return fmt.Errorf("invalid slot key: %s", cmd.ID)
+		}
+		delete(f.slots, key)
+		log.Printf("Deleted slot %d from FSM", key)
+		return nil
 	default:
 		return fmt.Errorf("unknown command type: %s", cmd.Type)
 	}
@@ -77,23 +101,42 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 		jobs[k] = v
 	}
 
-	return &Snapshot{jobs: jobs}, nil
+	// Create a copy of the slots map
+	slots := make(map[int64]*SlotData)
+	for k, v := range f.slots {
+		slots[k] = v
+	}
+
+	return &Snapshot{jobs: jobs, slots: slots}, nil
 }
 
 // Restore restores the FSM state from a snapshot
 func (f *FSM) Restore(reader io.ReadCloser) error {
 	defer reader.Close()
 
-	var jobs map[string]*Job
-	if err := json.NewDecoder(reader).Decode(&jobs); err != nil {
+	var snapshot struct {
+		Jobs  map[string]*Job      `json:"jobs"`
+		Slots map[int64]*SlotData  `json:"slots"`
+	}
+	
+	if err := json.NewDecoder(reader).Decode(&snapshot); err != nil {
 		return fmt.Errorf("failed to decode snapshot: %v", err)
 	}
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.jobs = jobs
-	log.Printf("Restored %d jobs from snapshot", len(f.jobs))
+	f.jobs = snapshot.Jobs
+	if f.jobs == nil {
+		f.jobs = make(map[string]*Job)
+	}
+	
+	f.slots = snapshot.Slots
+	if f.slots == nil {
+		f.slots = make(map[int64]*SlotData)
+	}
+	
+	log.Printf("Restored %d jobs and %d slots from snapshot", len(f.jobs), len(f.slots))
 	return nil
 }
 
@@ -117,16 +160,44 @@ func (f *FSM) GetAllJobs() map[string]*Job {
 	return jobs
 }
 
+// GetSlot returns a slot by key
+func (f *FSM) GetSlot(key int64) (*SlotData, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	slot, exists := f.slots[key]
+	return slot, exists
+}
+
+// GetAllSlots returns all slots
+func (f *FSM) GetAllSlots() map[int64]*SlotData {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	slots := make(map[int64]*SlotData)
+	for k, v := range f.slots {
+		slots[k] = v
+	}
+	return slots
+}
+
 // Snapshot implements raft.FSMSnapshot
 type Snapshot struct {
-	jobs map[string]*Job
+	jobs  map[string]*Job
+	slots map[int64]*SlotData
 }
 
 // Persist saves the snapshot to the given sink
 func (s *Snapshot) Persist(sink raft.SnapshotSink) error {
 	err := func() error {
 		encoder := json.NewEncoder(sink)
-		return encoder.Encode(s.jobs)
+		data := struct {
+			Jobs  map[string]*Job      `json:"jobs"`
+			Slots map[int64]*SlotData  `json:"slots"`
+		}{
+			Jobs:  s.jobs,
+			Slots: s.slots,
+		}
+		return encoder.Encode(data)
 	}()
 
 	if err != nil {
