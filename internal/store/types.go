@@ -18,12 +18,14 @@ const (
 )
 
 type Job struct {
-	ID        string  `json:"id"`
-	Type      JobType `json:"type"`
-	Timestamp *int64  `json:"timestamp,omitempty"`       // epoch seconds para unico
-	CronExpr  string  `json:"cron_expression,omitempty"` // para recurrente
-	LastDate  *int64  `json:"last_date,omitempty"`       // optional epoch seconds
-	CreatedAt int64   `json:"created_at"`
+	ID         string                 `json:"id"`
+	Type       JobType                `json:"type"`
+	Timestamp  *int64                 `json:"timestamp,omitempty"`       // epoch seconds para unico
+	CronExpr   string                 `json:"cron_expression,omitempty"` // para recurrente
+	LastDate   *int64                 `json:"last_date,omitempty"`       // optional epoch seconds
+	CreatedAt  int64                  `json:"created_at"`
+	WebhookURL string                 `json:"webhook_url,omitempty"`
+	Payload    map[string]interface{} `json:"payload,omitempty"`
 }
 
 // SlotData representa un slot persistido en Raft
@@ -35,11 +37,13 @@ type SlotData struct {
 }
 
 type CreateJobRequest struct {
-	ID        string  `json:"id,omitempty"`
-	Type      JobType `json:"type"`
-	Timestamp string  `json:"timestamp,omitempty"` // puede ser RFC3339 o epoch
-	CronExpr  string  `json:"cron_expression,omitempty"`
-	LastDate  string  `json:"last_date,omitempty"` // puede ser RFC3339 o epoch
+	ID         string                 `json:"id,omitempty"`
+	Type       JobType                `json:"type"`
+	Timestamp  string                 `json:"timestamp,omitempty"` // puede ser RFC3339 o epoch
+	CronExpr   string                 `json:"cron_expression,omitempty"`
+	LastDate   string                 `json:"last_date,omitempty"` // puede ser RFC3339 o epoch
+	WebhookURL string                 `json:"webhook_url,omitempty"`
+	Payload    map[string]interface{} `json:"payload,omitempty"`
 }
 
 // ParseTimestamp convierte string (RFC3339 o epoch) a epoch seconds
@@ -78,10 +82,12 @@ func ParseTimestamp(ts string) (int64, error) {
 // ToJob convierte CreateJobRequest a Job
 func (r *CreateJobRequest) ToJob() (*Job, error) {
 	job := &Job{
-		ID:        r.ID,
-		Type:      r.Type,
-		CronExpr:  r.CronExpr,
-		CreatedAt: time.Now().Unix(),
+		ID:         r.ID,
+		Type:       r.Type,
+		CronExpr:   r.CronExpr,
+		CreatedAt:  time.Now().Unix(),
+		WebhookURL: r.WebhookURL,
+		Payload:    r.Payload,
 	}
 
 	// Generar UUID si no se proporciona

@@ -166,6 +166,10 @@ func (w *Worker) isTimeForRecurringJob(job *store.Job, now int64) bool {
 
 func (w *Worker) executeJob(job *store.Job) {
 	logger.Info("executed job %s", job.ID)
+	
+	// Execute webhook asynchronously if configured
+	store.ExecuteWebhook(job)
+	
 	logger.JobExecuted()
 }
 
