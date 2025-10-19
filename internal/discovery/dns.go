@@ -3,7 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"log"
+	"scheduled-db/internal/logger"
 	"net"
 	"strconv"
 	"strings"
@@ -42,7 +42,7 @@ func (d *DNSStrategy) Discover(ctx context.Context) ([]Node, error) {
 	// Format: _service._protocol.domain
 	srvName := fmt.Sprintf("_%s._tcp.%s", d.serviceName, d.domain)
 
-	log.Printf("DNS discovery querying SRV record: %s", srvName)
+	logger.Debug("DNS discovery querying SRV record: %s", srvName)
 
 	// Perform SRV lookup
 	_, addrs, err := net.LookupSRV("", "", srvName)
@@ -58,7 +58,7 @@ func (d *DNSStrategy) Discover(ctx context.Context) ([]Node, error) {
 		// Try to resolve target to IP
 		ips, err := net.LookupIP(target)
 		if err != nil {
-			log.Printf("Failed to resolve %s: %v", target, err)
+			logger.Debug("Failed to resolve %s: %v", target, err)
 			continue
 		}
 
@@ -75,7 +75,7 @@ func (d *DNSStrategy) Discover(ctx context.Context) ([]Node, error) {
 		}
 
 		if ipStr == "" {
-			log.Printf("No IP found for target %s", target)
+			logger.Debug("No IP found for target %s", target)
 			continue
 		}
 
@@ -101,7 +101,7 @@ func (d *DNSStrategy) Discover(ctx context.Context) ([]Node, error) {
 		nodes = append(nodes, node)
 	}
 
-	log.Printf("DNS discovery found %d nodes", len(nodes))
+	logger.Debug("DNS discovery found %d nodes", len(nodes))
 	return nodes, nil
 }
 
@@ -113,7 +113,7 @@ func (d *DNSStrategy) Watch(ctx context.Context, callback func([]Node)) error {
 	// Initial discovery
 	nodes, err := d.Discover(ctx)
 	if err != nil {
-		log.Printf("Initial DNS discovery failed: %v", err)
+		logger.Debug("Initial DNS discovery failed: %v", err)
 	} else {
 		callback(nodes)
 	}
@@ -131,13 +131,13 @@ func (d *DNSStrategy) Watch(ctx context.Context, callback func([]Node)) error {
 		case <-ticker.C:
 			currentNodes, err := d.Discover(ctx)
 			if err != nil {
-				log.Printf("DNS discovery error: %v", err)
+				logger.Debug("DNS discovery error: %v", err)
 				continue
 			}
 
 			// Check if nodes changed
 			if d.nodesChanged(previousNodes, currentNodes) {
-				log.Printf("DNS discovery detected changes, notifying callback")
+				logger.Debug("DNS discovery detected changes, notifying callback")
 				callback(currentNodes)
 
 				// Update previous nodes
@@ -158,8 +158,8 @@ func (d *DNSStrategy) Register(ctx context.Context, node Node) error {
 	// 2. External service registration (consul-template, external-dns, etc.)
 	// 3. Kubernetes service/endpoint creation
 
-	log.Printf("DNS registration for node %s (address: %s:%d)", node.ID, node.Address, node.Port)
-	log.Printf("Note: DNS registration requires external DNS management")
+	logger.Debug("DNS registration for node %s (address: %s:%d)", node.ID, node.Address, node.Port)
+	logger.Debug("Note: DNS registration requires external DNS management")
 
 	// For Kubernetes environments, we could create/update a headless service
 	// For now, we'll just log the registration intent
@@ -168,7 +168,7 @@ func (d *DNSStrategy) Register(ctx context.Context, node Node) error {
 
 // Deregister removes this node from DNS (requires DNS server support)
 func (d *DNSStrategy) Deregister(ctx context.Context) error {
-	log.Printf("DNS deregistration - requires external DNS management")
+	logger.Debug("DNS deregistration - requires external DNS management")
 	return nil
 }
 

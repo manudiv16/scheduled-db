@@ -113,6 +113,9 @@ SLOT_GAP=10s                   # Time slot interval
 # Discovery Configuration
 DISCOVERY_STRATEGY=static       # Discovery method (static/kubernetes/dns/gossip)
 STATIC_PEERS=node1:7000,node2:7000,node3:7000  # Static peer list
+
+# Logging Configuration
+LOG_LEVEL=INFO                  # Log level: DEBUG, INFO, WARN, ERROR
 ```
 
 ### Docker Compose Configuration
@@ -197,6 +200,57 @@ tail -f logs_node-*.log
 # Test failover
 scripts/test-failover.sh
 ```
+
+## 📊 Logging
+
+El sistema de logging está optimizado para aplicaciones de alto volumen con clasificación por niveles:
+
+### Niveles de Log
+
+**ERROR** - Solo fallos críticos:
+- Fallos de consenso Raft (pérdida de líder, split-brain)
+- Jobs que fallan en ejecución
+- Errores de persistencia/disco
+- Nodos que se desconectan inesperadamente
+
+**WARN** - Situaciones problemáticas:
+- Jobs que tardan más del timeout esperado
+- Memoria/CPU alta (>80%)
+- Reintento de operaciones fallidas
+- Cluster con menos nodos del mínimo requerido
+
+**INFO** - Eventos importantes del sistema:
+- Elección de nuevo líder
+- Nodo se une/sale del cluster
+- Métricas agregadas de jobs (cada 5 minutos)
+- Inicio/parada de la aplicación
+
+**DEBUG** - Solo para desarrollo:
+- Detalles de comunicación Raft
+- Timings de operaciones internas
+- Estados de transición detallados
+
+### Configuración
+
+```bash
+# Establecer nivel de log
+export LOG_LEVEL=INFO
+
+# En producción (recomendado)
+export LOG_LEVEL=INFO
+
+# Para debugging
+export LOG_LEVEL=DEBUG
+```
+
+### Métricas Agregadas
+
+En lugar de loggear cada job individual, el sistema registra métricas agregadas cada 5 minutos:
+```
+[INFO] job_metrics executed=1250 failed=3
+```
+
+Esto evita spam de logs en sistemas con miles de jobs por minuto.
 
 ## 🔍 Monitoring
 

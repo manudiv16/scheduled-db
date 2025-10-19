@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"sync"
+
+	"scheduled-db/internal/logger"
 
 	"github.com/hashicorp/raft"
 )
@@ -44,7 +45,7 @@ func NewFSM() *FSM {
 func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 	var cmd Command
 	if err := json.Unmarshal(logEntry.Data, &cmd); err != nil {
-		log.Printf("Failed to unmarshal command: %v", err)
+		logger.Debug("Failed to unmarshal command: %v", err)
 		return fmt.Errorf("failed to unmarshal command: %v", err)
 	}
 
@@ -57,21 +58,21 @@ func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 			return fmt.Errorf("job is required for create command")
 		}
 		f.jobs[cmd.Job.ID] = cmd.Job
-		log.Printf("Created job %s in FSM", cmd.Job.ID)
+		logger.Debug("Created job %s in FSM", cmd.Job.ID)
 		return cmd.Job
 	case CommandDeleteJob:
 		if cmd.ID == "" {
 			return fmt.Errorf("job ID is required for delete command")
 		}
 		delete(f.jobs, cmd.ID)
-		log.Printf("Deleted job %s from FSM", cmd.ID)
+		logger.Debug("Deleted job %s from FSM", cmd.ID)
 		return nil
 	case CommandCreateSlot:
 		if cmd.Slot == nil {
 			return fmt.Errorf("slot is required for create slot command")
 		}
 		f.slots[cmd.Slot.Key] = cmd.Slot
-		log.Printf("Created slot %d in FSM", cmd.Slot.Key)
+		logger.Debug("Created slot %d in FSM", cmd.Slot.Key)
 		return cmd.Slot
 	case CommandDeleteSlot:
 		if cmd.ID == "" {
@@ -83,7 +84,7 @@ func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 			return fmt.Errorf("invalid slot key: %s", cmd.ID)
 		}
 		delete(f.slots, key)
-		log.Printf("Deleted slot %d from FSM", key)
+		logger.Debug("Deleted slot %d from FSM", key)
 		return nil
 	default:
 		return fmt.Errorf("unknown command type: %s", cmd.Type)
@@ -136,7 +137,7 @@ func (f *FSM) Restore(reader io.ReadCloser) error {
 		f.slots = make(map[int64]*SlotData)
 	}
 	
-	log.Printf("Restored %d jobs and %d slots from snapshot", len(f.jobs), len(f.slots))
+	logger.Debug("Restored %d jobs and %d slots from snapshot", len(f.jobs), len(f.slots))
 	return nil
 }
 
@@ -202,7 +203,7 @@ func (s *Snapshot) Persist(sink raft.SnapshotSink) error {
 
 	if err != nil {
 		if err := sink.Cancel(); err != nil {
-			log.Printf("Failed to cancel sink: %v", err)
+			logger.Debug("Failed to cancel sink: %v", err)
 		}
 		return err
 	}

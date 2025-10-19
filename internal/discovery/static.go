@@ -3,7 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"log"
+	"scheduled-db/internal/logger"
 	"net"
 	"os"
 	"strconv"
@@ -47,7 +47,7 @@ func NewStaticStrategy(config Config) (Strategy, error) {
 // Discover returns nodes from static peer list
 func (s *StaticStrategy) Discover(ctx context.Context) ([]Node, error) {
 	if len(s.peers) == 0 {
-		log.Printf("Static discovery: no peers configured")
+		logger.Debug("Static discovery: no peers configured")
 		return []Node{}, nil
 	}
 
@@ -55,13 +55,13 @@ func (s *StaticStrategy) Discover(ctx context.Context) ([]Node, error) {
 	for i, peer := range s.peers {
 		node, err := s.parseNodeFromAddress(peer, i)
 		if err != nil {
-			log.Printf("Failed to parse peer %s: %v", peer, err)
+			logger.Debug("Failed to parse peer %s: %v", peer, err)
 			continue
 		}
 		nodes = append(nodes, node)
 	}
 
-	log.Printf("Static discovery found %d nodes", len(nodes))
+	logger.Debug("Static discovery found %d nodes", len(nodes))
 	return nodes, nil
 }
 
@@ -82,7 +82,7 @@ func (s *StaticStrategy) Watch(ctx context.Context, callback func([]Node)) error
 
 // Register adds local node info (no-op for static strategy)
 func (s *StaticStrategy) Register(ctx context.Context, node Node) error {
-	log.Printf("Static strategy: registered local node %s (address: %s:%d)",
+	logger.Debug("Static strategy: registered local node %s (address: %s:%d)",
 		node.ID, node.Address, node.Port)
 	// Static strategy doesn't need to register anywhere
 	return nil
@@ -90,7 +90,7 @@ func (s *StaticStrategy) Register(ctx context.Context, node Node) error {
 
 // Deregister removes local node info (no-op for static strategy)
 func (s *StaticStrategy) Deregister(ctx context.Context) error {
-	log.Printf("Static strategy: deregistered local node")
+	logger.Debug("Static strategy: deregistered local node")
 	return nil
 }
 
@@ -121,7 +121,7 @@ func (s *StaticStrategy) parseNodeFromAddress(address string, index int) (Node, 
 		// Resolve hostname
 		ips, err := net.LookupIP(host)
 		if err != nil {
-			log.Printf("Warning: failed to resolve %s, using as-is: %v", host, err)
+			logger.Debug("Warning: failed to resolve %s, using as-is: %v", host, err)
 			ipAddress = host
 		} else {
 			// Prefer IPv4
@@ -162,7 +162,7 @@ func (s *StaticStrategy) parseNodeFromAddress(address string, index int) (Node, 
 func (s *StaticStrategy) UpdatePeers(peers []string) {
 	s.peers = make([]string, len(peers))
 	copy(s.peers, peers)
-	log.Printf("Static strategy: updated peer list with %d peers", len(peers))
+	logger.Debug("Static strategy: updated peer list with %d peers", len(peers))
 }
 
 // GetPeers returns current peer list

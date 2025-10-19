@@ -3,12 +3,13 @@ package store
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"scheduled-db/internal/logger"
 
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
@@ -46,7 +47,7 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 		_, port, err := net.SplitHostPort(raftAdvertise)
 		if err == nil {
 			raftAdvertise = fmt.Sprintf("%s:%s", podIP, port)
-			log.Printf("Using pod IP for Raft: %s", raftAdvertise)
+			logger.Debug("Using pod IP for Raft: %s", raftAdvertise)
 		}
 	}
 	config := raft.DefaultConfig()
@@ -121,10 +122,10 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 	if len(peers) == 0 {
 		// Check if this is the designated bootstrap node (scheduled-db-0)
 		if nodeID == "scheduled-db-0" || strings.Contains(nodeID, "-0") {
-			log.Printf("This is the bootstrap node (%s), attempting bootstrap", nodeID)
+			logger.Debug("This is the bootstrap node (%s), attempting bootstrap", nodeID)
 			shouldBootstrap = true
 		} else {
-			log.Printf("This is NOT the bootstrap node (%s), will wait for cluster to form", nodeID)
+			logger.Debug("This is NOT the bootstrap node (%s), will wait for cluster to form", nodeID)
 			shouldBootstrap = false
 		}
 	}
@@ -140,17 +141,17 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 		}
 		bootstrap := ra.BootstrapCluster(configuration)
 		if err := bootstrap.Error(); err != nil {
-			log.Printf("Failed to bootstrap cluster: %v", err)
+			logger.Debug("Failed to bootstrap cluster: %v", err)
 		} else {
-			log.Printf("Successfully bootstrapped single-node cluster with ID: %s, Address: %s", config.LocalID, transport.LocalAddr())
+			logger.Debug("Successfully bootstrapped single-node cluster with ID: %s, Address: %s", config.LocalID, transport.LocalAddr())
 		}
 	} else {
 		// Don't bootstrap - wait to be added by leader via discovery and join API
-		log.Printf("Starting as follower node ID: %s, Address: %s, will wait for cluster formation",
+		logger.Debug("Starting as follower node ID: %s, Address: %s, will wait for cluster formation",
 			config.LocalID, transport.LocalAddr())
 	}
 
-	log.Printf("Raft store initialized - Node ID: %s, Bind: %s, Advertise: %s, Initial state: %s", nodeID, raftBind, raftAdvertise, ra.State())
+	logger.Debug("Raft store initialized - Node ID: %s, Bind: %s, Advertise: %s, Initial state: %s", nodeID, raftBind, raftAdvertise, ra.State())
 	return store, nil
 }
 
@@ -361,7 +362,7 @@ func (s *Store) AddPeer(id, address string) error {
 	config := future.Configuration()
 	for _, server := range config.Servers {
 		if server.ID == serverID || server.Address == serverAddr {
-			log.Printf("Peer %s (%s) already exists in cluster", id, address)
+			logger.Debug("Peer %s (%s) already exists in cluster", id, address)
 			return nil // Already exists, not an error
 		}
 	}
@@ -372,7 +373,7 @@ func (s *Store) AddPeer(id, address string) error {
 		return fmt.Errorf("failed to add peer: %v", err)
 	}
 
-	log.Printf("Successfully added peer %s (%s) to Raft cluster", id, address)
+	logger.Debug("Successfully added peer %s (%s) to Raft cluster", id, address)
 	return nil
 }
 
@@ -388,7 +389,7 @@ func (s *Store) RemovePeer(id string) error {
 		return fmt.Errorf("failed to remove peer: %v", err)
 	}
 
-	log.Printf("Successfully removed peer %s from Raft cluster", id)
+	logger.Debug("Successfully removed peer %s from Raft cluster", id)
 	return nil
 }
 
@@ -447,13 +448,13 @@ func (s *Store) ForceBootstrap(nodeID string) error {
 		return fmt.Errorf("failed to force bootstrap: %v", err)
 	}
 
-	log.Printf("Successfully force-bootstrapped node %s as single-node cluster", nodeID)
+	logger.Debug("Successfully force-bootstrapped node %s as single-node cluster", nodeID)
 	return nil
 }
 
 // ForceRecoverCluster attempts to recover a cluster by removing dead nodes
 func (s *Store) ForceRecoverCluster(aliveNodeIDs []string) error {
-	log.Printf("Attempting cluster recovery with alive nodes: %v", aliveNodeIDs)
+	logger.Debug("Attempting cluster recovery with alive nodes: %v", aliveNodeIDs)
 
 	if s.IsLeader() {
 		return fmt.Errorf("node is already a leader, use normal operations")
@@ -485,7 +486,7 @@ func (s *Store) ForceRecoverCluster(aliveNodeIDs []string) error {
 		if aliveNodes[string(server.ID)] {
 			newServers = append(newServers, server)
 		} else {
-			log.Printf("Excluding dead node %s (%s) from recovery configuration", server.ID, server.Address)
+			logger.Debug("Excluding dead node %s (%s) from recovery configuration", server.ID, server.Address)
 		}
 	}
 
@@ -496,9 +497,9 @@ func (s *Store) ForceRecoverCluster(aliveNodeIDs []string) error {
 	// Create recovery configuration
 	recoveryConfig := raft.Configuration{Servers: newServers}
 
-	log.Printf("Recovery configuration: %d servers", len(newServers))
+	logger.Debug("Recovery configuration: %d servers", len(newServers))
 	for _, server := range newServers {
-		log.Printf("  - %s @ %s", server.ID, server.Address)
+		logger.Debug("  - %s @ %s", server.ID, server.Address)
 	}
 
 	// Attempt to bootstrap with the recovery configuration
@@ -507,17 +508,17 @@ func (s *Store) ForceRecoverCluster(aliveNodeIDs []string) error {
 		return fmt.Errorf("failed to bootstrap recovery cluster: %v", err)
 	}
 
-	log.Printf("Successfully recovered cluster with %d alive nodes", len(newServers))
+	logger.Debug("Successfully recovered cluster with %d alive nodes", len(newServers))
 	return nil
 }
 
 // TriggerElection forces a Raft election timeout to trigger leadership election
 func (s *Store) TriggerElection() {
-	log.Printf("Triggering emergency election")
+	logger.Debug("Triggering emergency election")
 	// This is a hack to force an election by making Raft think the election timeout was reached
 	// In a real implementation, you might want to use Raft's internal APIs
 	if s.raft.State() == raft.Follower {
-		log.Printf("Node is follower, election should trigger naturally due to timeout")
+		logger.Debug("Node is follower, election should trigger naturally due to timeout")
 	}
 }
 
