@@ -2,7 +2,7 @@ package slots
 
 import (
 	"container/heap"
-	"log"
+	"scheduled-db/internal/logger"
 	"sync"
 	"time"
 
@@ -76,7 +76,7 @@ func (sq *SlotQueue) AddJob(job *store.Job) {
 		// Para jobs recurrentes, usar CreatedAt como timestamp de ejecución
 		timestamp = job.CreatedAt
 	} else {
-		log.Printf("Cannot add job %s: invalid type or missing timestamp", job.ID)
+		logger.Debug("Cannot add job %s: invalid type or missing timestamp", job.ID)
 		return
 	}
 
@@ -96,7 +96,7 @@ func (sq *SlotQueue) AddJob(job *store.Job) {
 	}
 
 	slot.Jobs = append(slot.Jobs, job)
-	log.Printf("Added job %s to slot %d (time range: %d-%d)", job.ID, key, slot.MinTime, slot.MaxTime)
+	logger.Debug("Added job %s to slot %d (time range: %d-%d)", job.ID, key, slot.MinTime, slot.MaxTime)
 }
 
 func (sq *SlotQueue) RemoveJob(jobID string) {
@@ -115,7 +115,7 @@ func (sq *SlotQueue) RemoveJob(jobID string) {
 					sq.removeKeyFromHeap(key)
 				}
 
-				log.Printf("Removed job %s from slot %d", jobID, key)
+				logger.Debug("Removed job %s from slot %d", jobID, key)
 				return
 			}
 		}
@@ -168,7 +168,7 @@ func (sq *SlotQueue) LoadJobs(jobs map[string]*store.Job) {
 		sq.addJobUnsafe(job)
 	}
 
-	log.Printf("Loaded %d jobs into slot queue", len(jobs))
+	logger.Debug("Loaded %d jobs into slot queue", len(jobs))
 }
 
 func (sq *SlotQueue) addJobUnsafe(job *store.Job) {

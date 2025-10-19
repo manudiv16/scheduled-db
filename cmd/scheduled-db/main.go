@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 
 	"scheduled-db/internal"
 	"scheduled-db/internal/discovery"
+	"scheduled-db/internal/logger"
 )
 
 func main() {

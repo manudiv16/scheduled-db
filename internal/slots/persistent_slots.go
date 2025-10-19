@@ -1,7 +1,7 @@
 package slots
 
 import (
-	"log"
+	"scheduled-db/internal/logger"
 	"sync"
 	"time"
 	"scheduled-db/internal/store"
@@ -63,7 +63,7 @@ func (psq *PersistentSlotQueue) AddJob(job *store.Job) {
 	// Persist slot
 	if psq.store.IsLeader() {
 		if err := psq.store.CreateSlot(slotData); err != nil {
-			log.Printf("Failed to persist slot %d: %v", key, err)
+			logger.Debug("Failed to persist slot %d: %v", key, err)
 		}
 	}
 }
@@ -146,5 +146,5 @@ func (psq *PersistentSlotQueue) RemoveSlot(key SlotKey) {
 // LoadJobs ya no es necesario - los slots se cargan automáticamente del store
 func (psq *PersistentSlotQueue) LoadJobs(jobs map[string]*store.Job) {
 	// No-op - slots are already persisted
-	log.Printf("PersistentSlotQueue: slots loaded from persistent store")
+	logger.Debug("PersistentSlotQueue: slots loaded from persistent store")
 }

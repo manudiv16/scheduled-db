@@ -3,12 +3,12 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
+	"scheduled-db/internal/logger"
 	"scheduled-db/internal/store"
 
 	"github.com/gorilla/mux"
@@ -86,7 +86,7 @@ func (h *Handlers) buildAddressMapping() {
 			}
 
 			h.addressMap[raftAddr] = httpAddr
-			log.Printf("Mapped Raft %s -> HTTP %s", raftAddr, httpAddr)
+			logger.Debug("mapped Raft %s -> HTTP %s", raftAddr, httpAddr)
 		}
 	}
 
@@ -99,7 +99,7 @@ func (h *Handlers) buildAddressMapping() {
 // createDefaultMapping creates standard development mapping
 func (h *Handlers) createDefaultMapping() {
 	// No default mappings - all ports should come from environment variables
-	log.Println("No default port mappings - using environment variables only")
+	logger.Debug("no default port mappings - using environment variables only")
 }
 
 // getHTTPAddressForRaft converts Raft address to HTTP address
@@ -185,9 +185,9 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(job); err != nil {
-		log.Printf("Failed to encode job response: %v", err)
+		logger.Error("failed to encode job response: %v", err)
 	}
-	log.Printf("Created job %s via API", job.ID)
+	logger.Info("created job %s via API", job.ID)
 }
 
 func (h *Handlers) GetJob(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +207,7 @@ func (h *Handlers) GetJob(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(job); err != nil {
-		log.Printf("Failed to encode job response: %v", err)
+		logger.Error("failed to encode job response: %v", err)
 	}
 }
 
@@ -239,7 +239,7 @@ func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-	log.Printf("Deleted job %s via API", id)
+	logger.Info("deleted job %s via API", id)
 }
 
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
@@ -257,7 +257,7 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Failed to encode health response: %v", err)
+		logger.Error("failed to encode health response: %v", err)
 	}
 }
 
@@ -289,7 +289,7 @@ func (h *Handlers) ClusterDebug(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Failed to encode cluster debug response: %v", err)
+		logger.Error("failed to encode cluster debug response: %v", err)
 	}
 }
 
@@ -346,7 +346,7 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			if _, err := w.Write(buf[:n]); err != nil {
-				log.Printf("Failed to write proxy response: %v", err)
+				logger.Error("failed to write proxy response: %v", err)
 				break
 			}
 		}
@@ -355,7 +355,7 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Printf("Proxied %s %s to leader %s", r.Method, r.URL.Path, leader)
+	logger.Debug("proxied %s %s to leader %s", r.Method, r.URL.Path, leader)
 }
 
 func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
@@ -390,15 +390,15 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Failed to encode join response: %v", err)
+		logger.Error("failed to encode join response: %v", err)
 	}
-	log.Printf("Added node %s (%s) to cluster via join API", req.NodeID, req.Address)
+	logger.Info("added node %s (%s) to cluster via join API", req.NodeID, req.Address)
 }
 
 func (h *Handlers) writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(ErrorResponse{Error: message}); err != nil {
-		log.Printf("Failed to encode error response: %v", err)
+		logger.Error("failed to encode error response: %v", err)
 	}
 }

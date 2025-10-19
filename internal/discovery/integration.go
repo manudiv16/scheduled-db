@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"scheduled-db/internal/logger"
 	"scheduled-db/internal/store"
 
 	"github.com/hashicorp/raft"
@@ -107,13 +107,13 @@ func (dm *DiscoveryManager) Start() error {
 	go func() {
 		if err := dm.strategy.Watch(dm.ctx, dm.onNodesChanged); err != nil {
 			if err != context.Canceled {
-				log.Printf("Discovery watch error: %v", err)
+				logger.Error("discovery watch error: %v", err)
 			}
 		}
 	}()
 
 	dm.isRunning = true
-	log.Printf("Discovery manager started using %s strategy", dm.strategy.Name())
+	logger.Info("discovery manager started using %s strategy", dm.strategy.Name())
 	return nil
 }
 
@@ -123,13 +123,13 @@ func (dm *DiscoveryManager) Stop() error {
 		return nil
 	}
 
-	log.Printf("Stopping discovery manager...")
+	logger.Info("stopping discovery manager...")
 
 	// Cancel context to stop all goroutines
 	dm.cancel()
 
 	// Quick deregistration with short timeout
-	log.Printf("Deregistering node from discovery...")
+	logger.Debug("deregistering node from discovery...")
 	deregDone := make(chan error, 1)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -140,20 +140,20 @@ func (dm *DiscoveryManager) Stop() error {
 	select {
 	case err := <-deregDone:
 		if err != nil {
-			log.Printf("Error during deregistration: %v", err)
+			logger.Error("error during deregistration: %v", err)
 		}
 	case <-time.After(3 * time.Second):
-		log.Printf("Deregistration timeout, forcing shutdown...")
+		logger.Warn("deregistration timeout, forcing shutdown...")
 	}
 
 	dm.isRunning = false
-	log.Printf("Discovery manager stopped")
+	logger.Info("discovery manager stopped")
 	return nil
 }
 
 // onNodesChanged handles cluster membership changes
 func (dm *DiscoveryManager) onNodesChanged(nodes []Node) {
-	log.Printf("Cluster membership changed: %d nodes discovered", len(nodes))
+	logger.Debug("Cluster membership changed: %d nodes discovered", len(nodes))
 
 	// Filter out this node and convert to Raft peer addresses
 	var peers []string
@@ -169,12 +169,12 @@ func (dm *DiscoveryManager) onNodesChanged(nodes []Node) {
 		peerAddr := fmt.Sprintf("%s:%d", node.Address, raftPort)
 		peers = append(peers, peerAddr)
 
-		log.Printf("Discovered peer: %s (id: %s)", peerAddr, node.ID)
+		logger.Debug("Discovered peer: %s (id: %s)", peerAddr, node.ID)
 	}
 
 	// Integrate discovered peers with Raft cluster
 	if len(peers) > 0 {
-		log.Printf("Discovered %d Raft peers via kubernetes: %v", len(peers), peers)
+		logger.Debug("Discovered %d Raft peers via kubernetes: %v", len(peers), peers)
 
 		if dm.store.IsLeader() {
 			// If we're leader, try to add new peers to our cluster and clean dead ones
@@ -183,18 +183,18 @@ func (dm *DiscoveryManager) onNodesChanged(nodes []Node) {
 			// If we're not leader, check the cluster state
 			leader := dm.store.GetLeader()
 			if leader == "" {
-				log.Printf("No leader found, attempting to find and join existing cluster")
+				logger.Debug("No leader found, attempting to find and join existing cluster")
 				// First try to join an existing cluster before trying to bootstrap
 				if !dm.attemptJoinExistingCluster(nodes) {
-					log.Printf("No existing cluster found, checking if this node should bootstrap")
+					logger.Debug("No existing cluster found, checking if this node should bootstrap")
 					dm.handleLeaderlessCluster(nodes)
 				}
 			} else {
 				// Verify if leader is actually alive before assuming we're part of cluster
 				if dm.isLeaderAlive(leader) {
-					log.Printf("Already part of cluster with leader: %s", leader)
+					logger.Debug("Already part of cluster with leader: %s", leader)
 				} else {
-					log.Printf("Leader %s appears to be dead, attempting to join other clusters", leader)
+					logger.Debug("Leader %s appears to be dead, attempting to join other clusters", leader)
 					if !dm.attemptJoinExistingCluster(nodes) {
 						dm.handleDeadLeader(nodes, leader)
 					}
@@ -205,19 +205,19 @@ func (dm *DiscoveryManager) onNodesChanged(nodes []Node) {
 		// No peers discovered yet, but check if we should wait for cluster formation
 		nodeID := dm.config.NodeID
 		if nodeID != "scheduled-db-0" && !strings.Contains(nodeID, "-0") {
-			log.Printf("Non-bootstrap node %s waiting for cluster to form", nodeID)
+			logger.Debug("Non-bootstrap node %s waiting for cluster to form", nodeID)
 		}
 	}
 }
 
 // updateRaftPeersWithNodes adds discovered peers to the Raft cluster using node information
 func (dm *DiscoveryManager) updateRaftPeersWithNodes(nodes []Node) {
-	log.Printf("Leader attempting to update cluster membership")
+	logger.Debug("Leader attempting to update cluster membership")
 
 	// Get current cluster configuration
 	servers, err := dm.store.GetClusterConfiguration()
 	if err != nil {
-		log.Printf("Failed to get cluster configuration: %v", err)
+		logger.Debug("Failed to get cluster configuration: %v", err)
 		return
 	}
 
@@ -240,15 +240,15 @@ func (dm *DiscoveryManager) updateRaftPeersWithNodes(nodes []Node) {
 
 		// If peer is not in discovered nodes, it might be dead
 		if _, exists := discoveredNodes[serverID]; !exists {
-			log.Printf("Peer %s (%s) not found in discovery, checking if it's alive", serverID, server.Address)
+			logger.Debug("Peer %s (%s) not found in discovery, checking if it's alive", serverID, server.Address)
 
 			if !dm.isPeerAlive(string(server.Address)) {
-				log.Printf("Removing dead peer %s (%s) from Raft cluster", serverID, server.Address)
+				logger.Debug("Removing dead peer %s (%s) from Raft cluster", serverID, server.Address)
 
 				if err := dm.store.RemovePeer(serverID); err != nil {
-					log.Printf("Failed to remove dead peer %s: %v", serverID, err)
+					logger.Debug("Failed to remove dead peer %s: %v", serverID, err)
 				} else {
-					log.Printf("Successfully removed dead peer %s from cluster", serverID)
+					logger.Debug("Successfully removed dead peer %s from cluster", serverID)
 				}
 			}
 		}
@@ -269,22 +269,22 @@ func (dm *DiscoveryManager) updateRaftPeersWithNodes(nodes []Node) {
 		// Use pod IP instead of complex hostname
 		peerIP := node.Meta["pod_ip"]
 		if peerIP == "" {
-			log.Printf("Node %s has no pod IP, skipping", node.ID)
+			logger.Debug("Node %s has no pod IP, skipping", node.ID)
 			continue
 		}
 		peerAddr := fmt.Sprintf("%s:%d", peerIP, dm.getRaftPortFromNode(node))
 
 		// Check if peer exists by ID
 		if !existingByID[node.ID] {
-			log.Printf("Adding new peer %s (%s) to Raft cluster", node.ID, peerAddr)
+			logger.Debug("Adding new peer %s (%s) to Raft cluster", node.ID, peerAddr)
 
 			if err := dm.store.AddPeer(node.ID, peerAddr); err != nil {
-				log.Printf("Failed to add peer %s: %v", peerAddr, err)
+				logger.Debug("Failed to add peer %s: %v", peerAddr, err)
 			} else {
-				log.Printf("Successfully added peer %s to cluster", node.ID)
+				logger.Debug("Successfully added peer %s to cluster", node.ID)
 			}
 		} else {
-			log.Printf("Peer %s (%s) already in cluster", node.ID, peerAddr)
+			logger.Debug("Peer %s (%s) already in cluster", node.ID, peerAddr)
 		}
 	}
 }
@@ -438,24 +438,24 @@ func (dm *DiscoveryManager) attemptJoinExistingCluster(nodes []Node) bool {
 		}
 		healthURL := fmt.Sprintf("http://%s:%d/health", node.Address, httpPort)
 
-		log.Printf("Checking if node %s is leader via %s", node.ID, healthURL)
+		logger.Debug("Checking if node %s is leader via %s", node.ID, healthURL)
 
 		// Check if this node is a leader
 		if dm.isNodeLeader(healthURL) {
-			log.Printf("Found existing leader %s, attempting to join cluster", node.ID)
+			logger.Debug("Found existing leader %s, attempting to join cluster", node.ID)
 
 			// Get our local address for joining
 			localRaftAddr := dm.getLocalRaftAddress()
 			joinURL := fmt.Sprintf("http://%s:%d/join", node.Address, httpPort)
 
 			if dm.requestJoin(joinURL, localNodeID, localRaftAddr) {
-				log.Printf("Successfully joined existing cluster via leader %s", node.ID)
+				logger.Debug("Successfully joined existing cluster via leader %s", node.ID)
 				return true
 			}
 		}
 	}
 
-	log.Printf("No existing cluster leader found among %d discovered nodes", len(nodes))
+	logger.Debug("No existing cluster leader found among %d discovered nodes", len(nodes))
 	return false
 }
 
@@ -464,7 +464,7 @@ func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 	localNodeID := dm.config.NodeID
 	localRaftAddr := dm.getLocalRaftAddress()
 
-	log.Printf("Local node trying to join with address: %s", localRaftAddr)
+	logger.Debug("Local node trying to join with address: %s", localRaftAddr)
 
 	for _, node := range nodes {
 		if node.ID == localNodeID {
@@ -480,21 +480,21 @@ func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 		}
 		healthURL := fmt.Sprintf("http://%s:%d/health", node.Address, httpPort)
 
-		log.Printf("Checking if node %s is leader via %s", node.ID, healthURL)
+		logger.Debug("Checking if node %s is leader via %s", node.ID, healthURL)
 
 		// Check if this node is a leader
 		if dm.isNodeLeader(healthURL) {
-			log.Printf("Found leader %s, attempting to join cluster", node.ID)
+			logger.Debug("Found leader %s, attempting to join cluster", node.ID)
 
 			joinURL := fmt.Sprintf("http://%s:%d/join", node.Address, httpPort)
 			if dm.requestJoin(joinURL, localNodeID, localRaftAddr) {
-				log.Printf("Successfully joined cluster via leader %s", node.ID)
+				logger.Debug("Successfully joined cluster via leader %s", node.ID)
 				return
 			}
 		}
 	}
 
-	log.Printf("No leader found or join failed, will retry on next discovery cycle")
+	logger.Debug("No leader found or join failed, will retry on next discovery cycle")
 }
 
 // getLocalRaftAddress returns the local Raft address for joining
@@ -520,7 +520,7 @@ func (dm *DiscoveryManager) isLeaderAlive(leader string) bool {
 	// Extract IP from leader address (format: "10.244.0.219:7000")
 	parts := strings.Split(leader, ":")
 	if len(parts) != 2 {
-		log.Printf("Invalid leader address format: %s", leader)
+		logger.Debug("Invalid leader address format: %s", leader)
 		return false
 	}
 
@@ -541,19 +541,19 @@ func (dm *DiscoveryManager) isLeaderAlive(leader string) bool {
 
 	resp, err := client.Get(healthURL)
 	if err != nil {
-		log.Printf("Leader %s health check failed: %v", leader, err)
+		logger.Debug("Leader %s health check failed: %v", leader, err)
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Leader %s health check returned status: %d", leader, resp.StatusCode)
+		logger.Debug("Leader %s health check returned status: %d", leader, resp.StatusCode)
 		return false
 	}
 
 	var health map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
-		log.Printf("Failed to decode leader health response: %v", err)
+		logger.Debug("Failed to decode leader health response: %v", err)
 		return false
 	}
 
@@ -561,7 +561,7 @@ func (dm *DiscoveryManager) isLeaderAlive(leader string) bool {
 	isLeader := ok && role == "leader"
 
 	if !isLeader {
-		log.Printf("Leader %s is no longer leader, role: %s", leader, role)
+		logger.Debug("Leader %s is no longer leader, role: %s", leader, role)
 	}
 
 	return isLeader
@@ -576,7 +576,7 @@ func (dm *DiscoveryManager) isPeerAlive(peerAddr string) bool {
 	// Extract IP from peer address (format: "10.244.0.219:7000" or "hostname:7000")
 	parts := strings.Split(peerAddr, ":")
 	if len(parts) != 2 {
-		log.Printf("Invalid peer address format: %s", peerAddr)
+		logger.Debug("Invalid peer address format: %s", peerAddr)
 		return false
 	}
 
@@ -597,17 +597,17 @@ func (dm *DiscoveryManager) isPeerAlive(peerAddr string) bool {
 
 	resp, err := client.Get(healthURL)
 	if err != nil {
-		log.Printf("Peer %s health check failed: %v", peerAddr, err)
+		logger.Debug("Peer %s health check failed: %v", peerAddr, err)
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Peer %s health check returned status: %d", peerAddr, resp.StatusCode)
+		logger.Debug("Peer %s health check returned status: %d", peerAddr, resp.StatusCode)
 		return false
 	}
 
-	log.Printf("Peer %s is alive", peerAddr)
+	logger.Debug("Peer %s is alive", peerAddr)
 	return true
 }
 
@@ -616,7 +616,7 @@ func (dm *DiscoveryManager) detectSplitBrain(discoveredNodes []Node) bool {
 	// Get current cluster configuration
 	servers, err := dm.store.GetClusterConfiguration()
 	if err != nil {
-		log.Printf("Cannot check split-brain: failed to get cluster configuration: %v", err)
+		logger.Debug("Cannot check split-brain: failed to get cluster configuration: %v", err)
 		return false
 	}
 
@@ -642,7 +642,7 @@ func (dm *DiscoveryManager) detectSplitBrain(discoveredNodes []Node) bool {
 		}
 	}
 
-	log.Printf("Split-brain check: myCluster=%d, totalHealthy=%d, expected=%d",
+	logger.Debug("Split-brain check: myCluster=%d, totalHealthy=%d, expected=%d",
 		nodesInMyCluster+1, totalHealthyNodes+1, expectedClusterSize)
 
 	// If we have fewer nodes in our cluster than total healthy nodes,
@@ -650,7 +650,7 @@ func (dm *DiscoveryManager) detectSplitBrain(discoveredNodes []Node) bool {
 	nodesOutsideMyCluster := totalHealthyNodes - nodesInMyCluster
 
 	if nodesOutsideMyCluster > 0 && nodesInMyCluster+1 < expectedClusterSize {
-		log.Printf("Potential split-brain detected: %d nodes outside my cluster", nodesOutsideMyCluster)
+		logger.Debug("Potential split-brain detected: %d nodes outside my cluster", nodesOutsideMyCluster)
 		return true
 	}
 
@@ -665,7 +665,7 @@ func (dm *DiscoveryManager) handleSplitBrain(discoveredNodes []Node) {
 	// Get current cluster configuration
 	servers, err := dm.store.GetClusterConfiguration()
 	if err != nil {
-		log.Printf("Cannot handle split-brain: failed to get cluster configuration: %v", err)
+		logger.Debug("Cannot handle split-brain: failed to get cluster configuration: %v", err)
 		return
 	}
 
@@ -679,15 +679,15 @@ func (dm *DiscoveryManager) handleSplitBrain(discoveredNodes []Node) {
 
 	majorityThreshold := expectedClusterSize/2 + 1
 
-	log.Printf("Split-brain resolution: myCluster=%d, majorityNeeded=%d, expectedTotal=%d",
+	logger.Debug("Split-brain resolution: myCluster=%d, majorityNeeded=%d, expectedTotal=%d",
 		aliveInMyCluster, majorityThreshold, expectedClusterSize)
 
 	if aliveInMyCluster < majorityThreshold {
-		log.Printf("I am in MINORITY partition (%d < %d) - shutting down to prevent split-brain",
+		logger.Debug("I am in MINORITY partition (%d < %d) - shutting down to prevent split-brain",
 			aliveInMyCluster, majorityThreshold)
 
 		// Give a grace period for the situation to resolve
-		log.Printf("Waiting 30 seconds for network partition to heal...")
+		logger.Debug("Waiting 30 seconds for network partition to heal...")
 		time.Sleep(30 * time.Second)
 
 		// Re-check after grace period
@@ -699,24 +699,24 @@ func (dm *DiscoveryManager) handleSplitBrain(discoveredNodes []Node) {
 		}
 
 		if newAliveCount < majorityThreshold {
-			log.Printf("Still in minority after grace period (%d < %d) - executing emergency shutdown",
+			logger.Debug("Still in minority after grace period (%d < %d) - executing emergency shutdown",
 				newAliveCount, majorityThreshold)
 
 			// Graceful shutdown
 			if dm.shutdownCallback != nil {
 				if err := dm.shutdownCallback(); err != nil {
-					log.Printf("Graceful shutdown failed: %v", err)
+					logger.Debug("Graceful shutdown failed: %v", err)
 				}
 			}
 
 			// Force exit to prevent split-brain
-			log.Printf("SPLIT-BRAIN PREVENTION: Terminating node in minority partition")
+			logger.Debug("SPLIT-BRAIN PREVENTION: Terminating node in minority partition")
 			os.Exit(42) // Special exit code for split-brain prevention
 		} else {
-			log.Printf("Network partition healed, continuing operation")
+			logger.Debug("Network partition healed, continuing operation")
 		}
 	} else {
-		log.Printf("I am in MAJORITY partition (%d >= %d) - continuing operation",
+		logger.Debug("I am in MAJORITY partition (%d >= %d) - continuing operation",
 			aliveInMyCluster, majorityThreshold)
 	}
 }
@@ -733,12 +733,12 @@ func (dm *DiscoveryManager) getExpectedClusterSize() int {
 
 // handleLeaderlessCluster handles the case when there's no leader
 func (dm *DiscoveryManager) handleLeaderlessCluster(nodes []Node) {
-	log.Printf("Handling leaderless cluster - attempting to clean dead peers")
+	logger.Debug("Handling leaderless cluster - attempting to clean dead peers")
 
 	// Check if we can become leader by cleaning dead peers
 	servers, err := dm.store.GetClusterConfiguration()
 	if err != nil {
-		log.Printf("Failed to get cluster configuration: %v", err)
+		logger.Debug("Failed to get cluster configuration: %v", err)
 		return
 	}
 
@@ -746,14 +746,14 @@ func (dm *DiscoveryManager) handleLeaderlessCluster(nodes []Node) {
 	deadPeers := dm.findDeadPeers(servers, nodes, localNodeID)
 
 	if len(deadPeers) > 0 {
-		log.Printf("Found %d dead peers, attempting to remove them", len(deadPeers))
+		logger.Debug("Found %d dead peers, attempting to remove them", len(deadPeers))
 
 		// Try to force leadership to clean the cluster
 		if dm.attemptForcedLeadership(deadPeers) {
-			log.Printf("Successfully became leader, cleaning dead peers")
+			logger.Debug("Successfully became leader, cleaning dead peers")
 			dm.cleanDeadPeersAsLeader(deadPeers)
 		} else {
-			log.Printf("Could not become leader, will retry on next cycle")
+			logger.Debug("Could not become leader, will retry on next cycle")
 		}
 	} else {
 		// No dead peers, try normal join
@@ -763,12 +763,12 @@ func (dm *DiscoveryManager) handleLeaderlessCluster(nodes []Node) {
 
 // handleDeadLeader handles the case when the leader is detected as dead
 func (dm *DiscoveryManager) handleDeadLeader(nodes []Node, deadLeader string) {
-	log.Printf("Handling dead leader: %s", deadLeader)
+	logger.Debug("Handling dead leader: %s", deadLeader)
 
 	// Get current cluster config
 	servers, err := dm.store.GetClusterConfiguration()
 	if err != nil {
-		log.Printf("Failed to get cluster configuration: %v", err)
+		logger.Debug("Failed to get cluster configuration: %v", err)
 		return
 	}
 
@@ -783,18 +783,18 @@ func (dm *DiscoveryManager) handleDeadLeader(nodes []Node, deadLeader string) {
 
 	if deadLeaderID != "" {
 		deadPeers := []string{deadLeaderID}
-		log.Printf("Found dead leader ID: %s, attempting to remove it", deadLeaderID)
+		logger.Debug("Found dead leader ID: %s, attempting to remove it", deadLeaderID)
 
 		// Try to force leadership to clean the dead leader
 		if dm.attemptForcedLeadership(deadPeers) {
-			log.Printf("Successfully became leader, removing dead leader")
+			logger.Debug("Successfully became leader, removing dead leader")
 			dm.cleanDeadPeersAsLeader(deadPeers)
 		} else {
-			log.Printf("Could not become leader to remove dead leader")
+			logger.Debug("Could not become leader to remove dead leader")
 			dm.attemptJoinViaHTTP(nodes)
 		}
 	} else {
-		log.Printf("Could not find dead leader in cluster configuration")
+		logger.Debug("Could not find dead leader in cluster configuration")
 		dm.attemptJoinViaHTTP(nodes)
 	}
 }
@@ -819,7 +819,7 @@ func (dm *DiscoveryManager) findDeadPeers(servers []raft.Server, aliveNodes []No
 		if !aliveNodeIDs[serverID] {
 			// Double-check by trying to contact it
 			if !dm.isPeerAlive(string(server.Address)) {
-				log.Printf("Confirmed dead peer: %s (%s)", serverID, server.Address)
+				logger.Debug("Confirmed dead peer: %s (%s)", serverID, server.Address)
 				deadPeers = append(deadPeers, serverID)
 			}
 		}
@@ -830,36 +830,36 @@ func (dm *DiscoveryManager) findDeadPeers(servers []raft.Server, aliveNodes []No
 
 // attemptForcedLeadership tries to become leader to clean the cluster
 func (dm *DiscoveryManager) attemptForcedLeadership(deadPeers []string) bool {
-	log.Printf("Attempting forced leadership to clean %d dead peers", len(deadPeers))
+	logger.Debug("Attempting forced leadership to clean %d dead peers", len(deadPeers))
 
 	// Get current cluster config
 	servers, err := dm.store.GetClusterConfiguration()
 	if err != nil {
-		log.Printf("Failed to get cluster configuration: %v", err)
+		logger.Debug("Failed to get cluster configuration: %v", err)
 		return false
 	}
 
 	totalNodes := len(servers)
 	aliveNodes := totalNodes - len(deadPeers)
 
-	log.Printf("Cluster has %d total nodes, %d alive, %d dead", totalNodes, aliveNodes, len(deadPeers))
+	logger.Debug("Cluster has %d total nodes, %d alive, %d dead", totalNodes, aliveNodes, len(deadPeers))
 
 	// Check if we have majority of alive nodes to safely remove dead ones
 	if aliveNodes > totalNodes/2 {
-		log.Printf("We have majority (%d > %d), attempting to force bootstrap", aliveNodes, totalNodes/2)
+		logger.Debug("We have majority (%d > %d), attempting to force bootstrap", aliveNodes, totalNodes/2)
 
 		// Try to trigger an election by forcing Raft to attempt leadership
 		// This is a bit of a hack, but necessary for cluster recovery
 		return dm.triggerEmergencyElection()
 	}
 
-	log.Printf("Insufficient alive nodes for safe recovery (%d <= %d)", aliveNodes, totalNodes/2)
+	logger.Debug("Insufficient alive nodes for safe recovery (%d <= %d)", aliveNodes, totalNodes/2)
 	return false
 }
 
 // triggerEmergencyElection attempts to force a Raft election
 func (dm *DiscoveryManager) triggerEmergencyElection() bool {
-	log.Printf("Triggering emergency election for cluster recovery")
+	logger.Debug("Triggering emergency election for cluster recovery")
 
 	// This is a simplified approach - in a real implementation you might need
 	// to use Raft's internal APIs or implement a more sophisticated recovery mechanism
@@ -868,46 +868,46 @@ func (dm *DiscoveryManager) triggerEmergencyElection() bool {
 	time.Sleep(2 * time.Second)
 
 	if dm.store.IsLeader() {
-		log.Printf("Successfully became leader during emergency election")
+		logger.Debug("Successfully became leader during emergency election")
 		return true
 	}
 
-	log.Printf("Emergency election did not result in leadership")
+	logger.Debug("Emergency election did not result in leadership")
 	return false
 }
 
 // cleanDeadPeersAsLeader removes dead peers when we are the leader
 func (dm *DiscoveryManager) cleanDeadPeersAsLeader(deadPeerIDs []string) {
 	if !dm.store.IsLeader() {
-		log.Printf("Cannot clean dead peers: not the leader")
+		logger.Debug("Cannot clean dead peers: not the leader")
 		return
 	}
 
 	for _, deadPeerID := range deadPeerIDs {
-		log.Printf("Removing dead peer from cluster: %s", deadPeerID)
+		logger.Debug("Removing dead peer from cluster: %s", deadPeerID)
 
 		if err := dm.store.RemovePeer(deadPeerID); err != nil {
-			log.Printf("Failed to remove dead peer %s: %v", deadPeerID, err)
+			logger.Debug("Failed to remove dead peer %s: %v", deadPeerID, err)
 		} else {
-			log.Printf("Successfully removed dead peer %s from cluster", deadPeerID)
+			logger.Debug("Successfully removed dead peer %s from cluster", deadPeerID)
 		}
 	}
 
-	log.Printf("Completed cleaning %d dead peers from cluster", len(deadPeerIDs))
+	logger.Debug("Completed cleaning %d dead peers from cluster", len(deadPeerIDs))
 }
 
 // isNodeLeader checks if a node is the leader
 func (dm *DiscoveryManager) isNodeLeader(healthURL string) bool {
 	resp, err := http.Get(healthURL)
 	if err != nil {
-		log.Printf("Failed to contact %s: %v", healthURL, err)
+		logger.Debug("Failed to contact %s: %v", healthURL, err)
 		return false
 	}
 	defer resp.Body.Close()
 
 	var health map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
-		log.Printf("Failed to decode health response: %v", err)
+		logger.Debug("Failed to decode health response: %v", err)
 		return false
 	}
 
@@ -924,25 +924,25 @@ func (dm *DiscoveryManager) requestJoin(joinURL, nodeID, address string) bool {
 
 	jsonData, err := json.Marshal(joinReq)
 	if err != nil {
-		log.Printf("Failed to marshal join request: %v", err)
+		logger.Debug("Failed to marshal join request: %v", err)
 		return false
 	}
 
 	resp, err := http.Post(joinURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Printf("Failed to send join request to %s: %v", joinURL, err)
+		logger.Debug("Failed to send join request to %s: %v", joinURL, err)
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Join request failed with status %d", resp.StatusCode)
+		logger.Debug("Join request failed with status %d", resp.StatusCode)
 		return false
 	}
 
 	var joinResp map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&joinResp); err != nil {
-		log.Printf("Failed to decode join response: %v", err)
+		logger.Debug("Failed to decode join response: %v", err)
 		return false
 	}
 
@@ -950,10 +950,10 @@ func (dm *DiscoveryManager) requestJoin(joinURL, nodeID, address string) bool {
 	message, _ := joinResp["message"].(string)
 
 	if success {
-		log.Printf("Join successful: %s", message)
+		logger.Debug("Join successful: %s", message)
 		return true
 	}
 
-	log.Printf("Join failed: %s", message)
+	logger.Debug("Join failed: %s", message)
 	return false
 }

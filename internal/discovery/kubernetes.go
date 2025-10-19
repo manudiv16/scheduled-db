@@ -3,10 +3,11 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"time"
+
+	"scheduled-db/internal/logger"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -88,7 +89,7 @@ func (k *KubernetesStrategy) Discover(ctx context.Context) ([]Node, error) {
 		shouldInclude := isHealthy || (pod.Status.Phase == corev1.PodRunning && !isHealthy)
 
 		if !shouldInclude {
-			log.Printf("Skipping pod %s in phase %s (not running)", pod.Name, pod.Status.Phase)
+			logger.Debug("skipping pod %s in phase %s (not running)", pod.Name, pod.Status.Phase)
 			continue
 		}
 
@@ -96,7 +97,7 @@ func (k *KubernetesStrategy) Discover(ctx context.Context) ([]Node, error) {
 		nodeID := pod.Name
 		podIP := pod.Status.PodIP
 		if podIP == "" {
-			log.Printf("Pod %s has no IP, skipping", pod.Name)
+			logger.Debug("pod %s has no IP, skipping", pod.Name)
 			continue
 		}
 
@@ -139,15 +140,15 @@ func (k *KubernetesStrategy) Discover(ctx context.Context) ([]Node, error) {
 	}
 
 	if readyNodes < totalCount {
-		log.Printf("Kubernetes discovery found %d total nodes (%d ready, %d not-ready-but-running)",
+		logger.Debug("kubernetes discovery found %d total nodes (%d ready, %d not-ready-but-running)",
 			len(nodes), readyNodes, len(nodes)-readyNodes)
 	} else {
-		log.Printf("Kubernetes discovery found %d healthy nodes", len(nodes))
+		logger.Debug("kubernetes discovery found %d healthy nodes", len(nodes))
 	}
 
 	// Check for quorum and implement split-brain protection
 	if err := k.checkQuorumAndHandleSplitBrain(healthyCount, totalCount); err != nil {
-		log.Printf("Quorum check failed: %v", err)
+		logger.Warn("quorum check failed: %v", err)
 		// Don't return error, but log the issue
 	}
 
@@ -177,14 +178,14 @@ func (k *KubernetesStrategy) checkQuorumAndHandleSplitBrain(healthyNodes, totalN
 
 	// If we have majority of expected nodes, we're good
 	if healthyNodes > expectedClusterSize/2 {
-		log.Printf("Quorum check passed: %d healthy nodes out of %d expected (majority achieved)",
+		logger.Debug("quorum check passed: %d healthy nodes out of %d expected (majority achieved)",
 			healthyNodes, expectedClusterSize)
 		return nil
 	}
 
 	// If we have exactly half or less, we might be in a split-brain situation
 	if healthyNodes <= expectedClusterSize/2 {
-		log.Printf("WARNING: Potential split-brain detected - only %d healthy nodes out of %d expected",
+		logger.Warn("WARNING: potential split-brain detected - only %d healthy nodes out of %d expected",
 			healthyNodes, expectedClusterSize)
 
 		// In a production environment, you might want to:
@@ -225,7 +226,7 @@ func (k *KubernetesStrategy) Watch(ctx context.Context, callback func([]Node)) e
 	// Initial discovery
 	nodes, err := k.Discover(ctx)
 	if err != nil {
-		log.Printf("Initial discovery failed: %v", err)
+		logger.Error("initial discovery failed: %v", err)
 	} else {
 		callback(nodes)
 	}
@@ -238,7 +239,7 @@ func (k *KubernetesStrategy) Watch(ctx context.Context, callback func([]Node)) e
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
 				// Watcher closed, try to restart
-				log.Println("Kubernetes watcher closed, restarting...")
+				logger.Warn("kubernetes watcher closed, restarting...")
 				return k.Watch(ctx, callback)
 			}
 
@@ -247,7 +248,7 @@ func (k *KubernetesStrategy) Watch(ctx context.Context, callback func([]Node)) e
 				// Re-discover nodes on any endpoint change
 				nodes, err := k.Discover(ctx)
 				if err != nil {
-					log.Printf("Failed to re-discover nodes: %v", err)
+					logger.Error("failed to re-discover nodes: %v", err)
 					continue
 				}
 				callback(nodes)
@@ -263,7 +264,7 @@ func (k *KubernetesStrategy) Register(ctx context.Context, node Node) error {
 
 	podName := k.getPodName()
 	if podName == "" {
-		log.Println("Could not determine pod name, skipping registration")
+		logger.Debug("could not determine pod name, skipping registration")
 		return nil
 	}
 
@@ -296,7 +297,7 @@ func (k *KubernetesStrategy) Register(ctx context.Context, node Node) error {
 		return fmt.Errorf("failed to update pod annotations: %v", err)
 	}
 
-	log.Printf("Registered node %s in Kubernetes", node.ID)
+	logger.Info("registered node %s in kubernetes", node.ID)
 	return nil
 }
 
@@ -326,11 +327,11 @@ func (k *KubernetesStrategy) Deregister(ctx context.Context) error {
 
 		_, err = k.clientset.CoreV1().Pods(k.namespace).Update(ctx, pod, metav1.UpdateOptions{})
 		if err != nil {
-			log.Printf("Failed to update pod annotations during deregister: %v", err)
+			logger.Error("failed to update pod annotations during deregister: %v", err)
 		}
 	}
 
-	log.Printf("Deregistered node from Kubernetes")
+	logger.Info("deregistered node from kubernetes")
 	return nil
 }
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"scheduled-db/internal/logger"
 	"net"
 	"os"
 	"strconv"
@@ -93,7 +93,7 @@ func NewGossipStrategy(config Config) (Strategy, error) {
 	strategy.memberlist = ml
 	strategy.delegate = delegate
 
-	log.Printf("Gossip strategy initialized on %s", ml.LocalNode().Addr)
+	logger.Debug("Gossip strategy initialized on %s", ml.LocalNode().Addr)
 	return strategy, nil
 }
 
@@ -132,7 +132,7 @@ func (g *GossipStrategy) Discover(ctx context.Context) ([]Node, error) {
 		}
 	}
 
-	log.Printf("Gossip discovery found %d nodes", len(nodes))
+	logger.Debug("Gossip discovery found %d nodes", len(nodes))
 	return nodes, nil
 }
 
@@ -177,16 +177,16 @@ func (g *GossipStrategy) Register(ctx context.Context, node Node) error {
 	// Try to join existing cluster through seed nodes from environment or DNS
 	seedNodes := g.findSeedNodes()
 	if len(seedNodes) > 0 {
-		log.Printf("Attempting to join gossip cluster with seed nodes: %v", seedNodes)
+		logger.Debug("Attempting to join gossip cluster with seed nodes: %v", seedNodes)
 		numJoined, err := g.memberlist.Join(seedNodes)
 		if err != nil {
-			log.Printf("Failed to join gossip cluster: %v", err)
-			log.Printf("Will continue as isolated node, retrying connections in background")
+			logger.Debug("Failed to join gossip cluster: %v", err)
+			logger.Debug("Will continue as isolated node, retrying connections in background")
 		} else {
-			log.Printf("Successfully joined gossip cluster, connected to %d seed nodes", numJoined)
+			logger.Debug("Successfully joined gossip cluster, connected to %d seed nodes", numJoined)
 		}
 	} else {
-		log.Printf("No seed nodes found, starting as cluster bootstrap node")
+		logger.Debug("No seed nodes found, starting as cluster bootstrap node")
 	}
 
 	// Add local node to nodes map
@@ -194,7 +194,7 @@ func (g *GossipStrategy) Register(ctx context.Context, node Node) error {
 	g.nodes[node.ID] = node
 	g.mutex.Unlock()
 
-	log.Printf("Registered node %s in gossip cluster", node.ID)
+	logger.Debug("Registered node %s in gossip cluster", node.ID)
 	return nil
 }
 
@@ -202,14 +202,14 @@ func (g *GossipStrategy) Register(ctx context.Context, node Node) error {
 func (g *GossipStrategy) Deregister(ctx context.Context) error {
 	timeout := 5 * time.Second
 	if err := g.memberlist.Leave(timeout); err != nil {
-		log.Printf("Error leaving gossip cluster: %v", err)
+		logger.Debug("Error leaving gossip cluster: %v", err)
 	}
 
 	if err := g.memberlist.Shutdown(); err != nil {
 		return fmt.Errorf("failed to shutdown memberlist: %v", err)
 	}
 
-	log.Printf("Deregistered from gossip cluster")
+	logger.Debug("Deregistered from gossip cluster")
 	return nil
 }
 
@@ -228,7 +228,7 @@ func (g *GossipStrategy) findSeedNodes() []string {
 		for i, seed := range seeds {
 			seeds[i] = strings.TrimSpace(seed)
 		}
-		log.Printf("Found GOSSIP_SEEDS environment variable: %v", seeds)
+		logger.Debug("Found GOSSIP_SEEDS environment variable: %v", seeds)
 	}
 
 	// Try DNS SRV lookup as fallback
@@ -241,9 +241,9 @@ func (g *GossipStrategy) findSeedNodes() []string {
 					addr.Port)
 				seeds = append(seeds, seed)
 			}
-			log.Printf("Found seeds via DNS SRV lookup: %v", seeds)
+			logger.Debug("Found seeds via DNS SRV lookup: %v", seeds)
 		} else {
-			log.Printf("DNS SRV lookup failed for %s: %v", dnsName, err)
+			logger.Debug("DNS SRV lookup failed for %s: %v", dnsName, err)
 		}
 	}
 
@@ -277,7 +277,7 @@ func (g *GossipStrategy) getLocalNode() Node {
 	var metadata map[string]string
 	if len(local.Meta) > 0 {
 		if err := json.Unmarshal(local.Meta, &metadata); err != nil {
-			log.Printf("Failed to unmarshal local node metadata: %v", err)
+			logger.Debug("Failed to unmarshal local node metadata: %v", err)
 		}
 	}
 	if metadata == nil {
@@ -296,13 +296,13 @@ func (g *GossipStrategy) getLocalNode() Node {
 func (g *GossipStrategy) notifyCallbacks() {
 	// Only notify if we have callbacks and memberlist is ready
 	if g.memberlist == nil {
-		log.Printf("Memberlist not ready, skipping callback notification")
+		logger.Debug("Memberlist not ready, skipping callback notification")
 		return
 	}
 
 	nodes, err := g.Discover(context.Background())
 	if err != nil {
-		log.Printf("Failed to discover nodes for callback: %v", err)
+		logger.Debug("Failed to discover nodes for callback: %v", err)
 		return
 	}
 
@@ -347,17 +347,17 @@ func (d *gossipDelegate) MergeRemoteState(buf []byte, join bool) {}
 // NotifyJoin is called when a node joins the cluster
 func (d *gossipDelegate) NotifyJoin(node *memberlist.Node) {
 	if d.strategy == nil {
-		log.Printf("Strategy is nil in NotifyJoin, skipping")
+		logger.Debug("Strategy is nil in NotifyJoin, skipping")
 		return
 	}
 
-	log.Printf("Node joined gossip cluster: %s (%s:%d)", node.Name, node.Addr, node.Port)
+	logger.Debug("Node joined gossip cluster: %s (%s:%d)", node.Name, node.Addr, node.Port)
 
 	// Parse metadata
 	var metadata map[string]string
 	if len(node.Meta) > 0 {
 		if err := json.Unmarshal(node.Meta, &metadata); err != nil {
-			log.Printf("Failed to unmarshal node metadata: %v", err)
+			logger.Debug("Failed to unmarshal node metadata: %v", err)
 		}
 	}
 	if metadata == nil {
@@ -383,11 +383,11 @@ func (d *gossipDelegate) NotifyJoin(node *memberlist.Node) {
 // NotifyLeave is called when a node leaves the cluster gracefully
 func (d *gossipDelegate) NotifyLeave(node *memberlist.Node) {
 	if d.strategy == nil {
-		log.Printf("Strategy is nil in NotifyLeave, skipping")
+		logger.Debug("Strategy is nil in NotifyLeave, skipping")
 		return
 	}
 
-	log.Printf("Node left gossip cluster: %s (%s:%d)", node.Name, node.Addr, node.Port)
+	logger.Debug("Node left gossip cluster: %s (%s:%d)", node.Name, node.Addr, node.Port)
 
 	d.strategy.mutex.Lock()
 	delete(d.strategy.nodes, node.Name)
@@ -400,17 +400,17 @@ func (d *gossipDelegate) NotifyLeave(node *memberlist.Node) {
 // NotifyUpdate is called when a node's metadata is updated
 func (d *gossipDelegate) NotifyUpdate(node *memberlist.Node) {
 	if d.strategy == nil {
-		log.Printf("Strategy is nil in NotifyUpdate, skipping")
+		logger.Debug("Strategy is nil in NotifyUpdate, skipping")
 		return
 	}
 
-	log.Printf("Node updated in gossip cluster: %s (%s:%d)", node.Name, node.Addr, node.Port)
+	logger.Debug("Node updated in gossip cluster: %s (%s:%d)", node.Name, node.Addr, node.Port)
 
 	// Parse updated metadata
 	var metadata map[string]string
 	if len(node.Meta) > 0 {
 		if err := json.Unmarshal(node.Meta, &metadata); err != nil {
-			log.Printf("Failed to unmarshal node metadata: %v", err)
+			logger.Debug("Failed to unmarshal node metadata: %v", err)
 		}
 	}
 	if metadata == nil {
