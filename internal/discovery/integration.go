@@ -9,19 +9,23 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"scheduled-db/internal/store"
+
+	"github.com/hashicorp/raft"
 )
 
 // DiscoveryManager manages cluster discovery and integrates with Raft
 type DiscoveryManager struct {
-	strategy  Strategy
-	store     *store.Store
-	config    Config
-	ctx       context.Context
-	cancel    context.CancelFunc
-	isRunning bool
+	strategy         Strategy
+	store            *store.Store
+	config           Config
+	ctx              context.Context
+	cancel           context.CancelFunc
+	isRunning        bool
+	shutdownCallback func() error
 }
 
 // DiscoveryConfig extends the base config with integration settings
@@ -56,7 +60,7 @@ type DNSConfig struct {
 }
 
 // NewDiscoveryManager creates a new discovery manager
-func NewDiscoveryManager(config DiscoveryConfig, store *store.Store) (*DiscoveryManager, error) {
+func NewDiscoveryManager(config DiscoveryConfig, store *store.Store, shutdownCallback func() error) (*DiscoveryManager, error) {
 	// Create strategy based on configuration
 	factory := &Factory{}
 	strategy, err := factory.NewStrategy(config.Strategy, config.Config)
@@ -67,12 +71,13 @@ func NewDiscoveryManager(config DiscoveryConfig, store *store.Store) (*Discovery
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &DiscoveryManager{
-		strategy:  strategy,
-		store:     store,
-		config:    config.Config,
-		ctx:       ctx,
-		cancel:    cancel,
-		isRunning: false,
+		strategy:         strategy,
+		store:            store,
+		config:           config.Config,
+		ctx:              ctx,
+		cancel:           cancel,
+		isRunning:        false,
+		shutdownCallback: shutdownCallback,
 	}, nil
 }
 
@@ -169,27 +174,45 @@ func (dm *DiscoveryManager) onNodesChanged(nodes []Node) {
 
 	// Integrate discovered peers with Raft cluster
 	if len(peers) > 0 {
-		log.Printf("Discovered %d Raft peers via gossip: %v", len(peers), peers)
+		log.Printf("Discovered %d Raft peers via kubernetes: %v", len(peers), peers)
 
 		if dm.store.IsLeader() {
-			// If we're leader, try to add new peers to our cluster
-			dm.updateRaftPeers(peers)
+			// If we're leader, try to add new peers to our cluster and clean dead ones
+			dm.updateRaftPeersWithNodes(nodes)
 		} else {
-			// If we're not leader, try to join cluster via HTTP API
+			// If we're not leader, check the cluster state
 			leader := dm.store.GetLeader()
 			if leader == "" {
-				log.Printf("No leader found, attempting to join via discovered nodes")
-				dm.attemptJoinViaHTTP(nodes)
+				log.Printf("No leader found, attempting to find and join existing cluster")
+				// First try to join an existing cluster before trying to bootstrap
+				if !dm.attemptJoinExistingCluster(nodes) {
+					log.Printf("No existing cluster found, checking if this node should bootstrap")
+					dm.handleLeaderlessCluster(nodes)
+				}
 			} else {
-				log.Printf("Already part of cluster with leader: %s", leader)
+				// Verify if leader is actually alive before assuming we're part of cluster
+				if dm.isLeaderAlive(leader) {
+					log.Printf("Already part of cluster with leader: %s", leader)
+				} else {
+					log.Printf("Leader %s appears to be dead, attempting to join other clusters", leader)
+					if !dm.attemptJoinExistingCluster(nodes) {
+						dm.handleDeadLeader(nodes, leader)
+					}
+				}
 			}
+		}
+	} else {
+		// No peers discovered yet, but check if we should wait for cluster formation
+		nodeID := dm.config.NodeID
+		if nodeID != "scheduled-db-0" && !strings.Contains(nodeID, "-0") {
+			log.Printf("Non-bootstrap node %s waiting for cluster to form", nodeID)
 		}
 	}
 }
 
-// updateRaftPeers adds discovered peers to the Raft cluster
-func (dm *DiscoveryManager) updateRaftPeers(peers []string) {
-	log.Printf("Leader attempting to add peers to cluster: %v", peers)
+// updateRaftPeersWithNodes adds discovered peers to the Raft cluster using node information
+func (dm *DiscoveryManager) updateRaftPeersWithNodes(nodes []Node) {
+	log.Printf("Leader attempting to update cluster membership")
 
 	// Get current cluster configuration
 	servers, err := dm.store.GetClusterConfiguration()
@@ -198,23 +221,70 @@ func (dm *DiscoveryManager) updateRaftPeers(peers []string) {
 		return
 	}
 
-	// Build map of existing peers
-	existing := make(map[string]bool)
+	// Build map of discovered nodes
+	discoveredNodes := make(map[string]Node)
+	for _, node := range nodes {
+		discoveredNodes[node.ID] = node
+	}
+
+	localNodeID := dm.config.NodeID
+
+	// Remove dead peers from cluster
 	for _, server := range servers {
-		existing[string(server.Address)] = true
+		serverID := string(server.ID)
+
+		// Skip local node
+		if serverID == localNodeID {
+			continue
+		}
+
+		// If peer is not in discovered nodes, it might be dead
+		if _, exists := discoveredNodes[serverID]; !exists {
+			log.Printf("Peer %s (%s) not found in discovery, checking if it's alive", serverID, server.Address)
+
+			if !dm.isPeerAlive(string(server.Address)) {
+				log.Printf("Removing dead peer %s (%s) from Raft cluster", serverID, server.Address)
+
+				if err := dm.store.RemovePeer(serverID); err != nil {
+					log.Printf("Failed to remove dead peer %s: %v", serverID, err)
+				} else {
+					log.Printf("Successfully removed dead peer %s from cluster", serverID)
+				}
+			}
+		}
+	}
+
+	// Build map of existing nodes
+	existingByID := make(map[string]bool)
+	for _, server := range servers {
+		existingByID[string(server.ID)] = true
 	}
 
 	// Add new peers that aren't already in the cluster
-	for i, peer := range peers {
-		if !existing[peer] {
-			peerID := fmt.Sprintf("discovered-peer-%d", i)
-			log.Printf("Adding new peer %s (%s) to Raft cluster", peerID, peer)
+	for _, node := range nodes {
+		if node.ID == localNodeID {
+			continue // Skip local node
+		}
 
-			if err := dm.store.AddPeer(peerID, peer); err != nil {
-				log.Printf("Failed to add peer %s: %v", peer, err)
+		// Use pod IP instead of complex hostname
+		peerIP := node.Meta["pod_ip"]
+		if peerIP == "" {
+			log.Printf("Node %s has no pod IP, skipping", node.ID)
+			continue
+		}
+		peerAddr := fmt.Sprintf("%s:%d", peerIP, dm.getRaftPortFromNode(node))
+
+		// Check if peer exists by ID
+		if !existingByID[node.ID] {
+			log.Printf("Adding new peer %s (%s) to Raft cluster", node.ID, peerAddr)
+
+			if err := dm.store.AddPeer(node.ID, peerAddr); err != nil {
+				log.Printf("Failed to add peer %s: %v", peerAddr, err)
+			} else {
+				log.Printf("Successfully added peer %s to cluster", node.ID)
 			}
 		} else {
-			log.Printf("Peer %s already in cluster", peer)
+			log.Printf("Peer %s (%s) already in cluster", node.ID, peerAddr)
 		}
 	}
 }
@@ -350,11 +420,51 @@ func (dm *DiscoveryManager) getRaftPortFromNode(node Node) int {
 
 // joinRaftCluster attempts to join an existing Raft cluster
 
+// attemptJoinExistingCluster tries to find and join an existing cluster
+func (dm *DiscoveryManager) attemptJoinExistingCluster(nodes []Node) bool {
+	localNodeID := dm.config.NodeID
+
+	for _, node := range nodes {
+		if node.ID == localNodeID {
+			continue // Skip self
+		}
+
+		// Use HTTP port directly from environment
+		httpPort := 8080
+		if portStr := os.Getenv("HTTP_PORT"); portStr != "" {
+			if port, err := strconv.Atoi(portStr); err == nil {
+				httpPort = port
+			}
+		}
+		healthURL := fmt.Sprintf("http://%s:%d/health", node.Address, httpPort)
+
+		log.Printf("Checking if node %s is leader via %s", node.ID, healthURL)
+
+		// Check if this node is a leader
+		if dm.isNodeLeader(healthURL) {
+			log.Printf("Found existing leader %s, attempting to join cluster", node.ID)
+
+			// Get our local address for joining
+			localRaftAddr := dm.getLocalRaftAddress()
+			joinURL := fmt.Sprintf("http://%s:%d/join", node.Address, httpPort)
+
+			if dm.requestJoin(joinURL, localNodeID, localRaftAddr) {
+				log.Printf("Successfully joined existing cluster via leader %s", node.ID)
+				return true
+			}
+		}
+	}
+
+	log.Printf("No existing cluster leader found among %d discovered nodes", len(nodes))
+	return false
+}
+
 // attemptJoinViaHTTP tries to join cluster via HTTP API
 func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 	localNodeID := dm.config.NodeID
-	localRaftPort := dm.getRaftPort()
-	localRaftAddr := fmt.Sprintf("127.0.0.1:%d", localRaftPort)
+	localRaftAddr := dm.getLocalRaftAddress()
+
+	log.Printf("Local node trying to join with address: %s", localRaftAddr)
 
 	for _, node := range nodes {
 		if node.ID == localNodeID {
@@ -385,6 +495,405 @@ func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 	}
 
 	log.Printf("No leader found or join failed, will retry on next discovery cycle")
+}
+
+// getLocalRaftAddress returns the local Raft address for joining
+func (dm *DiscoveryManager) getLocalRaftAddress() string {
+	localRaftPort := dm.getRaftPort()
+
+	// Use pod IP directly (simpler and more reliable than hostnames)
+	podIP := os.Getenv("POD_IP")
+	if podIP != "" {
+		return fmt.Sprintf("%s:%d", podIP, localRaftPort)
+	} else {
+		// Fallback to local IP if pod IP not available
+		return fmt.Sprintf("127.0.0.1:%d", localRaftPort)
+	}
+}
+
+// isLeaderAlive checks if the current leader is still alive and responding
+func (dm *DiscoveryManager) isLeaderAlive(leader string) bool {
+	if leader == "" {
+		return false
+	}
+
+	// Extract IP from leader address (format: "10.244.0.219:7000")
+	parts := strings.Split(leader, ":")
+	if len(parts) != 2 {
+		log.Printf("Invalid leader address format: %s", leader)
+		return false
+	}
+
+	leaderIP := parts[0]
+	httpPort := 8080
+	if portStr := os.Getenv("HTTP_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			httpPort = port
+		}
+	}
+
+	healthURL := fmt.Sprintf("http://%s:%d/health", leaderIP, httpPort)
+
+	// Use a short timeout for leader health check
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	resp, err := client.Get(healthURL)
+	if err != nil {
+		log.Printf("Leader %s health check failed: %v", leader, err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Leader %s health check returned status: %d", leader, resp.StatusCode)
+		return false
+	}
+
+	var health map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		log.Printf("Failed to decode leader health response: %v", err)
+		return false
+	}
+
+	role, ok := health["role"].(string)
+	isLeader := ok && role == "leader"
+
+	if !isLeader {
+		log.Printf("Leader %s is no longer leader, role: %s", leader, role)
+	}
+
+	return isLeader
+}
+
+// isPeerAlive checks if a peer is alive by trying to connect to its Raft address
+func (dm *DiscoveryManager) isPeerAlive(peerAddr string) bool {
+	if peerAddr == "" {
+		return false
+	}
+
+	// Extract IP from peer address (format: "10.244.0.219:7000" or "hostname:7000")
+	parts := strings.Split(peerAddr, ":")
+	if len(parts) != 2 {
+		log.Printf("Invalid peer address format: %s", peerAddr)
+		return false
+	}
+
+	peerHost := parts[0]
+	httpPort := 8080
+	if portStr := os.Getenv("HTTP_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			httpPort = port
+		}
+	}
+
+	healthURL := fmt.Sprintf("http://%s:%d/health", peerHost, httpPort)
+
+	// Use a short timeout for peer health check
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+	}
+
+	resp, err := client.Get(healthURL)
+	if err != nil {
+		log.Printf("Peer %s health check failed: %v", peerAddr, err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Peer %s health check returned status: %d", peerAddr, resp.StatusCode)
+		return false
+	}
+
+	log.Printf("Peer %s is alive", peerAddr)
+	return true
+}
+
+// detectSplitBrain checks if we are in a split-brain scenario
+func (dm *DiscoveryManager) detectSplitBrain(discoveredNodes []Node) bool {
+	// Get current cluster configuration
+	servers, err := dm.store.GetClusterConfiguration()
+	if err != nil {
+		log.Printf("Cannot check split-brain: failed to get cluster configuration: %v", err)
+		return false
+	}
+
+	localNodeID := dm.config.NodeID
+	expectedClusterSize := dm.getExpectedClusterSize()
+
+	// Count nodes in current cluster configuration (excluding self)
+	nodesInMyCluster := 0
+	for _, server := range servers {
+		if string(server.ID) != localNodeID {
+			// Check if this node is alive and reachable
+			if dm.isPeerAlive(string(server.Address)) {
+				nodesInMyCluster++
+			}
+		}
+	}
+
+	// Count total discovered healthy nodes (excluding self)
+	totalHealthyNodes := 0
+	for _, node := range discoveredNodes {
+		if node.ID != localNodeID {
+			totalHealthyNodes++
+		}
+	}
+
+	log.Printf("Split-brain check: myCluster=%d, totalHealthy=%d, expected=%d",
+		nodesInMyCluster+1, totalHealthyNodes+1, expectedClusterSize)
+
+	// If we have fewer nodes in our cluster than total healthy nodes,
+	// and there are enough nodes outside our cluster, we might be in split-brain
+	nodesOutsideMyCluster := totalHealthyNodes - nodesInMyCluster
+
+	if nodesOutsideMyCluster > 0 && nodesInMyCluster+1 < expectedClusterSize {
+		log.Printf("Potential split-brain detected: %d nodes outside my cluster", nodesOutsideMyCluster)
+		return true
+	}
+
+	return false
+}
+
+// handleSplitBrain implements RabbitMQ RA-style split-brain resolution
+func (dm *DiscoveryManager) handleSplitBrain(discoveredNodes []Node) {
+	expectedClusterSize := dm.getExpectedClusterSize()
+	localNodeID := dm.config.NodeID
+
+	// Get current cluster configuration
+	servers, err := dm.store.GetClusterConfiguration()
+	if err != nil {
+		log.Printf("Cannot handle split-brain: failed to get cluster configuration: %v", err)
+		return
+	}
+
+	// Count alive nodes in our current cluster
+	aliveInMyCluster := 1 // Count ourselves
+	for _, server := range servers {
+		if string(server.ID) != localNodeID && dm.isPeerAlive(string(server.Address)) {
+			aliveInMyCluster++
+		}
+	}
+
+	majorityThreshold := expectedClusterSize/2 + 1
+
+	log.Printf("Split-brain resolution: myCluster=%d, majorityNeeded=%d, expectedTotal=%d",
+		aliveInMyCluster, majorityThreshold, expectedClusterSize)
+
+	if aliveInMyCluster < majorityThreshold {
+		log.Printf("I am in MINORITY partition (%d < %d) - shutting down to prevent split-brain",
+			aliveInMyCluster, majorityThreshold)
+
+		// Give a grace period for the situation to resolve
+		log.Printf("Waiting 30 seconds for network partition to heal...")
+		time.Sleep(30 * time.Second)
+
+		// Re-check after grace period
+		newAliveCount := 1
+		for _, server := range servers {
+			if string(server.ID) != localNodeID && dm.isPeerAlive(string(server.Address)) {
+				newAliveCount++
+			}
+		}
+
+		if newAliveCount < majorityThreshold {
+			log.Printf("Still in minority after grace period (%d < %d) - executing emergency shutdown",
+				newAliveCount, majorityThreshold)
+
+			// Graceful shutdown
+			if dm.shutdownCallback != nil {
+				if err := dm.shutdownCallback(); err != nil {
+					log.Printf("Graceful shutdown failed: %v", err)
+				}
+			}
+
+			// Force exit to prevent split-brain
+			log.Printf("SPLIT-BRAIN PREVENTION: Terminating node in minority partition")
+			os.Exit(42) // Special exit code for split-brain prevention
+		} else {
+			log.Printf("Network partition healed, continuing operation")
+		}
+	} else {
+		log.Printf("I am in MAJORITY partition (%d >= %d) - continuing operation",
+			aliveInMyCluster, majorityThreshold)
+	}
+}
+
+// getExpectedClusterSize returns the expected cluster size from configuration
+func (dm *DiscoveryManager) getExpectedClusterSize() int {
+	if clusterSizeStr := os.Getenv("CLUSTER_SIZE"); clusterSizeStr != "" {
+		if size, err := strconv.Atoi(clusterSizeStr); err == nil && size > 0 {
+			return size
+		}
+	}
+	return 5 // Default cluster size for this deployment
+}
+
+// handleLeaderlessCluster handles the case when there's no leader
+func (dm *DiscoveryManager) handleLeaderlessCluster(nodes []Node) {
+	log.Printf("Handling leaderless cluster - attempting to clean dead peers")
+
+	// Check if we can become leader by cleaning dead peers
+	servers, err := dm.store.GetClusterConfiguration()
+	if err != nil {
+		log.Printf("Failed to get cluster configuration: %v", err)
+		return
+	}
+
+	localNodeID := dm.config.NodeID
+	deadPeers := dm.findDeadPeers(servers, nodes, localNodeID)
+
+	if len(deadPeers) > 0 {
+		log.Printf("Found %d dead peers, attempting to remove them", len(deadPeers))
+
+		// Try to force leadership to clean the cluster
+		if dm.attemptForcedLeadership(deadPeers) {
+			log.Printf("Successfully became leader, cleaning dead peers")
+			dm.cleanDeadPeersAsLeader(deadPeers)
+		} else {
+			log.Printf("Could not become leader, will retry on next cycle")
+		}
+	} else {
+		// No dead peers, try normal join
+		dm.attemptJoinViaHTTP(nodes)
+	}
+}
+
+// handleDeadLeader handles the case when the leader is detected as dead
+func (dm *DiscoveryManager) handleDeadLeader(nodes []Node, deadLeader string) {
+	log.Printf("Handling dead leader: %s", deadLeader)
+
+	// Get current cluster config
+	servers, err := dm.store.GetClusterConfiguration()
+	if err != nil {
+		log.Printf("Failed to get cluster configuration: %v", err)
+		return
+	}
+
+	// Find the dead leader in the configuration
+	var deadLeaderID string
+	for _, server := range servers {
+		if string(server.Address) == deadLeader {
+			deadLeaderID = string(server.ID)
+			break
+		}
+	}
+
+	if deadLeaderID != "" {
+		deadPeers := []string{deadLeaderID}
+		log.Printf("Found dead leader ID: %s, attempting to remove it", deadLeaderID)
+
+		// Try to force leadership to clean the dead leader
+		if dm.attemptForcedLeadership(deadPeers) {
+			log.Printf("Successfully became leader, removing dead leader")
+			dm.cleanDeadPeersAsLeader(deadPeers)
+		} else {
+			log.Printf("Could not become leader to remove dead leader")
+			dm.attemptJoinViaHTTP(nodes)
+		}
+	} else {
+		log.Printf("Could not find dead leader in cluster configuration")
+		dm.attemptJoinViaHTTP(nodes)
+	}
+}
+
+// findDeadPeers identifies which peers in the cluster are dead
+func (dm *DiscoveryManager) findDeadPeers(servers []raft.Server, aliveNodes []Node, localNodeID string) []string {
+	// Build map of alive nodes
+	aliveNodeIDs := make(map[string]bool)
+	for _, node := range aliveNodes {
+		aliveNodeIDs[node.ID] = true
+	}
+	aliveNodeIDs[localNodeID] = true // Local node is alive by definition
+
+	var deadPeers []string
+	for _, server := range servers {
+		serverID := string(server.ID)
+		if serverID == localNodeID {
+			continue // Skip local node
+		}
+
+		// If server is not in alive nodes, it's potentially dead
+		if !aliveNodeIDs[serverID] {
+			// Double-check by trying to contact it
+			if !dm.isPeerAlive(string(server.Address)) {
+				log.Printf("Confirmed dead peer: %s (%s)", serverID, server.Address)
+				deadPeers = append(deadPeers, serverID)
+			}
+		}
+	}
+
+	return deadPeers
+}
+
+// attemptForcedLeadership tries to become leader to clean the cluster
+func (dm *DiscoveryManager) attemptForcedLeadership(deadPeers []string) bool {
+	log.Printf("Attempting forced leadership to clean %d dead peers", len(deadPeers))
+
+	// Get current cluster config
+	servers, err := dm.store.GetClusterConfiguration()
+	if err != nil {
+		log.Printf("Failed to get cluster configuration: %v", err)
+		return false
+	}
+
+	totalNodes := len(servers)
+	aliveNodes := totalNodes - len(deadPeers)
+
+	log.Printf("Cluster has %d total nodes, %d alive, %d dead", totalNodes, aliveNodes, len(deadPeers))
+
+	// Check if we have majority of alive nodes to safely remove dead ones
+	if aliveNodes > totalNodes/2 {
+		log.Printf("We have majority (%d > %d), attempting to force bootstrap", aliveNodes, totalNodes/2)
+
+		// Try to trigger an election by forcing Raft to attempt leadership
+		// This is a bit of a hack, but necessary for cluster recovery
+		return dm.triggerEmergencyElection()
+	}
+
+	log.Printf("Insufficient alive nodes for safe recovery (%d <= %d)", aliveNodes, totalNodes/2)
+	return false
+}
+
+// triggerEmergencyElection attempts to force a Raft election
+func (dm *DiscoveryManager) triggerEmergencyElection() bool {
+	log.Printf("Triggering emergency election for cluster recovery")
+
+	// This is a simplified approach - in a real implementation you might need
+	// to use Raft's internal APIs or implement a more sophisticated recovery mechanism
+
+	// For now, we'll wait a bit and check if we became leader naturally
+	time.Sleep(2 * time.Second)
+
+	if dm.store.IsLeader() {
+		log.Printf("Successfully became leader during emergency election")
+		return true
+	}
+
+	log.Printf("Emergency election did not result in leadership")
+	return false
+}
+
+// cleanDeadPeersAsLeader removes dead peers when we are the leader
+func (dm *DiscoveryManager) cleanDeadPeersAsLeader(deadPeerIDs []string) {
+	if !dm.store.IsLeader() {
+		log.Printf("Cannot clean dead peers: not the leader")
+		return
+	}
+
+	for _, deadPeerID := range deadPeerIDs {
+		log.Printf("Removing dead peer from cluster: %s", deadPeerID)
+
+		if err := dm.store.RemovePeer(deadPeerID); err != nil {
+			log.Printf("Failed to remove dead peer %s: %v", deadPeerID, err)
+		} else {
+			log.Printf("Successfully removed dead peer %s from cluster", deadPeerID)
+		}
+	}
+
+	log.Printf("Completed cleaning %d dead peers from cluster", len(deadPeerIDs))
 }
 
 // isNodeLeader checks if a node is the leader

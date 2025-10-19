@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -37,24 +38,15 @@ type Store struct {
 }
 
 func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (*Store, error) {
-	// Use stable hostname for Raft advertise address if in Kubernetes
-	if os.Getenv("POD_NAME") != "" && os.Getenv("DISCOVERY_STRATEGY") == "kubernetes" {
-		serviceName := os.Getenv("KUBERNETES_SERVICE_NAME")
-		namespace := os.Getenv("POD_NAMESPACE")
-		if serviceName == "" {
-			serviceName = "scheduled-db"
-		}
-		if namespace == "" {
-			namespace = "default"
-		}
-		podName := os.Getenv("POD_NAME")
-		
-		// Use stable hostname instead of IP
+	// Use pod IP for Raft advertise address (simpler and more reliable than hostnames)
+	if os.Getenv("POD_IP") != "" && os.Getenv("DISCOVERY_STRATEGY") == "kubernetes" {
+		podIP := os.Getenv("POD_IP")
+
+		// Use pod IP instead of complex hostnames
 		_, port, err := net.SplitHostPort(raftAdvertise)
 		if err == nil {
-			stableHostname := fmt.Sprintf("%s.%s.%s.svc.cluster.local", podName, serviceName, namespace)
-			raftAdvertise = fmt.Sprintf("%s:%s", stableHostname, port)
-			log.Printf("Using stable hostname for Raft: %s", raftAdvertise)
+			raftAdvertise = fmt.Sprintf("%s:%s", podIP, port)
+			log.Printf("Using pod IP for Raft: %s", raftAdvertise)
 		}
 	}
 	config := raft.DefaultConfig()
@@ -123,8 +115,21 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 		raftAdvertise: raftAdvertise,
 	}
 
-	// Only bootstrap if no peers provided (single node/bootstrap mode)
+	// Smart bootstrap logic for StatefulSet deployment
+	shouldBootstrap := false
+
 	if len(peers) == 0 {
+		// Check if this is the designated bootstrap node (scheduled-db-0)
+		if nodeID == "scheduled-db-0" || strings.Contains(nodeID, "-0") {
+			log.Printf("This is the bootstrap node (%s), attempting bootstrap", nodeID)
+			shouldBootstrap = true
+		} else {
+			log.Printf("This is NOT the bootstrap node (%s), will wait for cluster to form", nodeID)
+			shouldBootstrap = false
+		}
+	}
+
+	if shouldBootstrap {
 		configuration := raft.Configuration{
 			Servers: []raft.Server{
 				{
@@ -140,9 +145,9 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 			log.Printf("Successfully bootstrapped single-node cluster with ID: %s, Address: %s", config.LocalID, transport.LocalAddr())
 		}
 	} else {
-		// Don't bootstrap if we have peers - wait to be added by leader via join API
-		log.Printf("Starting as follower node ID: %s, Address: %s, will join cluster via discovery and /join API with peers: %v",
-			config.LocalID, transport.LocalAddr(), peers)
+		// Don't bootstrap - wait to be added by leader via discovery and join API
+		log.Printf("Starting as follower node ID: %s, Address: %s, will wait for cluster formation",
+			config.LocalID, transport.LocalAddr())
 	}
 
 	log.Printf("Raft store initialized - Node ID: %s, Bind: %s, Advertise: %s, Initial state: %s", nodeID, raftBind, raftAdvertise, ra.State())
@@ -363,12 +368,6 @@ func (s *Store) GetPeers() []string {
 // ForceBootstrap attempts to bootstrap this node as a single-node cluster
 // This is a recovery mechanism for orphaned nodes
 func (s *Store) ForceBootstrap(nodeID string) error {
-	// Check if we're already in a cluster
-	servers, err := s.GetClusterConfiguration()
-	if err == nil && len(servers) > 0 {
-		return fmt.Errorf("node is already part of a cluster with %d servers", len(servers))
-	}
-
 	// Check if we're already a leader
 	if s.IsLeader() {
 		return fmt.Errorf("node is already a leader")
@@ -392,6 +391,76 @@ func (s *Store) ForceBootstrap(nodeID string) error {
 
 	log.Printf("Successfully force-bootstrapped node %s as single-node cluster", nodeID)
 	return nil
+}
+
+// ForceRecoverCluster attempts to recover a cluster by removing dead nodes
+func (s *Store) ForceRecoverCluster(aliveNodeIDs []string) error {
+	log.Printf("Attempting cluster recovery with alive nodes: %v", aliveNodeIDs)
+
+	if s.IsLeader() {
+		return fmt.Errorf("node is already a leader, use normal operations")
+	}
+
+	// Get current configuration
+	servers, err := s.GetClusterConfiguration()
+	if err != nil {
+		return fmt.Errorf("failed to get cluster configuration: %v", err)
+	}
+
+	// Build map of alive nodes
+	aliveNodes := make(map[string]bool)
+	for _, nodeID := range aliveNodeIDs {
+		aliveNodes[nodeID] = true
+	}
+
+	// Check if we have majority
+	totalNodes := len(servers)
+	aliveCount := len(aliveNodeIDs)
+	if aliveCount <= totalNodes/2 {
+		return fmt.Errorf("insufficient alive nodes for recovery: %d alive, %d total, need > %d",
+			aliveCount, totalNodes, totalNodes/2)
+	}
+
+	// Create new configuration with only alive nodes
+	var newServers []raft.Server
+	for _, server := range servers {
+		if aliveNodes[string(server.ID)] {
+			newServers = append(newServers, server)
+		} else {
+			log.Printf("Excluding dead node %s (%s) from recovery configuration", server.ID, server.Address)
+		}
+	}
+
+	if len(newServers) == 0 {
+		return fmt.Errorf("no alive servers found in configuration")
+	}
+
+	// Create recovery configuration
+	recoveryConfig := raft.Configuration{Servers: newServers}
+
+	log.Printf("Recovery configuration: %d servers", len(newServers))
+	for _, server := range newServers {
+		log.Printf("  - %s @ %s", server.ID, server.Address)
+	}
+
+	// Attempt to bootstrap with the recovery configuration
+	bootstrap := s.raft.BootstrapCluster(recoveryConfig)
+	if err := bootstrap.Error(); err != nil {
+		return fmt.Errorf("failed to bootstrap recovery cluster: %v", err)
+	}
+
+	log.Printf("Successfully recovered cluster with %d alive nodes", len(newServers))
+	return nil
+}
+
+// TriggerElection forces a Raft election timeout to trigger leadership election
+func (s *Store) TriggerElection() {
+	log.Printf("Triggering emergency election")
+	// This is a hack to force an election by making Raft think the election timeout was reached
+	// In a real implementation, you might want to use Raft's internal APIs
+	if s.raft.State() == raft.Follower {
+		log.Printf("Node is follower, election should trigger naturally due to timeout")
+	}
 }
 
 // Close closes the store

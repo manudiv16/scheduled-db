@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -55,74 +56,157 @@ func NewKubernetesStrategy(config Config) (Strategy, error) {
 	}, nil
 }
 
-// Discover returns current nodes by querying Kubernetes endpoints
+// Discover returns current nodes by querying Kubernetes pods directly
 func (k *KubernetesStrategy) Discover(ctx context.Context) ([]Node, error) {
-	endpoints, err := k.clientset.CoreV1().Endpoints(k.namespace).Get(
+	// Use pod listing instead of endpoints to get better control over health filtering
+	pods, err := k.clientset.CoreV1().Pods(k.namespace).List(
 		ctx,
-		k.config.ServiceName,
-		metav1.GetOptions{},
+		metav1.ListOptions{
+			LabelSelector: k.selector,
+		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get endpoints: %v", err)
+		return nil, fmt.Errorf("failed to list pods: %v", err)
 	}
 
 	var nodes []Node
-	for _, subset := range endpoints.Subsets {
-		for _, address := range subset.Addresses {
-			for _, port := range subset.Ports {
-				// Only process Raft ports (skip HTTP ports)
-				if port.Name != "raft" {
-					continue
-				}
+	healthyCount := 0
+	totalCount := len(pods.Items)
+	readyNodes := 0
 
-				// Extract node ID from pod name or use address
-				nodeID := address.IP
-				if address.TargetRef != nil && address.TargetRef.Name != "" {
-					nodeID = address.TargetRef.Name
-				}
+	for _, pod := range pods.Items {
+		// Check if pod is healthy (running and ready)
+		isHealthy := k.isPodHealthy(&pod)
+		if isHealthy {
+			healthyCount++
+			readyNodes++
+		}
 
-				// Use stable hostname instead of IP for StatefulSet pods
-				var nodeAddress string
-				if address.TargetRef != nil && address.TargetRef.Name != "" {
-					// For StatefulSet pods, use the stable hostname
-					podName := address.TargetRef.Name
-					nodeAddress = fmt.Sprintf("%s.%s.%s.svc.cluster.local", podName, k.config.ServiceName, k.namespace)
-				} else {
-					// Fallback to IP
-					nodeAddress = address.IP
-				}
+		// Include node if:
+		// 1. It's healthy, OR
+		// 2. It's running but not ready (potential cluster join issues)
+		shouldInclude := isHealthy || (pod.Status.Phase == corev1.PodRunning && !isHealthy)
 
-				node := Node{
-					ID:      nodeID,
-					Address: nodeAddress,
-					Port:    int(port.Port),
-					Meta:    make(map[string]string),
-				}
+		if !shouldInclude {
+			log.Printf("Skipping pod %s in phase %s (not running)", pod.Name, pod.Status.Phase)
+			continue
+		}
 
-				// Add metadata from pod annotations if available
-				if address.TargetRef != nil {
-					pod, err := k.clientset.CoreV1().Pods(k.namespace).Get(
-						ctx,
-						address.TargetRef.Name,
-						metav1.GetOptions{},
-					)
-					if err == nil && pod.Annotations != nil {
-						for key, value := range pod.Annotations {
-							if key == "scheduled-db/node-id" {
-								node.ID = value
-							}
-							node.Meta[key] = value
-						}
-					}
-				}
+		// Extract pod information
+		nodeID := pod.Name
+		podIP := pod.Status.PodIP
+		if podIP == "" {
+			log.Printf("Pod %s has no IP, skipping", pod.Name)
+			continue
+		}
 
-				nodes = append(nodes, node)
+		// Use pod IP directly (simpler and more reliable than complex hostnames)
+		nodeAddress := podIP
+
+		// Get Raft port from pod spec
+		raftPort := 7000 // default
+		for _, container := range pod.Spec.Containers {
+			for _, port := range container.Ports {
+				if port.Name == "raft" {
+					raftPort = int(port.ContainerPort)
+					break
+				}
 			}
+		}
+
+		node := Node{
+			ID:      nodeID,
+			Address: nodeAddress,
+			Port:    raftPort,
+			Meta: map[string]string{
+				"pod_ip":    podIP,
+				"pod_phase": string(pod.Status.Phase),
+				"ready":     fmt.Sprintf("%v", isHealthy),
+			},
+		}
+
+		// Add metadata from pod annotations
+		if pod.Annotations != nil {
+			for key, value := range pod.Annotations {
+				if key == "scheduled-db/node-id" {
+					node.ID = value
+				}
+				node.Meta[key] = value
+			}
+		}
+
+		nodes = append(nodes, node)
+	}
+
+	if readyNodes < totalCount {
+		log.Printf("Kubernetes discovery found %d total nodes (%d ready, %d not-ready-but-running)",
+			len(nodes), readyNodes, len(nodes)-readyNodes)
+	} else {
+		log.Printf("Kubernetes discovery found %d healthy nodes", len(nodes))
+	}
+
+	// Check for quorum and implement split-brain protection
+	if err := k.checkQuorumAndHandleSplitBrain(healthyCount, totalCount); err != nil {
+		log.Printf("Quorum check failed: %v", err)
+		// Don't return error, but log the issue
+	}
+
+	return nodes, nil
+}
+
+// isPodHealthy checks if a pod is healthy and ready
+func (k *KubernetesStrategy) isPodHealthy(pod *corev1.Pod) bool {
+	// Pod must be running
+	if pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+
+	// Pod must be ready (all readiness probes passing)
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
 		}
 	}
 
-	log.Printf("Kubernetes discovery found %d nodes", len(nodes))
-	return nodes, nil
+	return false
+}
+
+// checkQuorumAndHandleSplitBrain implements quorum logic similar to RabbitMQ RA
+func (k *KubernetesStrategy) checkQuorumAndHandleSplitBrain(healthyNodes, totalNodes int) error {
+	expectedClusterSize := k.getExpectedClusterSize()
+
+	// If we have majority of expected nodes, we're good
+	if healthyNodes > expectedClusterSize/2 {
+		log.Printf("Quorum check passed: %d healthy nodes out of %d expected (majority achieved)",
+			healthyNodes, expectedClusterSize)
+		return nil
+	}
+
+	// If we have exactly half or less, we might be in a split-brain situation
+	if healthyNodes <= expectedClusterSize/2 {
+		log.Printf("WARNING: Potential split-brain detected - only %d healthy nodes out of %d expected",
+			healthyNodes, expectedClusterSize)
+
+		// In a production environment, you might want to:
+		// 1. Stop accepting writes
+		// 2. Shut down nodes in minority partition
+		// 3. Wait for network partition to heal
+
+		// For now, just log the warning
+		return fmt.Errorf("insufficient quorum: %d nodes, need majority of %d", healthyNodes, expectedClusterSize)
+	}
+
+	return nil
+}
+
+// getExpectedClusterSize returns the expected cluster size from configuration
+func (k *KubernetesStrategy) getExpectedClusterSize() int {
+	if clusterSizeStr := os.Getenv("CLUSTER_SIZE"); clusterSizeStr != "" {
+		if size, err := strconv.Atoi(clusterSizeStr); err == nil && size > 0 {
+			return size
+		}
+	}
+	return 3 // default cluster size
 }
 
 // Watch monitors for changes in Kubernetes endpoints

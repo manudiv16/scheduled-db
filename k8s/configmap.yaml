@@ -12,7 +12,7 @@ data:
 
   # Raft Configuration
   RAFT_HOST: "0.0.0.0"
-  RAFT_ADVERTISE_HOST: ""  # Will be set to POD_IP in StatefulSet
+  RAFT_ADVERTISE_HOST: "" # Will be set to POD_IP in StatefulSet
   HTTP_HOST: "0.0.0.0"
 
   # Ports

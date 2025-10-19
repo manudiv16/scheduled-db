@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"scheduled-db/internal/api"
@@ -21,6 +24,7 @@ type App struct {
 	discoveryManager *discovery.DiscoveryManager
 	nodeID           string
 	useDiscovery     bool
+	shutdownSignal   chan os.Signal
 }
 
 type Config struct {
@@ -55,11 +59,22 @@ func NewApp(config *Config) (*App, error) {
 		}
 	}
 
+	// Create shutdown callback for discovery manager
+	shutdownCallback := func() error {
+		log.Printf("Discovery manager requesting application shutdown")
+		// This will be called by split-brain detection to shutdown the app
+		go func() {
+			time.Sleep(100 * time.Millisecond) // Small delay to allow log to be written
+			os.Exit(42)                        // Exit code for split-brain prevention
+		}()
+		return nil
+	}
+
 	// Create discovery manager only if discovery is enabled
 	var discoveryManager *discovery.DiscoveryManager
 	useDiscovery := config.DiscoveryConfig.Strategy != ""
 	if useDiscovery {
-		discoveryManager, err = discovery.NewDiscoveryManager(config.DiscoveryConfig, jobStore)
+		discoveryManager, err = discovery.NewDiscoveryManager(config.DiscoveryConfig, jobStore, shutdownCallback)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create discovery manager: %v", err)
 		}
@@ -83,6 +98,10 @@ func NewApp(config *Config) (*App, error) {
 		Handler: router,
 	}
 
+	// Setup graceful shutdown signal handling
+	shutdownSignal := make(chan os.Signal, 1)
+	signal.Notify(shutdownSignal, syscall.SIGTERM, syscall.SIGINT)
+
 	app := &App{
 		store:            jobStore,
 		slotQueue:        slotQueue,
@@ -91,6 +110,7 @@ func NewApp(config *Config) (*App, error) {
 		discoveryManager: discoveryManager,
 		nodeID:           config.NodeID,
 		useDiscovery:     useDiscovery,
+		shutdownSignal:   shutdownSignal,
 	}
 
 	// Setup event handler for job changes
@@ -113,6 +133,9 @@ func NewApp(config *Config) (*App, error) {
 
 	// Setup leadership change handler for all nodes (needed for high availability)
 	go app.monitorLeadership()
+
+	// Setup graceful shutdown handler
+	go app.handleGracefulShutdown()
 
 	return app, nil
 }
@@ -211,6 +234,56 @@ func (a *App) Stop() error {
 	}
 
 	return nil
+}
+
+// handleGracefulShutdown implements graceful leader resignation on SIGTERM
+func (a *App) handleGracefulShutdown() {
+	sig := <-a.shutdownSignal
+	log.Printf("[GRACEFUL SHUTDOWN] Received signal: %v", sig)
+
+	if a.store.IsLeader() {
+		log.Printf("[GRACEFUL SHUTDOWN] I am the leader - performing graceful resignation")
+
+		// Step 1: Stop accepting new work
+		log.Printf("[GRACEFUL SHUTDOWN] Stopping worker to prevent new job processing")
+		a.worker.Stop()
+
+		// Step 2: Remove myself from cluster configuration
+		log.Printf("[GRACEFUL SHUTDOWN] Removing myself from cluster configuration")
+		if err := a.store.RemovePeer(a.nodeID); err != nil {
+			log.Printf("[GRACEFUL SHUTDOWN] Failed to remove self from cluster: %v", err)
+		} else {
+			log.Printf("[GRACEFUL SHUTDOWN] Successfully removed self from cluster")
+		}
+
+		// Step 3: Wait a bit for followers to detect leader loss and start election
+		log.Printf("[GRACEFUL SHUTDOWN] Waiting for followers to start election...")
+		time.Sleep(2 * time.Second)
+
+		// Step 4: Step down from leadership
+		log.Printf("[GRACEFUL SHUTDOWN] Stepping down from leadership")
+		future := a.store.GetRaft().LeadershipTransfer()
+		if err := future.Error(); err != nil {
+			log.Printf("[GRACEFUL SHUTDOWN] Leadership transfer failed: %v", err)
+		} else {
+			log.Printf("[GRACEFUL SHUTDOWN] Leadership transfer initiated")
+		}
+
+		// Step 5: Wait a bit more for transition to complete
+		time.Sleep(1 * time.Second)
+	} else {
+		log.Printf("[GRACEFUL SHUTDOWN] I am a follower - performing normal shutdown")
+	}
+
+	// Final shutdown
+	log.Printf("[GRACEFUL SHUTDOWN] Performing final shutdown")
+	if err := a.Stop(); err != nil {
+		log.Printf("[GRACEFUL SHUTDOWN] Error during shutdown: %v", err)
+		os.Exit(1)
+	}
+
+	log.Printf("[GRACEFUL SHUTDOWN] Shutdown completed successfully")
+	os.Exit(0)
 }
 
 func (a *App) monitorLeadership() {

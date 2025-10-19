@@ -8,7 +8,7 @@ metadata:
     component: statefulset
 spec:
   serviceName: scheduled-db
-  replicas: 3
+  replicas: 5
   selector:
     matchLabels:
       app: scheduled-db
@@ -33,88 +33,88 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
       containers:
-      - name: scheduled-db
-        image: scheduled-db:v4
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 7000
-          name: raft
-          protocol: TCP
-        - containerPort: 8080
-          name: http
-          protocol: TCP
-        env:
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        - name: NODE_ID
-          value: "$(POD_NAME)"
-        - name: RAFT_ADVERTISE_HOST
-          value: "$(POD_IP)"
-        envFrom:
-        - configMapRef:
-            name: scheduled-db-config
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 3
-        startupProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 10
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 30
-        volumeMounts:
-        - name: data
-          mountPath: /data
-        securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
-          capabilities:
-            drop:
-            - ALL
+        - name: scheduled-db
+          image: scheduled-db:v12
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7000
+              name: raft
+              protocol: TCP
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_ID
+              value: "$(POD_NAME)"
+            - name: RAFT_ADVERTISE_HOST
+              value: "$(POD_IP)"
+          envFrom:
+            - configMapRef:
+                name: scheduled-db-config
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
       terminationGracePeriodSeconds: 30
       dnsPolicy: ClusterFirst
       restartPolicy: Always
   volumeClaimTemplates:
-  - metadata:
-      name: data
-      labels:
-        app: scheduled-db
-    spec:
-      accessModes:
-      - ReadWriteOnce
-      resources:
-        requests:
-          storage: 1Gi
-      storageClassName: standard
+    - metadata:
+        name: data
+        labels:
+          app: scheduled-db
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: standard
