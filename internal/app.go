@@ -1,7 +1,5 @@
 package internal
 
-import (
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -9,8 +7,6 @@ import (
 	"syscall"
 	"time"
 
-	"scheduled-db/internal/api"
-	"scheduled-db/internal/discovery"
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/slots"
 	"scheduled-db/internal/store"
@@ -51,16 +47,12 @@ func NewApp(config *Config) (*App, error) {
 		timeout = 5 * time.Second // Shorter timeout for joining nodes
 	}
 
-	if err := jobStore.WaitForLeader(timeout); err != nil {
-		if len(config.Peers) > 0 {
 			logger.Warn("no leader found yet, will attempt join after discovery starts")
 		} else {
 			return nil, fmt.Errorf("failed to wait for leader: %v", err)
 		}
 	}
 
-	// Create shutdown callback for discovery manager
-	shutdownCallback := func() error {
 		logger.Error("split-brain detected, shutting down node")
 		// This will be called by split-brain detection to shutdown the app
 		go func() {
@@ -118,8 +110,6 @@ func NewApp(config *Config) (*App, error) {
 		if jobStore.IsLeader() {
 			switch event {
 			case "created":
-				if job != nil {
-					slotQueue.AddJob(job)
 					logger.Debug("added job %s to slot queue", job.ID)
 				}
 			case "deleted":
@@ -139,8 +129,6 @@ func NewApp(config *Config) (*App, error) {
 
 	return app, nil
 }
-
-func (a *App) Start() error {
 	logger.Info("starting node %s", a.nodeID)
 
 	// Start discovery manager only if enabled
@@ -149,8 +137,6 @@ func (a *App) Start() error {
 			return fmt.Errorf("failed to start discovery manager: %v", err)
 		}
 
-		// If we don't have a leader yet and have peers, try to trigger join via discovery
-		if !a.store.IsLeader() && a.store.GetLeader() == "" && len(a.store.GetPeers()) > 0 {
 			logger.Debug("no leader found, discovery will help coordinate cluster join")
 		}
 	}
@@ -160,8 +146,6 @@ func (a *App) Start() error {
 		a.becomeLeader()
 	}
 
-	// Start HTTP server
-	go func() {
 		logger.Info("starting HTTP server on %s", a.httpServer.Addr)
 		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("HTTP server error: %v", err)
@@ -170,8 +154,6 @@ func (a *App) Start() error {
 
 	return nil
 }
-
-func (a *App) Stop() error {
 	logger.Info("stopping application...")
 
 	// Use shorter timeouts and force shutdown if needed
@@ -180,8 +162,6 @@ func (a *App) Stop() error {
 	go func() {
 		defer func() { done <- true }()
 
-		// Stop discovery manager first (with short timeout) - only if enabled
-		if a.useDiscovery {
 			logger.Info("stopping discovery manager...")
 			discoveryDone := make(chan error, 1)
 			go func() {
@@ -189,8 +169,6 @@ func (a *App) Stop() error {
 			}()
 
 			select {
-			case err := <-discoveryDone:
-				if err != nil {
 					logger.Error("error stopping discovery manager: %v", err)
 				}
 			case <-time.After(10 * time.Second):
@@ -216,8 +194,6 @@ func (a *App) Stop() error {
 		}()
 
 		select {
-		case err := <-storeDone:
-			if err != nil {
 				logger.Error("error closing store: %v", err)
 			}
 		case <-time.After(10 * time.Second):
@@ -226,8 +202,6 @@ func (a *App) Stop() error {
 	}()
 
 	// Force exit after 10 seconds total
-	select {
-	case <-done:
 		logger.Info("all components stopped successfully")
 	case <-time.After(30 * time.Second):
 		logger.Warn("shutdown timeout reached, forcing exit")
@@ -237,8 +211,6 @@ func (a *App) Stop() error {
 }
 
 // handleGracefulShutdown implements graceful leader resignation on SIGTERM
-func (a *App) handleGracefulShutdown() {
-	sig := <-a.shutdownSignal
 	logger.Info("[GRACEFUL SHUTDOWN] received signal: %v", sig)
 
 	if a.store.IsLeader() {
@@ -289,8 +261,6 @@ func (a *App) handleGracefulShutdown() {
 func (a *App) monitorLeadership() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-
-	wasLeader := a.store.IsLeader()
 	logger.Debug("starting leadership monitoring, initial state: isLeader=%v", wasLeader)
 	noLeaderCount := 0
 
@@ -298,8 +268,6 @@ func (a *App) monitorLeadership() {
 		isLeader := a.store.IsLeader()
 		currentLeader := a.store.GetLeader()
 
-		if !wasLeader && isLeader {
-			// Became leader
 			logger.ClusterInfo("node %s became leader", a.nodeID)
 			a.becomeLeader()
 			noLeaderCount = 0
@@ -310,8 +278,6 @@ func (a *App) monitorLeadership() {
 		}
 
 		// Check for orphaned cluster situation
-		if currentLeader == "" && !isLeader {
-			noLeaderCount++
 			if noLeaderCount > 60 { // Wait 60 seconds without leader
 				servers, err := a.store.GetClusterConfiguration()
 				if err == nil && len(servers) == 0 {
@@ -343,8 +309,6 @@ func (a *App) monitorLeadership() {
 				}
 				clusterInfo = fmt.Sprintf("servers=[%s]", strings.Join(serverList, ", "))
 			}
-
-			raftState := a.store.GetRaftState()
 			logger.Debug("node %s status: isLeader=%v, currentLeader=%s, raftState=%s, cluster=%s",
 				a.nodeID, isLeader, currentLeader, raftState, clusterInfo)
 		}
@@ -352,8 +316,6 @@ func (a *App) monitorLeadership() {
 		wasLeader = isLeader
 	}
 }
-
-func (a *App) becomeLeader() {
 	logger.ClusterInfo("node %s becoming leader - starting worker", a.nodeID)
 
 	// Start worker (slots are already loaded from persistent store)

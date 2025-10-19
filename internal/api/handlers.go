@@ -1,8 +1,6 @@
 package api
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -84,8 +82,6 @@ func (h *Handlers) buildAddressMapping() {
 			if !strings.HasPrefix(httpAddr, "http://") && !strings.HasPrefix(httpAddr, "https://") {
 				httpAddr = "http://" + httpAddr
 			}
-
-			h.addressMap[raftAddr] = httpAddr
 			logger.Debug("mapped Raft %s -> HTTP %s", raftAddr, httpAddr)
 		}
 	}
@@ -97,8 +93,6 @@ func (h *Handlers) buildAddressMapping() {
 }
 
 // createDefaultMapping creates standard development mapping
-func (h *Handlers) createDefaultMapping() {
-	// No default mappings - all ports should come from environment variables
 	logger.Debug("no default port mappings - using environment variables only")
 }
 
@@ -183,8 +177,6 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(job); err != nil {
 		logger.Error("failed to encode job response: %v", err)
 	}
 	logger.Info("created job %s via API", job.ID)
@@ -205,8 +197,6 @@ func (h *Handlers) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(job); err != nil {
 		logger.Error("failed to encode job response: %v", err)
 	}
 }
@@ -237,8 +227,6 @@ func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete job: %v", err))
 		return
 	}
-
-	w.WriteHeader(http.StatusNoContent)
 	logger.Info("deleted job %s via API", id)
 }
 
@@ -255,8 +243,6 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 		response.Leader = h.store.GetLeader()
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logger.Error("failed to encode health response: %v", err)
 	}
 }
@@ -287,8 +273,6 @@ func (h *Handlers) ClusterDebug(w http.ResponseWriter, r *http.Request) {
 		JobCount:  len(jobs),
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logger.Error("failed to encode cluster debug response: %v", err)
 	}
 }
@@ -344,8 +328,6 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 	buf := make([]byte, 1024)
 	for {
 		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			if _, err := w.Write(buf[:n]); err != nil {
 				logger.Error("failed to write proxy response: %v", err)
 				break
 			}
@@ -353,8 +335,6 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
-	}
-
 	logger.Debug("proxied %s %s to leader %s", r.Method, r.URL.Path, leader)
 }
 
@@ -388,8 +368,6 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logger.Error("failed to encode join response: %v", err)
 	}
 	logger.Info("added node %s (%s) to cluster via join API", req.NodeID, req.Address)
@@ -397,8 +375,6 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(ErrorResponse{Error: message}); err != nil {
 		logger.Error("failed to encode error response: %v", err)
 	}
 }
