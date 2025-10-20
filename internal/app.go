@@ -355,7 +355,7 @@ func (a *App) becomeLeader() {
 	// Start worker (slots are already loaded from persistent store)
 	a.worker.Start()
 
-	logger.ClusterInfo("node %s is now leader: worker started", a.nodeID)
+	logger.Info("🎯 CLUSTER READY: Node %s is leader, cluster fully operational", a.nodeID)
 }
 
 func (a *App) loseLeadership() {

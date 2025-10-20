@@ -1,6 +1,9 @@
 package main
 
 import (
+	"flag"
+	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"strconv"
@@ -8,7 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"scheduled-db/internal/logger"
+	"scheduled-db/internal"
+	"scheduled-db/internal/discovery"
 )
 
 func main() {

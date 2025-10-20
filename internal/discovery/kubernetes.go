@@ -18,10 +18,11 @@ import (
 
 // KubernetesStrategy implements discovery using Kubernetes API
 type KubernetesStrategy struct {
-	config    Config
-	clientset *kubernetes.Clientset
-	namespace string
-	selector  string
+	config           Config
+	clientset        *kubernetes.Clientset
+	namespace        string
+	selector         string
+	lastQuorumStatus string
 }
 
 // NewKubernetesStrategy creates a new Kubernetes discovery strategy
@@ -178,13 +179,21 @@ func (k *KubernetesStrategy) checkQuorumAndHandleSplitBrain(healthyNodes, totalN
 
 	// If we have majority of expected nodes, we're good
 	if healthyNodes > expectedClusterSize/2 {
-		logger.Debug("quorum check passed: %d healthy nodes out of %d expected (majority achieved)",
-			healthyNodes, expectedClusterSize)
+		// Log cluster stabilization on first quorum achievement
+		if k.lastQuorumStatus != "healthy" {
+			logger.Info("✅ CLUSTER STABILIZED: %d/%d nodes healthy, quorum established", 
+				healthyNodes, expectedClusterSize)
+			k.lastQuorumStatus = "healthy"
+		} else {
+			logger.Debug("quorum check passed: %d healthy nodes out of %d expected (majority achieved)",
+				healthyNodes, expectedClusterSize)
+		}
 		return nil
 	}
 
 	// If we have exactly half or less, we might be in a split-brain situation
 	if healthyNodes <= expectedClusterSize/2 {
+		k.lastQuorumStatus = "unhealthy"
 		logger.Warn("WARNING: potential split-brain detected - only %d healthy nodes out of %d expected",
 			healthyNodes, expectedClusterSize)
 
