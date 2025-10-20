@@ -1,10 +1,13 @@
 package store
 
 import (
+	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"scheduled-db/internal/logger"
 
 	"github.com/hashicorp/raft"
@@ -41,6 +44,8 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 
 		// Use pod IP instead of complex hostnames
 		_, port, err := net.SplitHostPort(raftAdvertise)
+		if err == nil {
+			raftAdvertise = net.JoinHostPort(podIP, port)
 			logger.Debug("Using pod IP for Raft: %s", raftAdvertise)
 		}
 	}
@@ -114,6 +119,7 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 	shouldBootstrap := false
 
 	if len(peers) == 0 {
+		if nodeID == "scheduled-db-0" || nodeID == "node-0" || strings.HasSuffix(nodeID, "-0") {
 			logger.Debug("This is the bootstrap node (%s), attempting bootstrap", nodeID)
 			shouldBootstrap = true
 		} else {
@@ -131,6 +137,8 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 				},
 			},
 		}
+		bootstrap := ra.BootstrapCluster(configuration)
+		if err := bootstrap.Error(); err != nil {
 			logger.Debug("Failed to bootstrap cluster: %v", err)
 		} else {
 			logger.Debug("Successfully bootstrapped single-node cluster with ID: %s, Address: %s", config.LocalID, transport.LocalAddr())
@@ -350,6 +358,8 @@ func (s *Store) AddPeer(id, address string) error {
 	}
 
 	config := future.Configuration()
+	for _, server := range config.Servers {
+		if server.ID == serverID && server.Address == serverAddr {
 			logger.Debug("Peer %s (%s) already exists in cluster", id, address)
 			return nil // Already exists, not an error
 		}
@@ -359,6 +369,7 @@ func (s *Store) AddPeer(id, address string) error {
 	addFuture := s.raft.AddVoter(serverID, serverAddr, 0, 0)
 	if err := addFuture.Error(); err != nil {
 		return fmt.Errorf("failed to add peer: %v", err)
+	}
 	logger.Debug("Successfully added peer %s (%s) to Raft cluster", id, address)
 	return nil
 }
@@ -373,6 +384,7 @@ func (s *Store) RemovePeer(id string) error {
 	future := s.raft.RemoveServer(serverID, 0, 0)
 	if err := future.Error(); err != nil {
 		return fmt.Errorf("failed to remove peer: %v", err)
+	}
 	logger.Debug("Successfully removed peer %s from Raft cluster", id)
 	return nil
 }
@@ -430,6 +442,7 @@ func (s *Store) ForceBootstrap(nodeID string) error {
 	bootstrap := s.raft.BootstrapCluster(configuration)
 	if err := bootstrap.Error(); err != nil {
 		return fmt.Errorf("failed to force bootstrap: %v", err)
+	}
 	logger.Debug("Successfully force-bootstrapped node %s as single-node cluster", nodeID)
 	return nil
 }
@@ -475,6 +488,9 @@ func (s *Store) ForceRecoverCluster(aliveNodeIDs []string) error {
 	}
 
 	// Create recovery configuration
+	recoveryConfig := raft.Configuration{
+		Servers: newServers,
+	}
 	logger.Debug("Recovery configuration: %d servers", len(newServers))
 	for _, server := range newServers {
 		logger.Debug("  - %s @ %s", server.ID, server.Address)
@@ -484,6 +500,7 @@ func (s *Store) ForceRecoverCluster(aliveNodeIDs []string) error {
 	bootstrap := s.raft.BootstrapCluster(recoveryConfig)
 	if err := bootstrap.Error(); err != nil {
 		return fmt.Errorf("failed to bootstrap recovery cluster: %v", err)
+	}
 	logger.Debug("Successfully recovered cluster with %d alive nodes", len(newServers))
 	return nil
 }

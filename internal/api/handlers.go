@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -93,6 +95,7 @@ func (h *Handlers) buildAddressMapping() {
 }
 
 // createDefaultMapping creates standard development mapping
+func (h *Handlers) createDefaultMapping() {
 	logger.Debug("no default port mappings - using environment variables only")
 }
 
@@ -177,6 +180,7 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(job); err != nil {
 		logger.Error("failed to encode job response: %v", err)
 	}
 	logger.Info("created job %s via API", job.ID)
@@ -197,6 +201,8 @@ func (h *Handlers) GetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(job); err != nil {
 		logger.Error("failed to encode job response: %v", err)
 	}
 }
@@ -243,6 +249,8 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 		response.Leader = h.store.GetLeader()
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logger.Error("failed to encode health response: %v", err)
 	}
 }
@@ -273,6 +281,8 @@ func (h *Handlers) ClusterDebug(w http.ResponseWriter, r *http.Request) {
 		JobCount:  len(jobs),
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logger.Error("failed to encode cluster debug response: %v", err)
 	}
 }
@@ -328,6 +338,8 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 	buf := make([]byte, 1024)
 	for {
 		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			if _, err := w.Write(buf[:n]); err != nil {
 				logger.Error("failed to write proxy response: %v", err)
 				break
 			}
@@ -335,6 +347,7 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
+	}
 	logger.Debug("proxied %s %s to leader %s", r.Method, r.URL.Path, leader)
 }
 
@@ -368,6 +381,7 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logger.Error("failed to encode join response: %v", err)
 	}
 	logger.Info("added node %s (%s) to cluster via join API", req.NodeID, req.Address)
@@ -375,6 +389,8 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {
 		logger.Error("failed to encode error response: %v", err)
 	}
 }

@@ -8,7 +8,7 @@ metadata:
     component: statefulset
 spec:
   serviceName: scheduled-db
-  replicas: 5
+  replicas: 3
   selector:
     matchLabels:
       app: scheduled-db
@@ -28,13 +28,12 @@ spec:
     spec:
       serviceAccountName: scheduled-db
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
+        runAsNonRoot: false
+        runAsUser: 0
         fsGroup: 1000
       containers:
         - name: scheduled-db
-          image: docker.io/scheduled-db:9543f0d-dirty
+          image: scheduled-db:v20
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 7000
@@ -99,10 +98,7 @@ spec:
               mountPath: /data
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop:
-                - ALL
+            readOnlyRootFilesystem: false
       terminationGracePeriodSeconds: 30
       dnsPolicy: ClusterFirst
       restartPolicy: Always

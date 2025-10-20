@@ -1,8 +1,6 @@
 package main
 
 import (
-	"flag"
-	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
@@ -10,8 +8,6 @@ import (
 	"syscall"
 	"time"
 
-	"scheduled-db/internal"
-	"scheduled-db/internal/discovery"
 	"scheduled-db/internal/logger"
 )
 
