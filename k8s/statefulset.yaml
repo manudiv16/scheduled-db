@@ -23,8 +23,8 @@ spec:
         app: scheduled-db
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/health"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: scheduled-db
       securityContext:
@@ -41,6 +41,9 @@ spec:
               protocol: TCP
             - containerPort: 8080
               name: http
+              protocol: TCP
+            - containerPort: 9090
+              name: metrics
               protocol: TCP
           env:
             - name: POD_NAME
