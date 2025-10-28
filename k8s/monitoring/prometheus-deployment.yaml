@@ -111,6 +111,7 @@ spec:
             - '--web.console.templates=/etc/prometheus/consoles'
             - '--web.enable-lifecycle'
             - '--web.enable-admin-api'
+            - '--web.enable-remote-write-receiver'
             - '--log.level=info'
             - '--query.max-concurrency=20'
             - '--query.max-samples=50000000'

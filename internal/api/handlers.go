@@ -186,18 +186,26 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fmt.Printf("DEBUG: About to create job in store: %s\n", job.ID)
 	if err := h.store.CreateJob(job); err != nil {
+		fmt.Printf("DEBUG: Failed to create job in store: %v\n", err)
 		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create job: %v", err))
 		return
 	}
+	fmt.Printf("DEBUG: Job created successfully in store: %s\n", job.ID)
 	
 	// Record job creation metrics
 	if metrics.GlobalPrometheusMetrics != nil {
 		metrics.GlobalPrometheusMetrics.JobsTotal.Inc()
 		metrics.GlobalPrometheusMetrics.JobsActive.Inc()
 	}
-	if metrics.GlobalJobInstrumentation != nil {
-		metrics.GlobalJobInstrumentation.RecordJobCreated(r.Context(), job)
+	
+	// Record metrics directly using global metrics instance
+	if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
+		fmt.Printf("DEBUG: Recording job created directly: %s, type: %s\n", job.ID, job.Type)
+		globalMetrics.IncrementJobsCreated(r.Context(), string(job.Type))
+	} else {
+		fmt.Printf("DEBUG: globalMetrics is nil!\n")
 	}
 	
 	w.Header().Set("Content-Type", "application/json")

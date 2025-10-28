@@ -23,7 +23,6 @@ type App struct {
 	slotQueue        *slots.PersistentSlotQueue
 	worker           *slots.Worker
 	httpServer       *http.Server
-	metricsServer    *http.Server
 	discoveryManager *discovery.DiscoveryManager
 	nodeID           string
 	useDiscovery     bool
@@ -53,8 +52,8 @@ func NewApp(config *Config) (*App, error) {
 		MetricsPath:    "/metrics",
 	}
 
-	// Setup metrics and start metrics server
-	_, metricsServer, cleanup, err := metrics.InitializeWithPrometheus(ctx, metricsConfig)
+	// Setup metrics with OTLP only
+	_, cleanup, err := metrics.InitializeWithOTLP(ctx, metricsConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize metrics: %v", err)
 	}
@@ -127,7 +126,6 @@ func NewApp(config *Config) (*App, error) {
 		slotQueue:        slotQueue,
 		worker:           worker,
 		httpServer:       httpServer,
-		metricsServer:    metricsServer,
 		discoveryManager: discoveryManager,
 		nodeID:           config.NodeID,
 		useDiscovery:     useDiscovery,
@@ -234,14 +232,6 @@ func (a *App) Stop() error {
 		logger.Info("force closing HTTP server...")
 		if err := a.httpServer.Close(); err != nil {
 			logger.Error("error force closing HTTP server: %v", err)
-		}
-
-		// Stop metrics server
-		logger.Info("stopping metrics server...")
-		if a.metricsServer != nil {
-			if err := a.metricsServer.Close(); err != nil {
-				logger.Error("error closing metrics server: %v", err)
-			}
 		}
 
 		// Close Raft store with timeout

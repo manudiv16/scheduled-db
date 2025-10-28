@@ -3,15 +3,12 @@ package metrics
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
-	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 )
@@ -68,17 +65,10 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 		return nil, nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}
 
-	// Also create Prometheus exporter for direct metrics endpoint
-	promExporter, err := prometheus.New()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create prometheus exporter: %w", err)
-	}
-
-	// Create meter provider with both exporters
+	// Create meter provider with OTLP exporter only
 	meterProvider := metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(otlpExporter, metric.WithInterval(15*time.Second))),
-		metric.WithReader(promExporter),
 		metric.WithView(
 			// Add custom views for better histograms
 			metric.NewView(
@@ -130,51 +120,19 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 	return meterProvider, cleanup, nil
 }
 
-// StartMetricsServer starts an HTTP server to serve Prometheus metrics
-func StartMetricsServer(config *Config) *http.Server {
-	mux := http.NewServeMux()
-
-	// Add Prometheus metrics endpoint
-	mux.Handle(config.MetricsPath, promhttp.Handler())
-
-	// Add health endpoint for metrics server
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok","service":"metrics"}`))
-	})
-
-	server := &http.Server{
-		Addr:         fmt.Sprintf(":%d", config.MetricsPort),
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	go func() {
-		fmt.Printf("Starting metrics server on port %d\n", config.MetricsPort)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Printf("Metrics server error: %v\n", err)
-		}
-	}()
-
-	return server
-}
-
-// InitializeWithPrometheus sets up OpenTelemetry with Prometheus and starts metrics server
-func InitializeWithPrometheus(ctx context.Context, config *Config) (*Metrics, *http.Server, func(), error) {
+// InitializeWithOTLP sets up OpenTelemetry with OTLP exporter only
+func InitializeWithOTLP(ctx context.Context, config *Config) (*Metrics, func(), error) {
 	// Setup OpenTelemetry
 	_, cleanup, err := Setup(ctx, config)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to setup OpenTelemetry: %w", err)
+		return nil, nil, fmt.Errorf("failed to setup OpenTelemetry: %w", err)
 	}
 
 	// Create metrics instance
 	metrics, err := NewMetrics()
 	if err != nil {
 		cleanup()
-		return nil, nil, nil, fmt.Errorf("failed to create metrics: %w", err)
+		return nil, nil, fmt.Errorf("failed to create metrics: %w", err)
 	}
 
 	fmt.Printf("✅ Metrics instance created successfully\n")
@@ -182,42 +140,50 @@ func InitializeWithPrometheus(ctx context.Context, config *Config) (*Metrics, *h
 	// Initialize global instrumentation with the same metrics instance
 	if err := initializeGlobalInstrumentationWithMetrics(metrics, config.NodeID); err != nil {
 		cleanup()
-		return nil, nil, nil, fmt.Errorf("failed to initialize global instrumentation: %w", err)
+		return nil, nil, fmt.Errorf("failed to initialize global instrumentation: %w", err)
 	}
 
 	fmt.Printf("✅ Global instrumentation initialized successfully\n")
 
-	// Initialize native Prometheus metrics for immediate visibility
-	InitializePrometheusMetrics()
-	fmt.Printf("✅ Prometheus metrics initialized\n")
-
-	// Start periodic metrics updater
-	go startPeriodicMetricsUpdater()
-	fmt.Printf("✅ Periodic metrics updater started\n")
-
-	// Test metrics by creating a simple counter
+	// Initialize all metrics with 0 values so they appear in OpenTelemetry
 	if metrics.JobsTotal != nil {
-		metrics.JobsTotal.Add(ctx, 0) // Initialize the metric
-		fmt.Printf("✅ Test metric initialized\n")
+		metrics.JobsTotal.Add(ctx, 0)
+		metrics.JobsExecuted.Add(ctx, 0) 
+		metrics.JobsFailed.Add(ctx, 0)
+		metrics.JobsDeleted.Add(ctx, 0)
+		metrics.JobsActive.Add(ctx, 0)
+		metrics.JobsScheduled.Add(ctx, 0)
+		
+		metrics.SlotsTotal.Add(ctx, 0)
+		metrics.SlotsActive.Add(ctx, 0)
+		metrics.SlotsProcessed.Add(ctx, 0)
+		
+		metrics.WorkerActive.Add(ctx, 1) // Worker is active
+		metrics.WorkerErrors.Add(ctx, 0)
+		
+		metrics.ClusterNodes.Add(ctx, 5) // Current cluster size
+		metrics.ClusterLeaderChanges.Add(ctx, 0)
+		metrics.ClusterJoinEvents.Add(ctx, 0)
+		metrics.ClusterLeaveEvents.Add(ctx, 0)
+		metrics.RaftOperations.Add(ctx, 0)
+		metrics.RaftErrors.Add(ctx, 0)
+		metrics.RaftLeaderElections.Add(ctx, 0)
+		
+		metrics.HTTPRequests.Add(ctx, 0)
+		metrics.HTTPErrors.Add(ctx, 0)
+		metrics.HTTPProxyRequests.Add(ctx, 0)
+		
+		metrics.DiscoveryEvents.Add(ctx, 0)
+		metrics.DiscoveryErrors.Add(ctx, 0)
+		metrics.DiscoveryOperations.Add(ctx, 0)
+		
+		metrics.WebhookRequests.Add(ctx, 0)
+		metrics.WebhookErrors.Add(ctx, 0)
+		
+		fmt.Printf("✅ All metrics initialized\n")
 	}
 
-	// Start metrics server
-	server := StartMetricsServer(config)
-
-	// Enhanced cleanup function
-	enhancedCleanup := func() {
-		// Shutdown metrics server
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			fmt.Printf("Error shutting down metrics server: %v\n", err)
-		}
-
-		// Cleanup OpenTelemetry
-		cleanup()
-	}
-
-	return metrics, server, enhancedCleanup, nil
+	return metrics, cleanup, nil
 }
 
 // initializeGlobalInstrumentationWithMetrics initializes global instrumentation with provided metrics
@@ -235,34 +201,6 @@ func initializeGlobalInstrumentationWithMetrics(metrics *Metrics, nodeID string)
 	GlobalSystemInstrumentation = NewSystemInstrumentation(metrics)
 
 	return nil
-}
-
-// startPeriodicMetricsUpdater updates cluster and system metrics periodically
-func startPeriodicMetricsUpdater() {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		updateClusterMetrics()
-	}
-}
-
-// updateClusterMetrics updates cluster-related metrics
-func updateClusterMetrics() {
-	if GlobalPrometheusMetrics == nil {
-		return
-	}
-
-	// Cluster nodes count will be updated dynamically by discovery
-	// GlobalPrometheusMetrics.ClusterNodes.Set() - handled elsewhere
-	
-	// Update worker active status
-	GlobalPrometheusMetrics.WorkerActive.Set(1)
-}
-
-// GetPrometheusMetrics returns the Prometheus metrics handler
-func GetPrometheusMetrics() http.Handler {
-	return promhttp.Handler()
 }
 
 // HealthCheck represents the health status of the metrics system

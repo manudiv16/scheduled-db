@@ -10,9 +10,8 @@ resources:
   - prometheus-config.yaml
   - prometheus-deployment.yaml
 
-  # Grafana
-  - grafana-config.yaml
-  - grafana-deployment.yaml
+  # Grafana Operator
+  - grafana-resources.yaml
 
   # OpenTelemetry Collector
   - otel-collector.yaml
@@ -31,8 +30,6 @@ namespace: default
 images:
   - name: prom/prometheus
     newTag: v2.47.0
-  - name: grafana/grafana
-    newTag: "10.1.0"
   - name: otel/opentelemetry-collector-contrib
     newTag: 0.89.0
 
@@ -76,21 +73,18 @@ patches:
 
   # Configure Grafana with additional environment variables
   - target:
-      group: apps
-      version: v1
-      kind: Deployment
+      group: integreatly.org
+      version: v1beta1
+      kind: Grafana
       name: grafana
     patch: |-
       - op: add
-        path: /spec/template/spec/containers/0/env/-
+        path: /spec/config/feature_toggles
         value:
-          name: GF_FEATURE_TOGGLES_ENABLE
-          value: "alertingBigTransactions"
+          enable: "alertingBigTransactions"
 
 replicas:
   - name: prometheus
-    count: 1
-  - name: grafana
     count: 1
   - name: otel-collector
     count: 1

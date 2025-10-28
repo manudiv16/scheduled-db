@@ -276,9 +276,6 @@ func SetupInstrumentedRouter(handlers *InstrumentedHandlers, metrics *Metrics) *
 		w.WriteHeader(http.StatusNotImplemented)
 	}).Methods("POST")
 
-	// Add metrics endpoint
-	router.Handle("/metrics", GetPrometheusMetrics()).Methods("GET")
-
 	return router
 }
 
@@ -345,7 +342,7 @@ func SetupApplicationWithMetrics(config *Config, nodeID, discoveryStrategy strin
 	}
 
 	// Setup OpenTelemetry and Prometheus
-	metrics, _, cleanup, err := InitializeWithPrometheus(ctx, metricsConfig)
+	metrics, cleanup, err := InitializeWithOTLP(ctx, metricsConfig)
 	if err != nil {
 		return err
 	}

@@ -24,6 +24,13 @@ func SetGlobalMetrics(metrics *Metrics) {
 	globalMetrics = metrics
 }
 
+// GetGlobalMetrics returns the global metrics instance
+func GetGlobalMetrics() *Metrics {
+	globalMutex.RLock()
+	defer globalMutex.RUnlock()
+	return globalMetrics
+}
+
 // Initialize sets up the global metrics instance
 func Initialize() error {
 	globalMutex.Lock()

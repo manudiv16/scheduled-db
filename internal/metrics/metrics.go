@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -447,12 +448,14 @@ func NewMetrics() (*Metrics, error) {
 
 // Job metrics methods
 func (m *Metrics) IncrementJobsCreated(ctx context.Context, jobType string) {
+	fmt.Printf("DEBUG: IncrementJobsCreated called with type: %s\n", jobType)
 	m.JobsTotal.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("job_type", jobType),
 	))
 	m.JobsByType.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("job_type", jobType),
 	))
+	fmt.Printf("DEBUG: JobsTotal incremented\n")
 }
 
 func (m *Metrics) IncrementJobsExecuted(ctx context.Context, jobType string, success bool) {
