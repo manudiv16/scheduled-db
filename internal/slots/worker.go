@@ -87,9 +87,14 @@ func (w *Worker) processSlots() {
 			break
 		}
 
-		// Record slot processing metrics
-		if metrics.GlobalPrometheusMetrics != nil {
-			metrics.GlobalPrometheusMetrics.SlotsProcessed.Inc()
+
+		if len(slot.Jobs) > 0 {
+			logger.Info("processing slot %d with %d jobs (ready at %d, now %d)", slot.Key, len(slot.Jobs), slot.MinTime, now)
+		}
+
+		// Record slot processing metrics using OpenTelemetry
+		if metrics.GlobalSlotInstrumentation != nil {
+			metrics.GlobalSlotInstrumentation.RecordSlotProcessed(context.Background(), int64(len(slot.Jobs)), time.Since(start))
 		}
 
 		// Process jobs in this slot
@@ -175,30 +180,25 @@ func (w *Worker) isTimeForRecurringJob(job *store.Job, now int64) bool {
 func (w *Worker) executeJob(job *store.Job) {
 	start := time.Now()
 	logger.Info("executed job %s", job.ID)
-	
+
 	// Execute webhook asynchronously if configured
 	success := true
 	store.ExecuteWebhook(job)
-	
+
 	// Record metrics
 	duration := time.Since(start)
 	if metrics.GlobalJobInstrumentation != nil {
 		metrics.GlobalJobInstrumentation.RecordJobExecution(context.Background(), job, duration, success)
 	}
-	
-	// Also record in Prometheus metrics for immediate visibility
-	if metrics.GlobalPrometheusMetrics != nil {
-		if success {
-			metrics.GlobalPrometheusMetrics.JobsExecuted.Inc()
-			metrics.GlobalPrometheusMetrics.JobsActive.Dec() // Job completed
-		} else {
-			metrics.GlobalPrometheusMetrics.JobsFailed.Inc()
-			metrics.GlobalPrometheusMetrics.WorkerErrors.Inc()
+
+	// Record worker processing metrics using OpenTelemetry
+	if metrics.GlobalWorkerInstrumentation != nil {
+		if !success {
+			metrics.GlobalWorkerInstrumentation.RecordWorkerError(context.Background(), "job_execution_failed")
 		}
-		metrics.GlobalPrometheusMetrics.JobExecutionDuration.Observe(duration.Seconds())
-		metrics.GlobalPrometheusMetrics.WorkerProcessingTime.Observe(duration.Seconds())
+		metrics.GlobalWorkerInstrumentation.RecordProcessingCycle(context.Background(), duration, 0)
 	}
-	
+
 	logger.JobExecuted()
 }
 

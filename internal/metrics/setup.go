@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 )
@@ -35,7 +36,7 @@ func DefaultConfig() *Config {
 }
 
 // Setup initializes OpenTelemetry with OTLP exporter
-func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), error) {
+func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), *prometheus.Exporter, error) {
 	// Create resource with service information
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
@@ -47,7 +48,7 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 		resource.WithFromEnv(),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create resource: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
 	// Get OTLP endpoint from environment or use default
@@ -62,13 +63,20 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 		otlpmetricgrpc.WithInsecure(),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 	}
 
-	// Create meter provider with OTLP exporter only
+	// Create Prometheus exporter for local metrics endpoint
+	prometheusExporter, err := prometheus.New()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create Prometheus exporter: %w", err)
+	}
+
+	// Create meter provider with both OTLP and Prometheus exporters
 	meterProvider := metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(otlpExporter, metric.WithInterval(15*time.Second))),
+		metric.WithReader(prometheusExporter),
 		metric.WithView(
 			// Add custom views for better histograms
 			metric.NewView(
@@ -105,34 +113,41 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 	cleanup := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		
+
 		// Shutdown OTLP exporter
 		if err := otlpExporter.Shutdown(ctx); err != nil {
 			fmt.Printf("Error shutting down OTLP exporter: %v\n", err)
 		}
-		
+
+		// Shutdown Prometheus exporter
+		if err := prometheusExporter.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down Prometheus exporter: %v\n", err)
+		}
+
 		// Shutdown meter provider
 		if err := meterProvider.Shutdown(ctx); err != nil {
 			fmt.Printf("Error shutting down meter provider: %v\n", err)
 		}
 	}
 
-	return meterProvider, cleanup, nil
+	// Return the Prometheus exporter so it can be used to serve metrics
+	return meterProvider, cleanup, prometheusExporter, nil
+
 }
 
 // InitializeWithOTLP sets up OpenTelemetry with OTLP exporter only
-func InitializeWithOTLP(ctx context.Context, config *Config) (*Metrics, func(), error) {
+func InitializeWithOTLP(ctx context.Context, config *Config) (*Metrics, func(), *prometheus.Exporter, error) {
 	// Setup OpenTelemetry
-	_, cleanup, err := Setup(ctx, config)
+	_, cleanup, prometheusExporter, err := Setup(ctx, config)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to setup OpenTelemetry: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to setup OpenTelemetry: %w", err)
 	}
 
 	// Create metrics instance
 	metrics, err := NewMetrics()
 	if err != nil {
 		cleanup()
-		return nil, nil, fmt.Errorf("failed to create metrics: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create metrics: %w", err)
 	}
 
 	fmt.Printf("✅ Metrics instance created successfully\n")
@@ -140,57 +155,19 @@ func InitializeWithOTLP(ctx context.Context, config *Config) (*Metrics, func(), 
 	// Initialize global instrumentation with the same metrics instance
 	if err := initializeGlobalInstrumentationWithMetrics(metrics, config.NodeID); err != nil {
 		cleanup()
-		return nil, nil, fmt.Errorf("failed to initialize global instrumentation: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to initialize global instrumentation: %w", err)
 	}
 
 	fmt.Printf("✅ Global instrumentation initialized successfully\n")
 
-	// Initialize all metrics with 0 values so they appear in OpenTelemetry
-	if metrics.JobsTotal != nil {
-		metrics.JobsTotal.Add(ctx, 0)
-		metrics.JobsExecuted.Add(ctx, 0) 
-		metrics.JobsFailed.Add(ctx, 0)
-		metrics.JobsDeleted.Add(ctx, 0)
-		metrics.JobsActive.Add(ctx, 0)
-		metrics.JobsScheduled.Add(ctx, 0)
-		
-		metrics.SlotsTotal.Add(ctx, 0)
-		metrics.SlotsActive.Add(ctx, 0)
-		metrics.SlotsProcessed.Add(ctx, 0)
-		
-		metrics.WorkerActive.Add(ctx, 1) // Worker is active
-		metrics.WorkerErrors.Add(ctx, 0)
-		
-		metrics.ClusterNodes.Add(ctx, 5) // Current cluster size
-		metrics.ClusterLeaderChanges.Add(ctx, 0)
-		metrics.ClusterJoinEvents.Add(ctx, 0)
-		metrics.ClusterLeaveEvents.Add(ctx, 0)
-		metrics.RaftOperations.Add(ctx, 0)
-		metrics.RaftErrors.Add(ctx, 0)
-		metrics.RaftLeaderElections.Add(ctx, 0)
-		
-		metrics.HTTPRequests.Add(ctx, 0)
-		metrics.HTTPErrors.Add(ctx, 0)
-		metrics.HTTPProxyRequests.Add(ctx, 0)
-		
-		metrics.DiscoveryEvents.Add(ctx, 0)
-		metrics.DiscoveryErrors.Add(ctx, 0)
-		metrics.DiscoveryOperations.Add(ctx, 0)
-		
-		metrics.WebhookRequests.Add(ctx, 0)
-		metrics.WebhookErrors.Add(ctx, 0)
-		
-		fmt.Printf("✅ All metrics initialized\n")
-	}
-
-	return metrics, cleanup, nil
+	return metrics, cleanup, prometheusExporter, nil
 }
 
 // initializeGlobalInstrumentationWithMetrics initializes global instrumentation with provided metrics
 func initializeGlobalInstrumentationWithMetrics(metrics *Metrics, nodeID string) error {
 	// Set the global metrics instance
 	SetGlobalMetrics(metrics)
-	
+
 	// Initialize global instrumentation helpers
 	GlobalJobInstrumentation = NewJobInstrumentation(metrics)
 	GlobalSlotInstrumentation = NewSlotInstrumentation(metrics)

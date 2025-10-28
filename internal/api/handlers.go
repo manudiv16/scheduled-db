@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -136,6 +137,13 @@ func (h *Handlers) calculateHTTPAddress(raftAddr string) (string, error) {
 
 	host := parts[0]
 
+	// For Kubernetes DNS names, convert to HTTP service address
+	if strings.Contains(host, ".svc.cluster.local") {
+		// Extract pod name from DNS (e.g., scheduled-db-2.scheduled-db.default.svc.cluster.local -> scheduled-db-2)
+		podName := strings.Split(host, ".")[0]
+		return fmt.Sprintf("http://%s:8080", podName), nil
+	}
+
 	// Convert localhost to 127.0.0.1 for consistency
 	if host == "localhost" {
 		host = "127.0.0.1"
@@ -157,12 +165,14 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	defer func() {
 		duration := time.Since(start)
-		if metrics.GlobalPrometheusMetrics != nil {
-			metrics.GlobalPrometheusMetrics.HTTPRequests.Inc()
-			metrics.GlobalPrometheusMetrics.HTTPRequestDuration.Observe(duration.Seconds())
+		// Record HTTP metrics using OpenTelemetry
+		ctx := context.Background()
+		if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
+			globalMetrics.IncrementHTTPRequests(ctx, r.Method, r.URL.Path, 200)
+			globalMetrics.RecordHTTPRequestDuration(ctx, duration, r.Method, r.URL.Path)
 		}
 	}()
-	
+
 	// If not leader, try to proxy to leader
 	if !h.store.IsLeader() {
 		h.proxyToLeader(w, r)
@@ -193,21 +203,12 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Printf("DEBUG: Job created successfully in store: %s\n", job.ID)
-	
-	// Record job creation metrics
-	if metrics.GlobalPrometheusMetrics != nil {
-		metrics.GlobalPrometheusMetrics.JobsTotal.Inc()
-		metrics.GlobalPrometheusMetrics.JobsActive.Inc()
+
+	// Record job creation metrics using OpenTelemetry
+	if metrics.GlobalJobInstrumentation != nil {
+		metrics.GlobalJobInstrumentation.RecordJobCreated(context.Background(), job)
 	}
-	
-	// Record metrics directly using global metrics instance
-	if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
-		fmt.Printf("DEBUG: Recording job created directly: %s, type: %s\n", job.ID, job.Type)
-		globalMetrics.IncrementJobsCreated(r.Context(), string(job.Type))
-	} else {
-		fmt.Printf("DEBUG: globalMetrics is nil!\n")
-	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(job); err != nil {
 		logger.Error("failed to encode job response: %v", err)
@@ -251,8 +252,8 @@ func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if job exists
-	_, exists := h.store.GetJob(id)
+	// Check if job exists and get it for metrics
+	job, exists := h.store.GetJob(id)
 	if !exists {
 		h.writeError(w, http.StatusNotFound, "Job not found")
 		return
@@ -262,12 +263,12 @@ func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete job: %v", err))
 		return
 	}
-	
-	// Record job deletion metrics
-	if metrics.GlobalPrometheusMetrics != nil {
-		metrics.GlobalPrometheusMetrics.JobsActive.Dec()
+
+	// Record job deletion metrics using OpenTelemetry
+	if metrics.GlobalJobInstrumentation != nil {
+		metrics.GlobalJobInstrumentation.RecordJobDeleted(context.Background(), job)
 	}
-	
+
 	logger.Info("deleted job %s via API", id)
 }
 
@@ -423,8 +424,11 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) writeError(w http.ResponseWriter, status int, message string) {
-	if metrics.GlobalPrometheusMetrics != nil && status >= 400 {
-		metrics.GlobalPrometheusMetrics.HTTPErrors.Inc()
+	if status >= 400 {
+		ctx := context.Background()
+		if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
+			globalMetrics.IncrementHTTPRequests(ctx, "ERROR", "error", status)
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

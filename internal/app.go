@@ -16,17 +16,22 @@ import (
 	"scheduled-db/internal/metrics"
 	"scheduled-db/internal/slots"
 	"scheduled-db/internal/store"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel/exporters/prometheus"
 )
 
 type App struct {
-	store            *store.Store
-	slotQueue        *slots.PersistentSlotQueue
-	worker           *slots.Worker
-	httpServer       *http.Server
-	discoveryManager *discovery.DiscoveryManager
-	nodeID           string
-	useDiscovery     bool
-	shutdownSignal   chan os.Signal
+	store              *store.Store
+	slotQueue          *slots.PersistentSlotQueue
+	worker             *slots.Worker
+	httpServer         *http.Server
+	metricsServer      *http.Server
+	prometheusExporter *prometheus.Exporter
+	discoveryManager   *discovery.DiscoveryManager
+	nodeID             string
+	useDiscovery       bool
+	shutdownSignal     chan os.Signal
 }
 
 type Config struct {
@@ -52,8 +57,8 @@ func NewApp(config *Config) (*App, error) {
 		MetricsPath:    "/metrics",
 	}
 
-	// Setup metrics with OTLP only
-	_, cleanup, err := metrics.InitializeWithOTLP(ctx, metricsConfig)
+	// Setup metrics with OTLP and Prometheus exporters
+	_, cleanup, prometheusExporter, err := metrics.InitializeWithOTLP(ctx, metricsConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize metrics: %v", err)
 	}
@@ -117,19 +122,29 @@ func NewApp(config *Config) (*App, error) {
 		Handler: router,
 	}
 
+	// Setup metrics server
+	metricsRouter := http.NewServeMux()
+	metricsRouter.Handle("/metrics", promhttp.Handler())
+	metricsServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", metricsConfig.MetricsPort),
+		Handler: metricsRouter,
+	}
+
 	// Setup graceful shutdown signal handling
 	shutdownSignal := make(chan os.Signal, 1)
 	signal.Notify(shutdownSignal, syscall.SIGTERM, syscall.SIGINT)
 
 	app := &App{
-		store:            jobStore,
-		slotQueue:        slotQueue,
-		worker:           worker,
-		httpServer:       httpServer,
-		discoveryManager: discoveryManager,
-		nodeID:           config.NodeID,
-		useDiscovery:     useDiscovery,
-		shutdownSignal:   shutdownSignal,
+		store:              jobStore,
+		slotQueue:          slotQueue,
+		worker:             worker,
+		httpServer:         httpServer,
+		metricsServer:      metricsServer,
+		prometheusExporter: prometheusExporter,
+		discoveryManager:   discoveryManager,
+		nodeID:             config.NodeID,
+		useDiscovery:       useDiscovery,
+		shutdownSignal:     shutdownSignal,
 	}
 
 	// Setup event handler for job changes
@@ -194,6 +209,14 @@ func (a *App) Start() error {
 		}
 	}()
 
+	// Start metrics server in background
+	go func() {
+		logger.Info("starting metrics server on %s", a.metricsServer.Addr)
+		if err := a.metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("Metrics server error: %v", err)
+		}
+	}()
+
 	return nil
 }
 
@@ -232,6 +255,12 @@ func (a *App) Stop() error {
 		logger.Info("force closing HTTP server...")
 		if err := a.httpServer.Close(); err != nil {
 			logger.Error("error force closing HTTP server: %v", err)
+		}
+
+		// Force close metrics server
+		logger.Info("force closing metrics server...")
+		if err := a.metricsServer.Close(); err != nil {
+			logger.Error("error force closing metrics server: %v", err)
 		}
 
 		// Close Raft store with timeout

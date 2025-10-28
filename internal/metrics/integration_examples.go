@@ -342,7 +342,7 @@ func SetupApplicationWithMetrics(config *Config, nodeID, discoveryStrategy strin
 	}
 
 	// Setup OpenTelemetry and Prometheus
-	metrics, cleanup, err := InitializeWithOTLP(ctx, metricsConfig)
+	metrics, cleanup, _, err := InitializeWithOTLP(ctx, metricsConfig)
 	if err != nil {
 		return err
 	}

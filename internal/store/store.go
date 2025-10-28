@@ -6,9 +6,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"scheduled-db/internal/logger"
 	"strings"
 	"time"
-	"scheduled-db/internal/logger"
 
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
@@ -186,10 +186,10 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 		} else {
 			delay = 10 * time.Second
 		}
-		
+
 		logger.Debug("Non-bootstrap node %s waiting %v before starting discovery...", nodeID, delay)
 		time.Sleep(delay)
-		
+
 		logger.Debug("Starting as follower node ID: %s, Address: %s, will wait for discovery to add to cluster",
 			config.LocalID, transport.LocalAddr())
 	}
@@ -415,7 +415,7 @@ func (s *Store) AddPeer(id, address string) error {
 	if err := addFuture.Error(); err != nil {
 		return fmt.Errorf("failed to add peer: %v", err)
 	}
-	
+
 	logger.Debug("Successfully added peer %s (%s) to Raft cluster", id, address)
 	return nil
 }

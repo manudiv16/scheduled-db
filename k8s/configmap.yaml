@@ -34,7 +34,7 @@ data:
   CLUSTER_SIZE: "3"
 
   # Logging
-  LOG_LEVEL: "INFO"
+  LOG_LEVEL: "DEBUG"
 
   # Health Check
   HEALTH_CHECK_INTERVAL: "30s"
