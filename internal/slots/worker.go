@@ -1,9 +1,11 @@
 package slots
 
 import (
+	"context"
 	"time"
 
 	"scheduled-db/internal/logger"
+	"scheduled-db/internal/metrics"
 	"scheduled-db/internal/store"
 
 	"github.com/robfig/cron/v3"
@@ -65,7 +67,8 @@ func (w *Worker) run() {
 }
 
 func (w *Worker) processSlots() {
-	now := time.Now().Unix()
+	start := time.Now()
+	now := start.Unix()
 
 	// Get all available slots and process them until we find one that's ready
 	maxSlotsToCheck := 10 // Prevent infinite loops
@@ -82,6 +85,11 @@ func (w *Worker) processSlots() {
 			// Not time yet for this slot (and subsequent slots will be even later)
 			logger.Debug("slot %d not ready yet (now: %d < min: %d)", slot.Key, now, slot.MinTime)
 			break
+		}
+
+		// Record slot processing metrics
+		if metrics.GlobalPrometheusMetrics != nil {
+			metrics.GlobalPrometheusMetrics.SlotsProcessed.Inc()
 		}
 
 		// Process jobs in this slot
@@ -165,10 +173,31 @@ func (w *Worker) isTimeForRecurringJob(job *store.Job, now int64) bool {
 }
 
 func (w *Worker) executeJob(job *store.Job) {
+	start := time.Now()
 	logger.Info("executed job %s", job.ID)
 	
 	// Execute webhook asynchronously if configured
+	success := true
 	store.ExecuteWebhook(job)
+	
+	// Record metrics
+	duration := time.Since(start)
+	if metrics.GlobalJobInstrumentation != nil {
+		metrics.GlobalJobInstrumentation.RecordJobExecution(context.Background(), job, duration, success)
+	}
+	
+	// Also record in Prometheus metrics for immediate visibility
+	if metrics.GlobalPrometheusMetrics != nil {
+		if success {
+			metrics.GlobalPrometheusMetrics.JobsExecuted.Inc()
+			metrics.GlobalPrometheusMetrics.JobsActive.Dec() // Job completed
+		} else {
+			metrics.GlobalPrometheusMetrics.JobsFailed.Inc()
+			metrics.GlobalPrometheusMetrics.WorkerErrors.Inc()
+		}
+		metrics.GlobalPrometheusMetrics.JobExecutionDuration.Observe(duration.Seconds())
+		metrics.GlobalPrometheusMetrics.WorkerProcessingTime.Observe(duration.Seconds())
+	}
 	
 	logger.JobExecuted()
 }

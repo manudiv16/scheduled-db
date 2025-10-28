@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -35,7 +37,7 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Setup initializes OpenTelemetry with Prometheus exporter
+// Setup initializes OpenTelemetry with OTLP exporter
 func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), error) {
 	// Create resource with service information
 	res, err := resource.New(ctx,
@@ -51,16 +53,32 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 		return nil, nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Create Prometheus exporter
-	exporter, err := prometheus.New()
+	// Get OTLP endpoint from environment or use default
+	otlpEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if otlpEndpoint == "" {
+		otlpEndpoint = "otel-collector:4317" // gRPC endpoint without http://
+	}
+
+	// Create OTLP exporter
+	otlpExporter, err := otlpmetricgrpc.New(ctx,
+		otlpmetricgrpc.WithEndpoint(otlpEndpoint),
+		otlpmetricgrpc.WithInsecure(),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+	}
+
+	// Also create Prometheus exporter for direct metrics endpoint
+	promExporter, err := prometheus.New()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create prometheus exporter: %w", err)
 	}
 
-	// Create meter provider with Prometheus exporter
+	// Create meter provider with both exporters
 	meterProvider := metric.NewMeterProvider(
 		metric.WithResource(res),
-		metric.WithReader(exporter),
+		metric.WithReader(metric.NewPeriodicReader(otlpExporter, metric.WithInterval(15*time.Second))),
+		metric.WithReader(promExporter),
 		metric.WithView(
 			// Add custom views for better histograms
 			metric.NewView(
@@ -97,6 +115,13 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 	cleanup := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		
+		// Shutdown OTLP exporter
+		if err := otlpExporter.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down OTLP exporter: %v\n", err)
+		}
+		
+		// Shutdown meter provider
 		if err := meterProvider.Shutdown(ctx); err != nil {
 			fmt.Printf("Error shutting down meter provider: %v\n", err)
 		}
@@ -152,6 +177,30 @@ func InitializeWithPrometheus(ctx context.Context, config *Config) (*Metrics, *h
 		return nil, nil, nil, fmt.Errorf("failed to create metrics: %w", err)
 	}
 
+	fmt.Printf("✅ Metrics instance created successfully\n")
+
+	// Initialize global instrumentation with the same metrics instance
+	if err := initializeGlobalInstrumentationWithMetrics(metrics, config.NodeID); err != nil {
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("failed to initialize global instrumentation: %w", err)
+	}
+
+	fmt.Printf("✅ Global instrumentation initialized successfully\n")
+
+	// Initialize native Prometheus metrics for immediate visibility
+	InitializePrometheusMetrics()
+	fmt.Printf("✅ Prometheus metrics initialized\n")
+
+	// Start periodic metrics updater
+	go startPeriodicMetricsUpdater()
+	fmt.Printf("✅ Periodic metrics updater started\n")
+
+	// Test metrics by creating a simple counter
+	if metrics.JobsTotal != nil {
+		metrics.JobsTotal.Add(ctx, 0) // Initialize the metric
+		fmt.Printf("✅ Test metric initialized\n")
+	}
+
 	// Start metrics server
 	server := StartMetricsServer(config)
 
@@ -169,6 +218,46 @@ func InitializeWithPrometheus(ctx context.Context, config *Config) (*Metrics, *h
 	}
 
 	return metrics, server, enhancedCleanup, nil
+}
+
+// initializeGlobalInstrumentationWithMetrics initializes global instrumentation with provided metrics
+func initializeGlobalInstrumentationWithMetrics(metrics *Metrics, nodeID string) error {
+	// Set the global metrics instance
+	SetGlobalMetrics(metrics)
+	
+	// Initialize global instrumentation helpers
+	GlobalJobInstrumentation = NewJobInstrumentation(metrics)
+	GlobalSlotInstrumentation = NewSlotInstrumentation(metrics)
+	GlobalWorkerInstrumentation = NewWorkerInstrumentation(metrics)
+	GlobalClusterInstrumentation = NewClusterInstrumentation(metrics, nodeID)
+	GlobalDiscoveryInstrumentation = NewDiscoveryInstrumentation(metrics, "kubernetes")
+	GlobalWebhookInstrumentation = NewWebhookInstrumentation(metrics)
+	GlobalSystemInstrumentation = NewSystemInstrumentation(metrics)
+
+	return nil
+}
+
+// startPeriodicMetricsUpdater updates cluster and system metrics periodically
+func startPeriodicMetricsUpdater() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		updateClusterMetrics()
+	}
+}
+
+// updateClusterMetrics updates cluster-related metrics
+func updateClusterMetrics() {
+	if GlobalPrometheusMetrics == nil {
+		return
+	}
+
+	// Cluster nodes count will be updated dynamically by discovery
+	// GlobalPrometheusMetrics.ClusterNodes.Set() - handled elsewhere
+	
+	// Update worker active status
+	GlobalPrometheusMetrics.WorkerActive.Set(1)
 }
 
 // GetPrometheusMetrics returns the Prometheus metrics handler

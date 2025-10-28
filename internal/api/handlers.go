@@ -7,8 +7,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"scheduled-db/internal/logger"
+	"scheduled-db/internal/metrics"
 	"scheduled-db/internal/store"
 
 	"github.com/gorilla/mux"
@@ -152,6 +154,15 @@ func (h *Handlers) calculateHTTPAddress(raftAddr string) (string, error) {
 }
 
 func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		if metrics.GlobalPrometheusMetrics != nil {
+			metrics.GlobalPrometheusMetrics.HTTPRequests.Inc()
+			metrics.GlobalPrometheusMetrics.HTTPRequestDuration.Observe(duration.Seconds())
+		}
+	}()
+	
 	// If not leader, try to proxy to leader
 	if !h.store.IsLeader() {
 		h.proxyToLeader(w, r)
@@ -179,6 +190,16 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create job: %v", err))
 		return
 	}
+	
+	// Record job creation metrics
+	if metrics.GlobalPrometheusMetrics != nil {
+		metrics.GlobalPrometheusMetrics.JobsTotal.Inc()
+		metrics.GlobalPrometheusMetrics.JobsActive.Inc()
+	}
+	if metrics.GlobalJobInstrumentation != nil {
+		metrics.GlobalJobInstrumentation.RecordJobCreated(r.Context(), job)
+	}
+	
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(job); err != nil {
 		logger.Error("failed to encode job response: %v", err)
@@ -233,6 +254,12 @@ func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete job: %v", err))
 		return
 	}
+	
+	// Record job deletion metrics
+	if metrics.GlobalPrometheusMetrics != nil {
+		metrics.GlobalPrometheusMetrics.JobsActive.Dec()
+	}
+	
 	logger.Info("deleted job %s via API", id)
 }
 
@@ -388,6 +415,9 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) writeError(w http.ResponseWriter, status int, message string) {
+	if metrics.GlobalPrometheusMetrics != nil && status >= 400 {
+		metrics.GlobalPrometheusMetrics.HTTPErrors.Inc()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {

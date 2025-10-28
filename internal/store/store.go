@@ -14,6 +14,14 @@ import (
 	raftboltdb "github.com/hashicorp/raft-boltdb/v2"
 )
 
+// getDNSAddress returns the DNS address for this node
+func (s *Store) getDNSAddress() string {
+	if strings.HasPrefix(s.nodeID, "scheduled-db-") {
+		return fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local:7000", s.nodeID)
+	}
+	return string(s.transport.LocalAddr())
+}
+
 // getApplyTimeout returns the Raft apply timeout from environment or default
 func getApplyTimeout() time.Duration {
 	if timeoutStr := os.Getenv("RAFT_APPLY_TIMEOUT"); timeoutStr != "" {
@@ -52,11 +60,11 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(nodeID)
 
-	// Configure more aggressive timeouts for faster leader detection
-	config.HeartbeatTimeout = 1000 * time.Millisecond
-	config.ElectionTimeout = 1000 * time.Millisecond
-	config.CommitTimeout = 50 * time.Millisecond
-	config.LeaderLeaseTimeout = 500 * time.Millisecond
+	// Use much more conservative timeouts to prevent election storms
+	config.HeartbeatTimeout = 5000 * time.Millisecond
+	config.ElectionTimeout = 5000 * time.Millisecond
+	config.CommitTimeout = 200 * time.Millisecond
+	config.LeaderLeaseTimeout = 4000 * time.Millisecond
 
 	fsm := NewFSM()
 
@@ -71,6 +79,21 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 		return nil, fmt.Errorf("failed to resolve raft advertise address: %v", err)
 	}
 
+	// For StatefulSet pods, override advertise address with DNS name
+	var finalAdvertiseAddr *net.TCPAddr
+	if strings.HasPrefix(nodeID, "scheduled-db-") {
+		dnsName := fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local:7000", nodeID)
+		finalAdvertiseAddr, err = net.ResolveTCPAddr("tcp", dnsName)
+		if err != nil {
+			logger.Debug("Failed to resolve DNS name %s, falling back to IP: %v", dnsName, err)
+			finalAdvertiseAddr = advertiseAddr
+		} else {
+			logger.Debug("Using DNS address for Raft transport: %s", dnsName)
+		}
+	} else {
+		finalAdvertiseAddr = advertiseAddr
+	}
+
 	// Get timeout from environment or use default
 	timeout := 10 * time.Second
 	if timeoutStr := os.Getenv("RAFT_TRANSPORT_TIMEOUT"); timeoutStr != "" {
@@ -78,7 +101,16 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 			timeout = t
 		}
 	}
-	transport, err := raft.NewTCPTransport(raftBind, advertiseAddr, 3, timeout, os.Stderr)
+
+	// Create DNS address provider for dynamic address resolution
+	addressProvider := NewDNSAddressProvider("scheduled-db", "default", 7000)
+
+	// Create transport with ServerAddressProvider using NewTCPTransportWithConfig
+	transport, err := raft.NewTCPTransportWithConfig(raftBind, finalAdvertiseAddr, &raft.NetworkTransportConfig{
+		ServerAddressProvider: addressProvider,
+		MaxPool:               3,
+		Timeout:               timeout,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport: %v", err)
 	}
@@ -118,22 +150,23 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 	// Smart bootstrap logic for StatefulSet deployment
 	shouldBootstrap := false
 
-	if len(peers) == 0 {
-		if nodeID == "scheduled-db-0" || nodeID == "node-0" || strings.HasSuffix(nodeID, "-0") {
-			logger.Debug("This is the bootstrap node (%s), attempting bootstrap", nodeID)
-			shouldBootstrap = true
-		} else {
-			logger.Debug("This is NOT the bootstrap node (%s), will wait for cluster to form", nodeID)
-			shouldBootstrap = false
-		}
+	// ONLY scheduled-db-0 should ever bootstrap, others wait for discovery
+	if len(peers) == 0 && nodeID == "scheduled-db-0" {
+		logger.Debug("This is the bootstrap node (%s), attempting bootstrap", nodeID)
+		shouldBootstrap = true
+	} else {
+		logger.Debug("This is NOT the bootstrap node (%s) or has peers, will wait for discovery", nodeID)
+		shouldBootstrap = false
 	}
 
 	if shouldBootstrap {
+		// Use DNS name as Address so it's stored in Raft state
+		dnsAddress := fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local:7000", nodeID)
 		configuration := raft.Configuration{
 			Servers: []raft.Server{
 				{
 					ID:      config.LocalID,
-					Address: transport.LocalAddr(),
+					Address: raft.ServerAddress(dnsAddress),
 				},
 			},
 		}
@@ -144,8 +177,20 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 			logger.Debug("Successfully bootstrapped single-node cluster with ID: %s, Address: %s", config.LocalID, transport.LocalAddr())
 		}
 	} else {
-		// Don't bootstrap - wait to be added by leader via discovery and join API
-		logger.Debug("Starting as follower node ID: %s, Address: %s, will wait for cluster formation",
+		// For non-bootstrap nodes, add much longer staggered delay
+		var delay time.Duration
+		if strings.HasSuffix(nodeID, "-1") {
+			delay = 15 * time.Second
+		} else if strings.HasSuffix(nodeID, "-2") {
+			delay = 25 * time.Second
+		} else {
+			delay = 10 * time.Second
+		}
+		
+		logger.Debug("Non-bootstrap node %s waiting %v before starting discovery...", nodeID, delay)
+		time.Sleep(delay)
+		
+		logger.Debug("Starting as follower node ID: %s, Address: %s, will wait for discovery to add to cluster",
 			config.LocalID, transport.LocalAddr())
 	}
 
@@ -370,6 +415,7 @@ func (s *Store) AddPeer(id, address string) error {
 	if err := addFuture.Error(); err != nil {
 		return fmt.Errorf("failed to add peer: %v", err)
 	}
+	
 	logger.Debug("Successfully added peer %s (%s) to Raft cluster", id, address)
 	return nil
 }

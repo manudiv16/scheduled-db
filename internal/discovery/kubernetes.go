@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"scheduled-db/internal/logger"
@@ -102,8 +103,15 @@ func (k *KubernetesStrategy) Discover(ctx context.Context) ([]Node, error) {
 			continue
 		}
 
-		// Use pod IP directly (simpler and more reliable than complex hostnames)
-		nodeAddress := podIP
+		// Use DNS name for StatefulSet pods instead of IP
+		var nodeAddress string
+		if strings.HasPrefix(nodeID, "scheduled-db-") {
+			// Use StatefulSet DNS name: podname.servicename.namespace.svc.cluster.local
+			nodeAddress = fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local", nodeID)
+		} else {
+			// Fallback to IP for non-StatefulSet pods
+			nodeAddress = podIP
+		}
 
 		// Get Raft port from pod spec
 		raftPort := 7000 // default
@@ -209,14 +217,23 @@ func (k *KubernetesStrategy) checkQuorumAndHandleSplitBrain(healthyNodes, totalN
 	return nil
 }
 
-// getExpectedClusterSize returns the expected cluster size from configuration
+// getExpectedClusterSize returns the expected cluster size dynamically
 func (k *KubernetesStrategy) getExpectedClusterSize() int {
+	// If CLUSTER_SIZE is set, use it (for backwards compatibility)
 	if clusterSizeStr := os.Getenv("CLUSTER_SIZE"); clusterSizeStr != "" {
 		if size, err := strconv.Atoi(clusterSizeStr); err == nil && size > 0 {
 			return size
 		}
 	}
-	return 3 // default cluster size
+	
+	// Dynamic sizing: discover current nodes and use that count
+	nodes, err := k.Discover(context.Background())
+	if err == nil && len(nodes) > 0 {
+		return len(nodes)
+	}
+	
+	// Fallback to minimum cluster size
+	return 1
 }
 
 // Watch monitors for changes in Kubernetes endpoints

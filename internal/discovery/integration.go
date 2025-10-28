@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -272,16 +273,36 @@ func (dm *DiscoveryManager) updateRaftPeersWithNodes(nodes []Node) {
 			logger.Debug("Node %s has no pod IP, skipping", node.ID)
 			continue
 		}
-		peerAddr := fmt.Sprintf("%s:%d", peerIP, dm.getRaftPortFromNode(node))
+		
+		// Use server ID directly - ServerAddressProvider will handle DNS resolution
+		var peerAddr string
+		if strings.HasPrefix(node.ID, "scheduled-db-") {
+			// For StatefulSet pods, use just the node ID
+			peerAddr = node.ID
+		} else {
+			// For other cases, use IP:port format
+			peerAddr = fmt.Sprintf("%s:%d", peerIP, dm.getRaftPortFromNode(node))
+		}
 
 		// Check if peer exists by ID
 		if !existingByID[node.ID] {
 			logger.Debug("Adding new peer %s (%s) to Raft cluster", node.ID, peerAddr)
 
+			// Add small delay to prevent rapid peer additions during startup
+			time.Sleep(2 * time.Second)
+
+			// Verify peer is reachable before adding to cluster
+			if !dm.isPeerReachable(peerAddr) {
+				logger.Debug("Peer %s (%s) not yet reachable, skipping for now", node.ID, peerAddr)
+				continue
+			}
+
 			if err := dm.store.AddPeer(node.ID, peerAddr); err != nil {
 				logger.Debug("Failed to add peer %s: %v", peerAddr, err)
 			} else {
 				logger.Debug("Successfully added peer %s to cluster", node.ID)
+				// Update cluster metrics dynamically
+				dm.updateClusterMetrics()
 			}
 		} else {
 			logger.Debug("Peer %s (%s) already in cluster", node.ID, peerAddr)
@@ -413,6 +434,25 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 	return defaultValue
 }
 
+// isPeerReachable checks if a peer is reachable on its Raft port
+func (dm *DiscoveryManager) isPeerReachable(address string) bool {
+	var fullAddress string
+	
+	// If address is just a node ID (like "scheduled-db-1"), convert to DNS name
+	if strings.HasPrefix(address, "scheduled-db-") && !strings.Contains(address, ":") {
+		fullAddress = fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local:7000", address)
+	} else {
+		fullAddress = address
+	}
+	
+	conn, err := net.DialTimeout("tcp", fullAddress, 2*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
 // getRaftPortFromNode extracts Raft port from discovered node
 func (dm *DiscoveryManager) getRaftPortFromNode(node Node) int {
 	return node.Port // Use the port directly from the node
@@ -499,14 +539,19 @@ func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 
 // getLocalRaftAddress returns the local Raft address for joining
 func (dm *DiscoveryManager) getLocalRaftAddress() string {
-	localRaftPort := dm.getRaftPort()
+	nodeID := dm.config.NodeID
 
-	// Use pod IP directly (simpler and more reliable than hostnames)
+	// For StatefulSet pods, use just the node ID - ServerAddressProvider will resolve
+	if strings.HasPrefix(nodeID, "scheduled-db-") {
+		return nodeID
+	}
+
+	// For non-StatefulSet pods, use IP:port format
+	localRaftPort := dm.getRaftPort()
 	podIP := os.Getenv("POD_IP")
 	if podIP != "" {
 		return fmt.Sprintf("%s:%d", podIP, localRaftPort)
 	} else {
-		// Fallback to local IP if pod IP not available
 		return fmt.Sprintf("127.0.0.1:%d", localRaftPort)
 	}
 }
@@ -721,14 +766,36 @@ func (dm *DiscoveryManager) handleSplitBrain(discoveredNodes []Node) {
 	}
 }
 
-// getExpectedClusterSize returns the expected cluster size from configuration
+// getExpectedClusterSize returns the expected cluster size dynamically
 func (dm *DiscoveryManager) getExpectedClusterSize() int {
+	// If CLUSTER_SIZE is set, use it (for backwards compatibility)
 	if clusterSizeStr := os.Getenv("CLUSTER_SIZE"); clusterSizeStr != "" {
 		if size, err := strconv.Atoi(clusterSizeStr); err == nil && size > 0 {
 			return size
 		}
 	}
-	return 5 // Default cluster size for this deployment
+	
+	// Dynamic sizing: use the maximum of discovered nodes and Raft configuration
+	discoveredNodes, _ := dm.strategy.Discover(dm.ctx)
+	discoveredCount := len(discoveredNodes)
+	
+	// Get current Raft cluster configuration
+	servers, err := dm.store.GetClusterConfiguration()
+	raftCount := 0
+	if err == nil {
+		raftCount = len(servers)
+	}
+	
+	// Use the maximum, with a minimum of 1
+	expectedSize := discoveredCount
+	if raftCount > expectedSize {
+		expectedSize = raftCount
+	}
+	if expectedSize < 1 {
+		expectedSize = 1
+	}
+	
+	return expectedSize
 }
 
 // handleLeaderlessCluster handles the case when there's no leader
@@ -956,4 +1023,13 @@ func (dm *DiscoveryManager) requestJoin(joinURL, nodeID, address string) bool {
 
 	logger.Debug("Join failed: %s", message)
 	return false
+}
+
+// updateClusterMetrics updates cluster size metrics dynamically
+func (dm *DiscoveryManager) updateClusterMetrics() {
+	servers, err := dm.store.GetClusterConfiguration()
+	if err == nil {
+		logger.Debug("Cluster size updated to %d nodes", len(servers))
+		// Note: Prometheus metrics update would be added here if needed
+	}
 }

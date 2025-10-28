@@ -3,23 +3,24 @@ kind: Kustomization
 
 namespace: default
 
-commonLabels:
-  app: scheduled-db
-  version: v1.0.0
-  component: database
-
 resources:
-- rbac.yaml
-- service.yaml
-- statefulset.yaml
-- pdb.yaml
-- hpa.yaml
+  - rbac.yaml
+  - service.yaml
+  - statefulset.yaml
+  - pdb.yaml
+  - hpa.yaml
+  - configmap.yaml
+  - monitoring/prometheus-config.yaml
+  - monitoring/prometheus-deployment.yaml
+  - monitoring/grafana-config.yaml
+  - monitoring/grafana-deployment.yaml
+  - monitoring/otel-collector.yaml
 
 images:
-- name: scheduled-db
-  newName: scheduled-db
-  newTag: latest
+  - name: scheduled-db
+    newName: scheduled-db
+    newTag: v1.0.0-dirty
 
 replicas:
-- name: scheduled-db
-  count: 3
+  - name: scheduled-db
+    count: 3

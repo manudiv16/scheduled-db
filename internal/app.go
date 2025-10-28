@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"scheduled-db/internal/api"
 	"scheduled-db/internal/discovery"
 	"scheduled-db/internal/logger"
+	"scheduled-db/internal/metrics"
 	"scheduled-db/internal/slots"
 	"scheduled-db/internal/store"
 )
@@ -21,6 +23,7 @@ type App struct {
 	slotQueue        *slots.PersistentSlotQueue
 	worker           *slots.Worker
 	httpServer       *http.Server
+	metricsServer    *http.Server
 	discoveryManager *discovery.DiscoveryManager
 	nodeID           string
 	useDiscovery     bool
@@ -39,9 +42,27 @@ type Config struct {
 }
 
 func NewApp(config *Config) (*App, error) {
+	// Initialize metrics system
+	ctx := context.Background()
+	metricsConfig := &metrics.Config{
+		ServiceName:    "scheduled-db",
+		ServiceVersion: "1.0.0",
+		NodeID:         config.NodeID,
+		Environment:    "production",
+		MetricsPort:    9090,
+		MetricsPath:    "/metrics",
+	}
+
+	// Setup metrics and start metrics server
+	_, metricsServer, cleanup, err := metrics.InitializeWithPrometheus(ctx, metricsConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize metrics: %v", err)
+	}
+
 	// Create store with Raft (start with configured peers, discovery will handle dynamic joining)
 	jobStore, err := store.NewStore(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers)
 	if err != nil {
+		cleanup()
 		return nil, fmt.Errorf("failed to create store: %v", err)
 	}
 
@@ -106,6 +127,7 @@ func NewApp(config *Config) (*App, error) {
 		slotQueue:        slotQueue,
 		worker:           worker,
 		httpServer:       httpServer,
+		metricsServer:    metricsServer,
 		discoveryManager: discoveryManager,
 		nodeID:           config.NodeID,
 		useDiscovery:     useDiscovery,
@@ -120,11 +142,19 @@ func NewApp(config *Config) (*App, error) {
 				if job != nil {
 					slotQueue.AddJob(job)
 					logger.Debug("added job %s to slot queue", job.ID)
+					// Record metrics
+					if metrics.GlobalJobInstrumentation != nil {
+						metrics.GlobalJobInstrumentation.RecordJobCreated(context.Background(), job)
+					}
 				}
 			case "deleted":
 				if job != nil {
 					slotQueue.RemoveJob(job.ID)
 					logger.Debug("removed job %s from slot queue", job.ID)
+					// Record metrics
+					if metrics.GlobalJobInstrumentation != nil {
+						metrics.GlobalJobInstrumentation.RecordJobDeleted(context.Background(), job)
+					}
 				}
 			}
 		}
@@ -204,6 +234,14 @@ func (a *App) Stop() error {
 		logger.Info("force closing HTTP server...")
 		if err := a.httpServer.Close(); err != nil {
 			logger.Error("error force closing HTTP server: %v", err)
+		}
+
+		// Stop metrics server
+		logger.Info("stopping metrics server...")
+		if a.metricsServer != nil {
+			if err := a.metricsServer.Close(); err != nil {
+				logger.Error("error closing metrics server: %v", err)
+			}
 		}
 
 		// Close Raft store with timeout

@@ -17,6 +17,13 @@ var (
 	globalMutex   sync.RWMutex
 )
 
+// SetGlobalMetrics sets the global metrics instance (used by setup.go)
+func SetGlobalMetrics(metrics *Metrics) {
+	globalMutex.Lock()
+	defer globalMutex.Unlock()
+	globalMetrics = metrics
+}
+
 // Initialize sets up the global metrics instance
 func Initialize() error {
 	globalMutex.Lock()
