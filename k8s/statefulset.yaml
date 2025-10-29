@@ -63,7 +63,7 @@ spec:
             - name: RAFT_ADVERTISE_HOST
               value: "$(POD_IP)"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "otel-collector:4317"
+              value: "otel-collector-collector:4317"
           envFrom:
             - configMapRef:
                 name: scheduled-db-config

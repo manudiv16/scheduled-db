@@ -15,93 +15,20 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
-    processors:
-      batch:
-        timeout: 1s
-        send_batch_size: 1024
-        send_batch_max_size: 2048
-
-      memory_limiter:
-        limit_mib: 400
-        spike_limit_mib: 100
-        check_interval: 5s
-
-      resource:
-        attributes:
-          - key: cluster.name
-            value: "scheduled-db-cluster"
-            action: upsert
-          - key: deployment.environment
-            value: "production"
-            action: upsert
-          - key: service.name
-            from_attribute: kubernetes_pod_label_app
-            action: upsert
-          - key: service.instance.id
-            from_attribute: kubernetes_pod_name
-            action: upsert
-          - key: k8s.namespace.name
-            from_attribute: kubernetes_namespace
-            action: upsert
-          - key: k8s.pod.name
-            from_attribute: kubernetes_pod_name
-            action: upsert
-
-      resourcedetection:
-        detectors: [env, system, k8snode]
-        timeout: 5s
 
     exporters:
 
-      prometheusremotewrite:
-        endpoint: "http://prometheus:9090/api/v1/write"
-        resource_to_telemetry_conversion:
-          enabled: true
-
+      debug:
 
       prometheus:
         endpoint: "0.0.0.0:8889"
-        const_labels:
-          cluster: "scheduled-db-cluster"
 
-
-      # logging:
-      #   loglevel: debug
-      #   sampling_initial: 5
-      #   sampling_thereafter: 200
-
-      # otlp/jaeger:
-      #   endpoint: http://jaeger-collector:14250
-      #   tls:
-      #     insecure: true
-
-    extensions:
-      health_check:
-        endpoint: 0.0.0.0:13133
-
-      pprof:
-        endpoint: 0.0.0.0:1777
-
-      zpages:
-        endpoint: 0.0.0.0:55679
 
     service:
-      extensions: [health_check, pprof, zpages]
       pipelines:
         metrics:
           receivers: [otlp]
-          processors: [memory_limiter, resource, resourcedetection, batch]
-          exporters: [prometheusremotewrite, prometheus]
-
-        # traces:
-        #   receivers: [otlp]
-        #   processors: [memory_limiter, resource, resourcedetection, batch]
-        #   exporters: [otlp/jaeger, logging]
-
-        # logs:
-        #   receivers: [otlp]
-        #   processors: [memory_limiter, resource, batch]
-        #   exporters: [logging]
+          exporters: [prometheus, debug]
 
 ---
 apiVersion: v1
@@ -209,7 +136,7 @@ spec:
         fsGroup: 65534
       containers:
         - name: otel-collector
-          image: otel/opentelemetry-collector-contrib:0.89.0
+          image: otel/opentelemetry-collector-contrib:latest
           imagePullPolicy: IfNotPresent
           command:
             - /otelcol-contrib
