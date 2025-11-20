@@ -196,13 +196,13 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Printf("DEBUG: About to create job in store: %s\n", job.ID)
+	logger.Debug("about to create job in store: %s", job.ID)
 	if err := h.store.CreateJob(job); err != nil {
-		fmt.Printf("DEBUG: Failed to create job in store: %v\n", err)
+		logger.Debug("failed to create job in store: %v", err)
 		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create job: %v", err))
 		return
 	}
-	fmt.Printf("DEBUG: Job created successfully in store: %s\n", job.ID)
+	logger.Debug("job created successfully in store: %s", job.ID)
 
 	// Record job creation metrics using OpenTelemetry
 	if metrics.GlobalJobInstrumentation != nil {

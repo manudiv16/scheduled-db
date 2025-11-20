@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"strconv"
@@ -13,6 +12,7 @@ import (
 
 	"scheduled-db/internal"
 	"scheduled-db/internal/discovery"
+	"scheduled-db/internal/logger"
 )
 
 func main() {
@@ -83,22 +83,24 @@ func main() {
 	// Create and start application
 	app, err := internal.NewApp(config)
 	if err != nil {
-		log.Fatalf("Failed to create application: %v", err)
+		logger.Error("failed to create application: %v", err)
+		os.Exit(1)
 	}
 
 	if err := app.Start(); err != nil {
-		log.Fatalf("Failed to start application: %v", err)
+		logger.Error("failed to start application: %v", err)
+		os.Exit(1)
 	}
 
-	log.Printf("Application started successfully")
-	log.Printf("Node ID: %s", *nodeID)
-	log.Printf("Raft bind: %s", raftBind)
-	log.Printf("Raft advertise: %s", raftAdvertise)
-	log.Printf("HTTP bind: %s", httpBind)
+	logger.Info("application started successfully")
+	logger.Info("node ID: %s", *nodeID)
+	logger.Info("raft bind: %s", raftBind)
+	logger.Info("raft advertise: %s", raftAdvertise)
+	logger.Info("HTTP bind: %s", httpBind)
 	if len(peerList) > 0 {
-		log.Printf("Peers: %v", peerList)
+		logger.Info("peers: %v", peerList)
 	} else {
-		log.Printf("Running in single-node (bootstrap) mode")
+		logger.Info("running in single-node (bootstrap) mode")
 	}
 
 	// Wait for interrupt signal
@@ -115,16 +117,16 @@ func main() {
 			shutdownCount++
 
 			if shutdownCount == 1 {
-				log.Printf("Received signal: %v, shutting down gracefully... (Ctrl+C again to force quit)", sig)
+				logger.Info("received signal: %v, shutting down gracefully... (Ctrl+C again to force quit)", sig)
 				go func() {
 					if err := app.Stop(); err != nil {
-						log.Printf("Error during shutdown: %v", err)
+						logger.Error("error during shutdown: %v", err)
 						os.Exit(1)
 					}
 					shutdownDone <- true
 				}()
 			} else if shutdownCount >= 2 {
-				log.Printf("Force quit requested, exiting immediately...")
+				logger.Info("force quit requested, exiting immediately...")
 				os.Exit(130) // Standard exit code for Ctrl+C
 			}
 		}
@@ -132,7 +134,7 @@ func main() {
 
 	// Wait for graceful shutdown (no automatic timeout)
 	<-shutdownDone
-	log.Println("Application stopped successfully")
+	logger.Info("application stopped successfully")
 	os.Exit(0)
 }
 
