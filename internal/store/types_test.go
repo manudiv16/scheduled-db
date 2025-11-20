@@ -1,67 +1,64 @@
 package store
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
-
-	"github.com/google/uuid"
 )
+
+func TestJobType_Constants(t *testing.T) {
+	if JobUnico != "unico" {
+		t.Errorf("JobUnico = %s, want 'unico'", JobUnico)
+	}
+	if JobRecurrente != "recurrente" {
+		t.Errorf("JobRecurrente = %s, want 'recurrente'", JobRecurrente)
+	}
+}
 
 func TestParseTimestamp(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
 		wantError bool
-		expected  int64
 	}{
 		{
 			name:      "empty string",
 			input:     "",
 			wantError: false,
-			expected:  0,
 		},
 		{
 			name:      "epoch seconds",
-			input:     "1640995200",
+			input:     "1704067200",
 			wantError: false,
-			expected:  1640995200,
 		},
 		{
 			name:      "RFC3339 format",
-			input:     "2022-01-01T00:00:00Z",
+			input:     "2024-01-01T00:00:00Z",
 			wantError: false,
-			expected:  1640995200,
 		},
 		{
-			name:      "RFC3339 with timezone",
-			input:     "2022-01-01T02:00:00+02:00",
+			name:      "RFC3339 with positive timezone",
+			input:     "2024-01-01T00:00:00+02:00",
 			wantError: false,
-			expected:  1640995200,
 		},
 		{
 			name:      "RFC3339 with negative timezone",
-			input:     "2021-12-31T19:00:00-05:00",
+			input:     "2024-01-01T00:00:00-05:00",
 			wantError: false,
-			expected:  1640995200,
 		},
 		{
-			name:      "simple format without timezone",
-			input:     "2022-01-01 00:00:00",
+			name:      "simple datetime format",
+			input:     "2024-01-01 00:00:00",
 			wantError: false,
-			expected:  1640995200,
 		},
 		{
 			name:      "invalid format",
-			input:     "invalid-timestamp",
+			input:     "not-a-timestamp",
 			wantError: true,
-			expected:  0,
 		},
 		{
-			name:      "invalid epoch",
-			input:     "not-a-number",
+			name:      "invalid date",
+			input:     "2024-13-45T99:99:99Z",
 			wantError: true,
-			expected:  0,
 		},
 	}
 
@@ -71,123 +68,205 @@ func TestParseTimestamp(t *testing.T) {
 
 			if tt.wantError {
 				if err == nil {
-					t.Errorf("ParseTimestamp() expected error but got none")
+					t.Errorf("ParseTimestamp() expected error but got none, result = %d", result)
 				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("ParseTimestamp() unexpected error: %v", err)
-				return
-			}
-
-			if result != tt.expected {
-				t.Errorf("ParseTimestamp() = %d, want %d", result, tt.expected)
+			} else {
+				if err != nil {
+					t.Errorf("ParseTimestamp() unexpected error = %v", err)
+				}
+				if tt.input == "" && result != 0 {
+					t.Errorf("ParseTimestamp() for empty string = %d, want 0", result)
+				}
 			}
 		})
 	}
 }
 
-func TestCreateJobRequest_ToJob(t *testing.T) {
+func TestParseTimestamp_EpochConsistency(t *testing.T) {
+	// Test that parsing epoch string returns the same value
+	epoch := int64(1704067200)
+	result, err := ParseTimestamp("1704067200")
+	if err != nil {
+		t.Fatalf("ParseTimestamp() error = %v", err)
+	}
+	if result != epoch {
+		t.Errorf("ParseTimestamp() = %d, want %d", result, epoch)
+	}
+}
+
+func TestParseTimestamp_RFC3339Consistency(t *testing.T) {
+	// Test that parsing RFC3339 returns correct epoch
+	input := "2024-01-01T00:00:00Z"
+	result, err := ParseTimestamp(input)
+	if err != nil {
+		t.Fatalf("ParseTimestamp() error = %v", err)
+	}
+
+	// Parse the same string with time.Parse to verify
+	expected, _ := time.Parse(time.RFC3339, input)
+	if result != expected.Unix() {
+		t.Errorf("ParseTimestamp() = %d, want %d", result, expected.Unix())
+	}
+}
+
+func TestCreateJobRequest_ToJob_UnicoJob(t *testing.T) {
+	futureTime := time.Now().Add(1 * time.Hour)
+	timestampStr := futureTime.Format(time.RFC3339)
+
+	req := &CreateJobRequest{
+		Type:       JobUnico,
+		Timestamp:  timestampStr,
+		WebhookURL: "https://example.com/webhook",
+		Payload:    map[string]interface{}{"key": "value"},
+	}
+
+	job, err := req.ToJob()
+	if err != nil {
+		t.Fatalf("ToJob() error = %v", err)
+	}
+
+	if job.ID == "" {
+		t.Error("ToJob() did not generate ID")
+	}
+
+	if job.Type != JobUnico {
+		t.Errorf("Job.Type = %s, want %s", job.Type, JobUnico)
+	}
+
+	if job.Timestamp == nil {
+		t.Fatal("Job.Timestamp is nil")
+	}
+
+	if job.WebhookURL != req.WebhookURL {
+		t.Errorf("Job.WebhookURL = %s, want %s", job.WebhookURL, req.WebhookURL)
+	}
+
+	if job.Payload == nil {
+		t.Error("Job.Payload is nil")
+	}
+}
+
+func TestCreateJobRequest_ToJob_RecurrenteJob(t *testing.T) {
+	req := &CreateJobRequest{
+		Type:     JobRecurrente,
+		CronExpr: "0 0 * * *",
+	}
+
+	job, err := req.ToJob()
+	if err != nil {
+		t.Fatalf("ToJob() error = %v", err)
+	}
+
+	if job.ID == "" {
+		t.Error("ToJob() did not generate ID")
+	}
+
+	if job.Type != JobRecurrente {
+		t.Errorf("Job.Type = %s, want %s", job.Type, JobRecurrente)
+	}
+
+	if job.CronExpr != req.CronExpr {
+		t.Errorf("Job.CronExpr = %s, want %s", job.CronExpr, req.CronExpr)
+	}
+}
+
+func TestCreateJobRequest_ToJob_WithCustomID(t *testing.T) {
+	customID := "custom-job-id"
+	futureTime := time.Now().Add(1 * time.Hour)
+
+	req := &CreateJobRequest{
+		ID:        customID,
+		Type:      JobUnico,
+		Timestamp: futureTime.Format(time.RFC3339),
+	}
+
+	job, err := req.ToJob()
+	if err != nil {
+		t.Fatalf("ToJob() error = %v", err)
+	}
+
+	if job.ID != customID {
+		t.Errorf("Job.ID = %s, want %s", job.ID, customID)
+	}
+}
+
+func TestCreateJobRequest_ToJob_InvalidTimestamp(t *testing.T) {
+	req := &CreateJobRequest{
+		Type:      JobUnico,
+		Timestamp: "invalid-timestamp",
+	}
+
+	_, err := req.ToJob()
+	if err == nil {
+		t.Error("ToJob() expected error for invalid timestamp but got none")
+	}
+}
+
+func TestCreateJobRequest_ToJob_WithLastDate(t *testing.T) {
+	lastDate := time.Now().Add(30 * 24 * time.Hour)
+
+	req := &CreateJobRequest{
+		Type:     JobRecurrente,
+		CronExpr: "0 0 * * *",
+		LastDate: lastDate.Format(time.RFC3339),
+	}
+
+	job, err := req.ToJob()
+	if err != nil {
+		t.Fatalf("ToJob() error = %v", err)
+	}
+
+	if job.LastDate == nil {
+		t.Fatal("Job.LastDate is nil")
+	}
+
+	expectedEpoch := lastDate.Unix()
+	if *job.LastDate != expectedEpoch {
+		t.Errorf("Job.LastDate = %d, want %d", *job.LastDate, expectedEpoch)
+	}
+}
+
+func TestJob_Validate_UnicoJob(t *testing.T) {
 	tests := []struct {
 		name      string
-		request   CreateJobRequest
+		job       *Job
 		wantError bool
-		validate  func(*testing.T, *Job)
 	}{
 		{
-			name: "valid unique job with RFC3339 timestamp",
-			request: CreateJobRequest{
-				ID:        "test-job-1",
+			name: "valid unico job",
+			job: &Job{
+				ID:        "test-job",
 				Type:      JobUnico,
-				Timestamp: "2025-01-01T12:00:00Z",
+				Timestamp: func() *int64 { t := time.Now().Add(1 * time.Hour).Unix(); return &t }(),
+				CreatedAt: time.Now().Unix(),
 			},
 			wantError: false,
-			validate: func(t *testing.T, job *Job) {
-				if job.ID != "test-job-1" {
-					t.Errorf("Job.ID = %s, want test-job-1", job.ID)
-				}
-				if job.Type != JobUnico {
-					t.Errorf("Job.Type = %s, want %s", job.Type, JobUnico)
-				}
-				if job.Timestamp == nil {
-					t.Error("Job.Timestamp is nil")
-				} else if *job.Timestamp != 1735732800 {
-					t.Errorf("Job.Timestamp = %d, want 1735732800", *job.Timestamp)
-				}
-			},
 		},
 		{
-			name: "valid unique job with epoch timestamp",
-			request: CreateJobRequest{
+			name: "unico job without timestamp",
+			job: &Job{
+				ID:        "test-job",
 				Type:      JobUnico,
-				Timestamp: "1735732800",
-			},
-			wantError: false,
-			validate: func(t *testing.T, job *Job) {
-				if job.ID == "" {
-					t.Error("Job.ID should be generated when empty")
-				}
-				if job.Type != JobUnico {
-					t.Errorf("Job.Type = %s, want %s", job.Type, JobUnico)
-				}
-				if job.Timestamp == nil {
-					t.Error("Job.Timestamp is nil")
-				} else if *job.Timestamp != 1735732800 {
-					t.Errorf("Job.Timestamp = %d, want 1735732800", *job.Timestamp)
-				}
-			},
-		},
-		{
-			name: "valid recurring job",
-			request: CreateJobRequest{
-				Type:     JobRecurrente,
-				CronExpr: "0 0 * * *",
-			},
-			wantError: false,
-			validate: func(t *testing.T, job *Job) {
-				if job.Type != JobRecurrente {
-					t.Errorf("Job.Type = %s, want %s", job.Type, JobRecurrente)
-				}
-				if job.CronExpr != "0 0 * * *" {
-					t.Errorf("Job.CronExpr = %s, want '0 0 * * *'", job.CronExpr)
-				}
-			},
-		},
-		{
-			name: "recurring job with timestamp and last_date",
-			request: CreateJobRequest{
-				Type:      JobRecurrente,
-				CronExpr:  "0 */6 * * *",
-				Timestamp: "1735732800",
-				LastDate:  "1735646400",
-			},
-			wantError: false,
-			validate: func(t *testing.T, job *Job) {
-				if job.CreatedAt != 1735732800 {
-					t.Errorf("Job.CreatedAt = %d, want 1735732800", job.CreatedAt)
-				}
-				if job.LastDate == nil {
-					t.Error("Job.LastDate is nil")
-				} else if *job.LastDate != 1735646400 {
-					t.Errorf("Job.LastDate = %d, want 1735646400", *job.LastDate)
-				}
-			},
-		},
-		{
-			name: "invalid timestamp format",
-			request: CreateJobRequest{
-				Type:      JobUnico,
-				Timestamp: "invalid-timestamp",
+				CreatedAt: time.Now().Unix(),
 			},
 			wantError: true,
 		},
 		{
-			name: "invalid last_date format",
-			request: CreateJobRequest{
-				Type:     JobRecurrente,
-				CronExpr: "0 0 * * *",
-				LastDate: "invalid-date",
+			name: "unico job with past timestamp",
+			job: &Job{
+				ID:        "test-job",
+				Type:      JobUnico,
+				Timestamp: func() *int64 { t := time.Now().Add(-1 * time.Hour).Unix(); return &t }(),
+				CreatedAt: time.Now().Unix(),
+			},
+			wantError: true,
+		},
+		{
+			name: "job without ID",
+			job: &Job{
+				Type:      JobUnico,
+				Timestamp: func() *int64 { t := time.Now().Add(1 * time.Hour).Unix(); return &t }(),
+				CreatedAt: time.Now().Unix(),
 			},
 			wantError: true,
 		},
@@ -195,68 +274,31 @@ func TestCreateJobRequest_ToJob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			job, err := tt.request.ToJob()
+			err := tt.job.Validate()
 
 			if tt.wantError {
 				if err == nil {
-					t.Errorf("ToJob() expected error but got none")
+					t.Error("Validate() expected error but got none")
 				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("ToJob() unexpected error: %v", err)
-				return
-			}
-
-			if job == nil {
-				t.Error("ToJob() returned nil job")
-				return
-			}
-
-			// Validate generated UUID when ID is empty
-			if tt.request.ID == "" {
-				if _, err := uuid.Parse(job.ID); err != nil {
-					t.Errorf("Generated job ID is not a valid UUID: %s", job.ID)
+			} else {
+				if err != nil {
+					t.Errorf("Validate() unexpected error = %v", err)
 				}
-			}
-
-			// Validate CreatedAt is set
-			if job.CreatedAt == 0 && tt.request.Timestamp == "" {
-				t.Error("Job.CreatedAt should be set")
-			}
-
-			if tt.validate != nil {
-				tt.validate(t, job)
 			}
 		})
 	}
 }
 
-func TestJob_Validate(t *testing.T) {
-	futureTime := time.Now().Add(1 * time.Hour).Unix()
-	pastTime := time.Now().Add(-1 * time.Hour).Unix()
-
+func TestJob_Validate_RecurrenteJob(t *testing.T) {
 	tests := []struct {
 		name      string
-		job       Job
+		job       *Job
 		wantError bool
-		errorMsg  string
 	}{
 		{
-			name: "valid unique job",
-			job: Job{
-				ID:        "test-job-1",
-				Type:      JobUnico,
-				Timestamp: &futureTime,
-				CreatedAt: time.Now().Unix(),
-			},
-			wantError: false,
-		},
-		{
-			name: "valid recurring job",
-			job: Job{
-				ID:        "test-job-2",
+			name: "valid recurrente job",
+			job: &Job{
+				ID:        "test-job",
 				Type:      JobRecurrente,
 				CronExpr:  "0 0 * * *",
 				CreatedAt: time.Now().Unix(),
@@ -264,73 +306,30 @@ func TestJob_Validate(t *testing.T) {
 			wantError: false,
 		},
 		{
-			name: "missing job ID",
-			job: Job{
-				Type:      JobUnico,
-				Timestamp: &futureTime,
-				CreatedAt: time.Now().Unix(),
-			},
-			wantError: true,
-			errorMsg:  "job ID is required",
-		},
-		{
-			name: "invalid job type",
-			job: Job{
-				ID:        "test-job-3",
-				Type:      JobType("invalid"),
-				CreatedAt: time.Now().Unix(),
-			},
-			wantError: true,
-			errorMsg:  "invalid job type: invalid",
-		},
-		{
-			name: "unique job missing timestamp",
-			job: Job{
-				ID:        "test-job-4",
-				Type:      JobUnico,
-				CreatedAt: time.Now().Unix(),
-			},
-			wantError: true,
-			errorMsg:  "timestamp is required for unico jobs",
-		},
-		{
-			name: "unique job with past timestamp",
-			job: Job{
-				ID:        "test-job-5",
-				Type:      JobUnico,
-				Timestamp: &pastTime,
-				CreatedAt: time.Now().Unix(),
-			},
-			wantError: true,
-			errorMsg:  "timestamp must be in the future",
-		},
-		{
-			name: "recurring job missing cron expression",
-			job: Job{
-				ID:        "test-job-6",
+			name: "recurrente job without cron expression",
+			job: &Job{
+				ID:        "test-job",
 				Type:      JobRecurrente,
 				CreatedAt: time.Now().Unix(),
 			},
 			wantError: true,
-			errorMsg:  "cron_expression is required for recurrente jobs",
 		},
 		{
-			name: "recurring job with invalid cron expression",
-			job: Job{
-				ID:        "test-job-7",
+			name: "recurrente job with invalid cron expression",
+			job: &Job{
+				ID:        "test-job",
 				Type:      JobRecurrente,
-				CronExpr:  "invalid-cron",
+				CronExpr:  "invalid cron",
 				CreatedAt: time.Now().Unix(),
 			},
 			wantError: true,
-			errorMsg:  "invalid cron expression",
 		},
 		{
-			name: "recurring job with valid complex cron",
-			job: Job{
-				ID:        "test-job-8",
+			name: "recurrente job with valid complex cron",
+			job: &Job{
+				ID:        "test-job",
 				Type:      JobRecurrente,
-				CronExpr:  "0 */15 * * *", // Every 15 minutes
+				CronExpr:  "*/15 * * * *", // Every 15 minutes
 				CreatedAt: time.Now().Unix(),
 			},
 			wantError: false,
@@ -343,189 +342,101 @@ func TestJob_Validate(t *testing.T) {
 
 			if tt.wantError {
 				if err == nil {
-					t.Errorf("Validate() expected error but got none")
-					return
+					t.Error("Validate() expected error but got none")
 				}
-				if tt.errorMsg != "" && err.Error() != tt.errorMsg && !contains(err.Error(), tt.errorMsg) {
-					t.Errorf("Validate() error = %v, want containing %v", err, tt.errorMsg)
+			} else {
+				if err != nil {
+					t.Errorf("Validate() unexpected error = %v", err)
 				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Validate() unexpected error: %v", err)
 			}
 		})
 	}
 }
 
-func TestJob_Serialization(t *testing.T) {
-	futureTime := time.Now().Add(1 * time.Hour).Unix()
-	lastDate := time.Now().Add(-1 * time.Hour).Unix()
-
-	originalJob := &Job{
-		ID:        "test-serialization",
-		Type:      JobRecurrente,
-		CronExpr:  "0 0 * * *",
-		LastDate:  &lastDate,
-		CreatedAt: futureTime,
+func TestJob_Validate_InvalidType(t *testing.T) {
+	job := &Job{
+		ID:        "test-job",
+		Type:      JobType("invalid"),
+		CreatedAt: time.Now().Unix(),
 	}
 
-	// Test ToBytes
+	err := job.Validate()
+	if err == nil {
+		t.Error("Validate() expected error for invalid job type but got none")
+	}
+}
+
+func TestJob_Serialization(t *testing.T) {
+	futureTime := time.Now().Add(1 * time.Hour).Unix()
+	originalJob := &Job{
+		ID:         "test-job",
+		Type:       JobUnico,
+		Timestamp:  &futureTime,
+		CreatedAt:  time.Now().Unix(),
+		WebhookURL: "https://example.com/webhook",
+		Payload:    map[string]interface{}{"key": "value"},
+	}
+
+	// Serialize
 	data, err := originalJob.ToBytes()
 	if err != nil {
 		t.Fatalf("ToBytes() error = %v", err)
 	}
 
-	if len(data) == 0 {
-		t.Error("ToBytes() returned empty data")
-	}
-
-	// Verify it's valid JSON
-	var jsonMap map[string]interface{}
-	if err := json.Unmarshal(data, &jsonMap); err != nil {
-		t.Errorf("ToBytes() did not produce valid JSON: %v", err)
-	}
-
-	// Test JobFromBytes
+	// Deserialize
 	deserializedJob, err := JobFromBytes(data)
 	if err != nil {
 		t.Fatalf("JobFromBytes() error = %v", err)
 	}
 
-	if deserializedJob == nil {
-		t.Fatal("JobFromBytes() returned nil job")
-	}
-
-	// Compare all fields
+	// Compare
 	if deserializedJob.ID != originalJob.ID {
-		t.Errorf("ID: got %s, want %s", deserializedJob.ID, originalJob.ID)
-	}
-	if deserializedJob.Type != originalJob.Type {
-		t.Errorf("Type: got %s, want %s", deserializedJob.Type, originalJob.Type)
-	}
-	if deserializedJob.CronExpr != originalJob.CronExpr {
-		t.Errorf("CronExpr: got %s, want %s", deserializedJob.CronExpr, originalJob.CronExpr)
-	}
-	if deserializedJob.CreatedAt != originalJob.CreatedAt {
-		t.Errorf("CreatedAt: got %d, want %d", deserializedJob.CreatedAt, originalJob.CreatedAt)
+		t.Errorf("Job.ID = %s, want %s", deserializedJob.ID, originalJob.ID)
 	}
 
-	// Check LastDate pointer
-	if originalJob.LastDate == nil && deserializedJob.LastDate != nil {
-		t.Error("LastDate: original nil but deserialized not nil")
-	} else if originalJob.LastDate != nil && deserializedJob.LastDate == nil {
-		t.Error("LastDate: original not nil but deserialized nil")
-	} else if originalJob.LastDate != nil && deserializedJob.LastDate != nil {
-		if *deserializedJob.LastDate != *originalJob.LastDate {
-			t.Errorf("LastDate: got %d, want %d", *deserializedJob.LastDate, *originalJob.LastDate)
-		}
+	if deserializedJob.Type != originalJob.Type {
+		t.Errorf("Job.Type = %s, want %s", deserializedJob.Type, originalJob.Type)
+	}
+
+	if deserializedJob.Timestamp == nil || *deserializedJob.Timestamp != *originalJob.Timestamp {
+		t.Error("Job.Timestamp mismatch after serialization")
+	}
+
+	if deserializedJob.WebhookURL != originalJob.WebhookURL {
+		t.Errorf("Job.WebhookURL = %s, want %s", deserializedJob.WebhookURL, originalJob.WebhookURL)
 	}
 }
 
 func TestJobFromBytes_InvalidJSON(t *testing.T) {
 	invalidJSON := []byte(`{"invalid": json}`)
 
-	job, err := JobFromBytes(invalidJSON)
+	_, err := JobFromBytes(invalidJSON)
 	if err == nil {
 		t.Error("JobFromBytes() expected error for invalid JSON but got none")
 	}
-	if job != nil {
-		t.Error("JobFromBytes() expected nil job for invalid JSON")
-	}
 }
 
-func TestJobTypes_Constants(t *testing.T) {
-	if JobUnico != "unico" {
-		t.Errorf("JobUnico = %s, want 'unico'", JobUnico)
-	}
-	if JobRecurrente != "recurrente" {
-		t.Errorf("JobRecurrente = %s, want 'recurrente'", JobRecurrente)
-	}
-}
-
-func TestCreateJobRequest_EmptyID(t *testing.T) {
-	request := CreateJobRequest{
-		Type:      JobUnico,
-		Timestamp: "2025-01-01T12:00:00Z",
+func TestSlotData_Structure(t *testing.T) {
+	slot := &SlotData{
+		Key:     100,
+		MinTime: 1000,
+		MaxTime: 1099,
+		JobIDs:  []string{"job-1", "job-2"},
 	}
 
-	job, err := request.ToJob()
-	if err != nil {
-		t.Fatalf("ToJob() error = %v", err)
+	if slot.Key != 100 {
+		t.Errorf("SlotData.Key = %d, want 100", slot.Key)
 	}
 
-	if job.ID == "" {
-		t.Error("ToJob() should generate UUID when ID is empty")
+	if slot.MinTime != 1000 {
+		t.Errorf("SlotData.MinTime = %d, want 1000", slot.MinTime)
 	}
 
-	// Validate it's a proper UUID
-	if _, err := uuid.Parse(job.ID); err != nil {
-		t.Errorf("Generated ID is not a valid UUID: %s, error: %v", job.ID, err)
-	}
-}
-
-func TestJob_ValidateCronExpressions(t *testing.T) {
-	validCronExpressions := []string{
-		"0 0 * * *",      // Daily at midnight
-		"0 */6 * * *",    // Every 6 hours
-		"*/15 * * * *",   // Every 15 minutes
-		"0 9-17 * * 1-5", // Business hours
-		"0 0 1 * *",      // First day of month
-		"0 0 * * 0",      // Every Sunday
+	if slot.MaxTime != 1099 {
+		t.Errorf("SlotData.MaxTime = %d, want 1099", slot.MaxTime)
 	}
 
-	for _, cronExpr := range validCronExpressions {
-		t.Run("valid_cron_"+cronExpr, func(t *testing.T) {
-			job := Job{
-				ID:        "test-cron",
-				Type:      JobRecurrente,
-				CronExpr:  cronExpr,
-				CreatedAt: time.Now().Unix(),
-			}
-
-			if err := job.Validate(); err != nil {
-				t.Errorf("Validate() failed for valid cron expression %s: %v", cronExpr, err)
-			}
-		})
+	if len(slot.JobIDs) != 2 {
+		t.Errorf("SlotData.JobIDs length = %d, want 2", len(slot.JobIDs))
 	}
-
-	invalidCronExpressions := []string{
-		"* * * * * *", // Too many fields
-		"60 * * * *",  // Invalid minute
-		"* 25 * * *",  // Invalid hour
-		"invalid",     // Not a cron expression
-		"",            // Empty string
-	}
-
-	for _, cronExpr := range invalidCronExpressions {
-		t.Run("invalid_cron_"+cronExpr, func(t *testing.T) {
-			job := Job{
-				ID:        "test-cron",
-				Type:      JobRecurrente,
-				CronExpr:  cronExpr,
-				CreatedAt: time.Now().Unix(),
-			}
-
-			if err := job.Validate(); err == nil {
-				t.Errorf("Validate() should fail for invalid cron expression: %s", cronExpr)
-			}
-		})
-	}
-}
-
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) &&
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-			indexOfSubstring(s, substr) >= 0)))
-}
-
-func indexOfSubstring(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }

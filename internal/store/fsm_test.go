@@ -440,17 +440,20 @@ func TestFSM_Snapshot(t *testing.T) {
 	}
 
 	// Verify snapshot data
-	var jobs map[string]*Job
-	if err := json.Unmarshal(buf.Bytes(), &jobs); err != nil {
+	var snapshotData struct {
+		Jobs  map[string]*Job     `json:"jobs"`
+		Slots map[int64]*SlotData `json:"slots"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &snapshotData); err != nil {
 		t.Fatalf("Failed to unmarshal snapshot: %v", err)
 	}
 
-	if len(jobs) != len(jobIDs) {
-		t.Errorf("Snapshot contains %d jobs, want %d", len(jobs), len(jobIDs))
+	if len(snapshotData.Jobs) != len(jobIDs) {
+		t.Errorf("Snapshot contains %d jobs, want %d", len(snapshotData.Jobs), len(jobIDs))
 	}
 
 	for _, expectedID := range jobIDs {
-		if _, exists := jobs[expectedID]; !exists {
+		if _, exists := snapshotData.Jobs[expectedID]; !exists {
 			t.Errorf("Job %s not found in snapshot", expectedID)
 		}
 	}
@@ -459,26 +462,32 @@ func TestFSM_Snapshot(t *testing.T) {
 func TestFSM_Restore(t *testing.T) {
 	fsm := NewFSM()
 
-	// Create snapshot data
+	// Create snapshot data with the correct structure
 	futureTime := time.Now().Add(1 * time.Hour).Unix()
-	jobs := map[string]*Job{
-		"job-1": {
-			ID:        "job-1",
-			Type:      JobUnico,
-			Timestamp: &futureTime,
-			CreatedAt: time.Now().Unix(),
+	snapshotData := struct {
+		Jobs  map[string]*Job     `json:"jobs"`
+		Slots map[int64]*SlotData `json:"slots"`
+	}{
+		Jobs: map[string]*Job{
+			"job-1": {
+				ID:        "job-1",
+				Type:      JobUnico,
+				Timestamp: &futureTime,
+				CreatedAt: time.Now().Unix(),
+			},
+			"job-2": {
+				ID:        "job-2",
+				Type:      JobRecurrente,
+				CronExpr:  "0 0 * * *",
+				CreatedAt: time.Now().Unix(),
+			},
 		},
-		"job-2": {
-			ID:        "job-2",
-			Type:      JobRecurrente,
-			CronExpr:  "0 0 * * *",
-			CreatedAt: time.Now().Unix(),
-		},
+		Slots: make(map[int64]*SlotData),
 	}
 
-	data, err := json.Marshal(jobs)
+	data, err := json.Marshal(snapshotData)
 	if err != nil {
-		t.Fatalf("Failed to marshal jobs: %v", err)
+		t.Fatalf("Failed to marshal snapshot data: %v", err)
 	}
 
 	reader := io.NopCloser(strings.NewReader(string(data)))
@@ -491,17 +500,17 @@ func TestFSM_Restore(t *testing.T) {
 
 	// Verify jobs were restored
 	restoredJobs := fsm.GetAllJobs()
-	if len(restoredJobs) != len(jobs) {
-		t.Errorf("Restored %d jobs, want %d", len(restoredJobs), len(jobs))
+	if len(restoredJobs) != len(snapshotData.Jobs) {
+		t.Errorf("Restored %d jobs, want %d", len(restoredJobs), len(snapshotData.Jobs))
 	}
 
-	for expectedID := range jobs {
+	for expectedID := range snapshotData.Jobs {
 		job, exists := fsm.GetJob(expectedID)
 		if !exists {
 			t.Errorf("Job %s not found after restore", expectedID)
 		}
 
-		if job.ID != expectedID {
+		if job != nil && job.ID != expectedID {
 			t.Errorf("Job.ID = %s, want %s", job.ID, expectedID)
 		}
 	}
