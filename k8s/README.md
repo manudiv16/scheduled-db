@@ -53,34 +53,44 @@ kubectl get svc -l app=scheduled-db
 ## 📋 Components
 
 ### ConfigMap (`configmap.yaml`)
+
 Contains environment variables and configuration for the cluster:
+
 - Discovery strategy (Kubernetes)
 - Raft and HTTP ports
 - Slot configuration
 - Service discovery settings
 
 ### RBAC (`rbac.yaml`)
+
 Defines permissions for the scheduled-db pods to:
+
 - Read pods, services, and endpoints
 - Perform Kubernetes service discovery
 - Access ConfigMaps and Secrets
 
 ### Services (`service.yaml`)
+
 - **scheduled-db** (Headless): For internal Raft communication
 - **scheduled-db-api**: Load-balanced API access
 
 ### StatefulSet (`statefulset.yaml`)
+
 Manages the cluster nodes with:
+
 - 3 replicas by default
 - Persistent storage (1Gi per node)
 - Health checks and probes
 - Environment variable injection
 
 ### PodDisruptionBudget (`pdb.yaml`)
+
 Ensures at least 2 pods remain available during voluntary disruptions.
 
 ### HorizontalPodAutoscaler (`hpa.yaml`)
+
 Automatically scales the cluster based on CPU and memory usage:
+
 - Min replicas: 3
 - Max replicas: 7
 - Target CPU: 70%
@@ -103,6 +113,7 @@ Key environment variables configurable through the ConfigMap:
 ### Scaling
 
 #### Manual Scaling
+
 ```bash
 # Scale to 5 replicas
 kubectl scale statefulset scheduled-db --replicas=5
@@ -112,7 +123,9 @@ kubectl edit statefulset scheduled-db
 ```
 
 #### Automatic Scaling
+
 The HPA will automatically scale based on resource usage. To modify:
+
 ```bash
 kubectl edit hpa scheduled-db-hpa
 ```
@@ -120,6 +133,7 @@ kubectl edit hpa scheduled-db-hpa
 ### Storage
 
 Each node gets a 1Gi persistent volume. To change:
+
 1. Edit `statefulset.yaml`
 2. Modify the `volumeClaimTemplates` section
 3. Reapply the manifest
@@ -129,6 +143,7 @@ Each node gets a 1Gi persistent volume. To change:
 ## 🔍 Monitoring and Debugging
 
 ### Check Cluster Status
+
 ```bash
 # View all resources
 kubectl get all -l app=scheduled-db
@@ -145,7 +160,9 @@ curl http://localhost:8080/debug/cluster
 ```
 
 ### Health Checks
+
 Each pod has three types of probes:
+
 - **Startup Probe**: Ensures the application starts properly
 - **Liveness Probe**: Restarts pod if unhealthy
 - **Readiness Probe**: Controls traffic routing
@@ -153,6 +170,7 @@ Each pod has three types of probes:
 ### Troubleshooting
 
 #### Pods Not Starting
+
 ```bash
 # Check pod events
 kubectl describe pod scheduled-db-0
@@ -165,6 +183,7 @@ kubectl auth can-i get pods --as=system:serviceaccount:default:scheduled-db
 ```
 
 #### Network Issues
+
 ```bash
 # Test internal DNS resolution
 kubectl exec scheduled-db-0 -- nslookup scheduled-db
@@ -177,6 +196,7 @@ kubectl exec scheduled-db-0 -- wget -qO- http://scheduled-db-1:8080/health
 ```
 
 #### Storage Issues
+
 ```bash
 # Check PVC status
 kubectl get pvc -l app=scheduled-db
@@ -278,7 +298,9 @@ EOF
 ## 🔒 Security
 
 ### Security Context
+
 Pods run with:
+
 - Non-root user (65534)
 - Read-only root filesystem
 - Dropped capabilities
@@ -330,16 +352,19 @@ kubectl create secret generic scheduled-db-secrets \
 ## 📊 Production Considerations
 
 ### Resource Requirements
+
 - **CPU**: 100m request, 500m limit per pod
 - **Memory**: 128Mi request, 512Mi limit per pod
 - **Storage**: 1Gi per pod (adjustable)
 
 ### High Availability
+
 - Minimum 3 replicas for Raft consensus
 - PodDisruptionBudget ensures availability during updates
 - Anti-affinity rules spread pods across nodes
 
 ### Backup Strategy
+
 ```bash
 # Create backup of persistent data
 kubectl exec scheduled-db-0 -- tar czf /tmp/backup.tar.gz -C /data .
@@ -349,6 +374,7 @@ kubectl cp scheduled-db-0:/tmp/backup.tar.gz ./backup-$(date +%Y%m%d).tar.gz
 ### Monitoring Integration
 
 The deployment is ready for Prometheus monitoring:
+
 - Annotations for automatic discovery
 - Health endpoints exposed
 - Metrics available at `/health`
@@ -356,6 +382,7 @@ The deployment is ready for Prometheus monitoring:
 ## 🚨 Alerts and Notifications
 
 Recommended alerts:
+
 - Pod restart rate
 - Raft cluster health
 - Job execution failures
