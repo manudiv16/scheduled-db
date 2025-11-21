@@ -19,7 +19,7 @@ resources:
 images:
   - name: scheduled-db
     newName: scheduled-db
-    newTag: v1.0.0-dirty
+    newTag: v300
 
 replicas:
   - name: scheduled-db
