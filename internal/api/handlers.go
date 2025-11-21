@@ -21,15 +21,24 @@ import (
 type Handlers struct {
 	store                  *store.Store
 	executionManager       *slots.ExecutionManager
+	limitManager           *slots.LimitManager
 	addressMap             map[string]string // Map Raft address to HTTP address
 	healthFailureThreshold float64
 }
 
+type JobStats struct {
+	Count     int64 `json:"count"`
+	Limit     int64 `json:"limit"`
+	Available int64 `json:"available"`
+}
+
 type HealthResponse struct {
-	Status string `json:"status"`
-	Role   string `json:"role"`
-	Leader string `json:"leader,omitempty"`
-	NodeID string `json:"node_id"`
+	Status string             `json:"status"`
+	Role   string             `json:"role"`
+	Leader string             `json:"leader,omitempty"`
+	NodeID string             `json:"node_id"`
+	Memory *slots.MemoryUsage `json:"memory,omitempty"`
+	Jobs   *JobStats          `json:"jobs,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -55,10 +64,11 @@ type ClusterDebugResponse struct {
 	JobCount  int                 `json:"job_count"`
 }
 
-func NewHandlers(store *store.Store, executionManager *slots.ExecutionManager, healthFailureThreshold float64) *Handlers {
+func NewHandlers(store *store.Store, executionManager *slots.ExecutionManager, limitManager *slots.LimitManager, healthFailureThreshold float64) *Handlers {
 	handlers := &Handlers{
 		store:                  store,
 		executionManager:       executionManager,
+		limitManager:           limitManager,
 		addressMap:             make(map[string]string),
 		healthFailureThreshold: healthFailureThreshold,
 	}
@@ -201,6 +211,40 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check capacity limits
+	if h.limitManager != nil {
+		if err := h.limitManager.CheckCapacity(job); err != nil {
+			// Check if it's a capacity error
+			if capErr, ok := err.(*slots.CapacityError); ok {
+				// Return 507 Insufficient Storage
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(capErr.HTTPStatus())
+				if encodeErr := json.NewEncoder(w).Encode(map[string]interface{}{
+					"error":     capErr.Error(),
+					"type":      capErr.Type,
+					"current":   capErr.Current,
+					"limit":     capErr.Limit,
+					"requested": capErr.Requested,
+				}); encodeErr != nil {
+					logger.Error("failed to encode capacity error response: %v", encodeErr)
+				}
+
+				// Log rejection
+				logger.Warn("job rejected due to capacity limit: %v", err)
+
+				// Update metrics for rejection
+				if m := metrics.GetGlobalMetrics(); m != nil {
+					m.IncrementJobRejections(context.Background(), capErr.Type)
+				}
+				return
+			}
+
+			// Other errors
+			h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Capacity check failed: %v", err))
+			return
+		}
+	}
+
 	logger.Debug("about to create job in store: %s", job.ID)
 	if err := h.store.CreateJob(job); err != nil {
 		logger.Debug("failed to create job in store: %v", err)
@@ -208,6 +252,13 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logger.Debug("job created successfully in store: %s", job.ID)
+
+	// Update capacity tracking
+	if h.limitManager != nil {
+		if err := h.limitManager.RecordJobAdded(job); err != nil {
+			logger.Error("failed to record job addition in limit manager: %v", err)
+		}
+	}
 
 	// Record job creation metrics using OpenTelemetry
 	if metrics.GlobalJobInstrumentation != nil {
@@ -269,6 +320,13 @@ func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Update capacity tracking
+	if h.limitManager != nil {
+		if err := h.limitManager.RecordJobRemoved(job); err != nil {
+			logger.Error("failed to record job removal in limit manager: %v", err)
+		}
+	}
+
 	// Record job deletion metrics using OpenTelemetry
 	if metrics.GlobalJobInstrumentation != nil {
 		metrics.GlobalJobInstrumentation.RecordJobDeleted(context.Background(), job)
@@ -288,6 +346,30 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	} else {
 		response.Role = "follower"
 		response.Leader = h.store.GetLeader()
+	}
+
+	// Add capacity info if available
+	if h.limitManager != nil {
+		memUsage := h.limitManager.GetMemoryUsage()
+		response.Memory = memUsage
+
+		// Check for degraded status
+		if memUsage.Utilization > 90.0 {
+			response.Status = "degraded"
+		}
+
+		jobCount := h.limitManager.GetJobCount()
+		jobLimit := h.limitManager.GetJobLimit()
+		jobAvailable := jobLimit - jobCount
+		if jobAvailable < 0 {
+			jobAvailable = 0
+		}
+
+		response.Jobs = &JobStats{
+			Count:     jobCount,
+			Limit:     jobLimit,
+			Available: jobAvailable,
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

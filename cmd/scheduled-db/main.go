@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -32,6 +33,9 @@ func main() {
 		maxExecutionAttempts   = flag.Int("max-attempts", getEnvIntOrDefault("MAX_EXECUTION_ATTEMPTS", 3), "Maximum execution attempts per job")
 		historyRetention       = flag.Duration("history-retention", getEnvDurationOrDefault("EXECUTION_HISTORY_RETENTION", 30*24*time.Hour), "Execution history retention period")
 		healthFailureThreshold = flag.Float64("health-failure-threshold", getEnvFloatOrDefault("HEALTH_FAILURE_THRESHOLD", 0.1), "Health check failure threshold (ratio of failed jobs)")
+		queueMemoryLimit       = flag.String("queue-memory-limit", getEnvOrDefault("QUEUE_MEMORY_LIMIT", ""), "Queue memory limit (e.g., 2GB, 500MB) - empty means auto-detect")
+		queueMemoryPercent     = flag.Float64("queue-memory-percent", getEnvFloatOrDefault("QUEUE_MEMORY_PERCENT", 50.0), "Queue memory as percentage of system memory (default 50%)")
+		queueJobLimit          = flag.Int64("queue-job-limit", getEnvInt64OrDefault("QUEUE_JOB_LIMIT", 100000), "Maximum number of jobs in queue (default 100,000)")
 	)
 	flag.Parse()
 
@@ -73,6 +77,17 @@ func main() {
 
 	httpBind := fmt.Sprintf("%s:%s", *httpHost, *httpPort)
 
+	// Detect or configure memory limit
+	memoryLimit := DetectMemoryLimit(*queueMemoryLimit, *queueMemoryPercent)
+
+	// Validate job limit
+	jobLimit := *queueJobLimit
+	if jobLimit <= 0 {
+		logger.Warn("invalid QUEUE_JOB_LIMIT: %d, using default 100,000", jobLimit)
+		jobLimit = 100000
+	}
+	logger.Info("using job count limit: %d jobs", jobLimit)
+
 	// Create application configuration
 	config := &internal.Config{
 		DataDir:                *dataDir,
@@ -88,6 +103,8 @@ func main() {
 		MaxExecutionAttempts:   *maxExecutionAttempts,
 		HistoryRetention:       *historyRetention,
 		HealthFailureThreshold: *healthFailureThreshold,
+		QueueMemoryLimit:       memoryLimit,
+		QueueJobLimit:          jobLimit,
 	}
 
 	// Create and start application
@@ -107,6 +124,8 @@ func main() {
 	logger.Info("raft bind: %s", raftBind)
 	logger.Info("raft advertise: %s", raftAdvertise)
 	logger.Info("HTTP bind: %s", httpBind)
+	logger.Info("queue memory limit: %d bytes (%.2f GB)", memoryLimit, float64(memoryLimit)/(1024*1024*1024))
+	logger.Info("queue job limit: %d jobs", jobLimit)
 	if len(peerList) > 0 {
 		logger.Info("peers: %v", peerList)
 	} else {
@@ -231,6 +250,15 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 	return defaultValue
 }
 
+func getEnvInt64OrDefault(key string, defaultValue int64) int64 {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
 func getEnvDurationOrDefault(key string, defaultValue time.Duration) time.Duration {
 	if value := os.Getenv(key); value != "" {
 		if parsed, err := time.ParseDuration(value); err == nil {
@@ -247,4 +275,69 @@ func getEnvFloatOrDefault(key string, defaultValue float64) float64 {
 		}
 	}
 	return defaultValue
+}
+
+// ParseMemoryLimit parses memory limit strings like "1GB", "500MB", "1073741824"
+func ParseMemoryLimit(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("empty memory limit value")
+	}
+
+	// Check for unit suffix
+	multiplier := int64(1)
+	if strings.HasSuffix(strings.ToUpper(value), "GB") {
+		multiplier = 1024 * 1024 * 1024
+		value = strings.TrimSuffix(strings.TrimSuffix(value, "GB"), "gb")
+	} else if strings.HasSuffix(strings.ToUpper(value), "MB") {
+		multiplier = 1024 * 1024
+		value = strings.TrimSuffix(strings.TrimSuffix(value, "MB"), "mb")
+	} else if strings.HasSuffix(strings.ToUpper(value), "KB") {
+		multiplier = 1024
+		value = strings.TrimSuffix(strings.TrimSuffix(value, "KB"), "kb")
+	}
+
+	value = strings.TrimSpace(value)
+	num, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid memory limit format: %v", err)
+	}
+
+	if num <= 0 {
+		return 0, fmt.Errorf("memory limit must be positive")
+	}
+
+	return num * multiplier, nil
+}
+
+// DetectMemoryLimit determines memory limit from config or system memory
+func DetectMemoryLimit(explicitLimit string, memoryPercent float64) int64 {
+	// If explicit limit set, use it
+	if explicitLimit != "" {
+		limit, err := ParseMemoryLimit(explicitLimit)
+		if err != nil {
+			logger.Error("invalid QUEUE_MEMORY_LIMIT: %v, falling back to auto-detection", err)
+		} else {
+			logger.Info("using configured memory limit: %d bytes (%.2f GB)", limit, float64(limit)/(1024*1024*1024))
+			return limit
+		}
+	}
+
+	// Detect system memory
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	systemMemory := int64(m.Sys)
+
+	// Use configured percentage or default 50%
+	percent := memoryPercent
+	if percent <= 0 || percent > 100 {
+		percent = 50.0
+	}
+
+	limit := int64(float64(systemMemory) * (percent / 100.0))
+
+	logger.Info("detected memory limit: %d bytes (%.2f GB) - %.1f%% of %d bytes (%.2f GB) system memory",
+		limit, float64(limit)/(1024*1024*1024), percent, systemMemory, float64(systemMemory)/(1024*1024*1024))
+
+	return limit
 }

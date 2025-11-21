@@ -50,6 +50,8 @@ type Config struct {
 	MaxExecutionAttempts   int
 	HistoryRetention       time.Duration
 	HealthFailureThreshold float64
+	QueueMemoryLimit       int64
+	QueueJobLimit          int64
 }
 
 func NewApp(config *Config) (*App, error) {
@@ -135,8 +137,21 @@ func NewApp(config *Config) (*App, error) {
 	// Pass HTTP bind info to store
 	jobStore.SetHTTPBind(config.HTTPBind)
 
+	// Initialize capacity tracking components
+	sizeCalculator := slots.NewSizeCalculator()
+	memoryTracker := slots.NewMemoryTracker(jobStore, config.QueueMemoryLimit)
+	jobCounter := slots.NewJobCounter(jobStore, config.QueueJobLimit)
+	limitManager := slots.NewLimitManager(memoryTracker, jobCounter, sizeCalculator)
+
+	// Set initial metrics for limits
+	if m := metrics.GetGlobalMetrics(); m != nil {
+		ctx := context.Background()
+		m.SetQueueMemoryLimit(ctx, config.QueueMemoryLimit)
+		m.SetQueueJobLimit(ctx, config.QueueJobLimit)
+	}
+
 	// Setup HTTP API
-	handlers := api.NewHandlers(jobStore, executionManager, config.HealthFailureThreshold)
+	handlers := api.NewHandlers(jobStore, executionManager, limitManager, config.HealthFailureThreshold)
 	router := api.NewRouter(handlers)
 
 	httpServer := &http.Server{

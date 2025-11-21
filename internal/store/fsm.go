@@ -14,13 +14,15 @@ import (
 type CommandType string
 
 const (
-	CommandCreateJob       CommandType = "create_job"
-	CommandDeleteJob       CommandType = "delete_job"
-	CommandCreateSlot      CommandType = "create_slot"
-	CommandDeleteSlot      CommandType = "delete_slot"
-	CommandUpdateJobStatus CommandType = "update_job_status"
-	CommandRecordAttempt   CommandType = "record_attempt"
-	CommandPruneAttempts   CommandType = "prune_attempts"
+	CommandCreateJob         CommandType = "create_job"
+	CommandDeleteJob         CommandType = "delete_job"
+	CommandCreateSlot        CommandType = "create_slot"
+	CommandDeleteSlot        CommandType = "delete_slot"
+	CommandUpdateJobStatus   CommandType = "update_job_status"
+	CommandRecordAttempt     CommandType = "record_attempt"
+	CommandPruneAttempts     CommandType = "prune_attempts"
+	CommandUpdateMemoryUsage CommandType = "update_memory_usage"
+	CommandUpdateJobCount    CommandType = "update_job_count"
 )
 
 type Command struct {
@@ -30,6 +32,8 @@ type Command struct {
 	Slot          *SlotData          `json:"slot,omitempty"`
 	StatusCommand *StatusCommand     `json:"status_command,omitempty"`
 	Attempts      []ExecutionAttempt `json:"attempts,omitempty"`
+	MemoryDelta   int64              `json:"memory_delta,omitempty"`
+	JobCountDelta int64              `json:"job_count_delta,omitempty"`
 }
 
 // StatusCommand represents a status update command
@@ -48,6 +52,8 @@ type FSM struct {
 	jobs            map[string]*Job
 	slots           map[int64]*SlotData
 	executionStates map[string]*JobExecutionState
+	memoryUsage     int64 // Total memory used by jobs in slots
+	jobCount        int64 // Total number of jobs
 }
 
 func NewFSM() *FSM {
@@ -126,6 +132,10 @@ func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 			return fmt.Errorf("status command is required for prune attempts")
 		}
 		return f.applyPruneAttempts(cmd.StatusCommand, cmd.Attempts)
+	case CommandUpdateMemoryUsage:
+		return f.applyMemoryUpdate(cmd.MemoryDelta)
+	case CommandUpdateJobCount:
+		return f.applyJobCountUpdate(cmd.JobCountDelta)
 	default:
 		return fmt.Errorf("unknown command type: %s", cmd.Type)
 	}
@@ -154,7 +164,13 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 		executionStates[k] = v
 	}
 
-	return &Snapshot{jobs: jobs, slots: slots, executionStates: executionStates}, nil
+	return &Snapshot{
+		jobs:            jobs,
+		slots:           slots,
+		executionStates: executionStates,
+		memoryUsage:     f.memoryUsage,
+		jobCount:        f.jobCount,
+	}, nil
 }
 
 // Restore restores the FSM state from a snapshot
@@ -165,6 +181,8 @@ func (f *FSM) Restore(reader io.ReadCloser) error {
 		Jobs            map[string]*Job               `json:"jobs"`
 		Slots           map[int64]*SlotData           `json:"slots"`
 		ExecutionStates map[string]*JobExecutionState `json:"execution_states"`
+		MemoryUsage     int64                         `json:"memory_usage"`
+		JobCount        int64                         `json:"job_count"`
 	}
 
 	if err := json.NewDecoder(reader).Decode(&snapshot); err != nil {
@@ -189,7 +207,11 @@ func (f *FSM) Restore(reader io.ReadCloser) error {
 		f.executionStates = make(map[string]*JobExecutionState)
 	}
 
-	logger.Debug("Restored %d jobs, %d slots, and %d execution states from snapshot", len(f.jobs), len(f.slots), len(f.executionStates))
+	f.memoryUsage = snapshot.MemoryUsage
+	f.jobCount = snapshot.JobCount
+
+	logger.Debug("Restored %d jobs, %d slots, %d execution states, %d bytes memory, %d job count from snapshot",
+		len(f.jobs), len(f.slots), len(f.executionStates), f.memoryUsage, f.jobCount)
 	return nil
 }
 
@@ -251,6 +273,20 @@ func (f *FSM) GetAllExecutionStates() map[string]*JobExecutionState {
 		states[k] = v
 	}
 	return states
+}
+
+// GetMemoryUsage returns the current memory usage in bytes
+func (f *FSM) GetMemoryUsage() int64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.memoryUsage
+}
+
+// GetJobCount returns the current job count
+func (f *FSM) GetJobCount() int64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.jobCount
 }
 
 // applyStatusUpdate applies a status update command
@@ -333,6 +369,32 @@ func (f *FSM) applyPruneAttempts(cmd *StatusCommand, keptAttempts []ExecutionAtt
 	return nil
 }
 
+// applyMemoryUpdate updates the memory usage by the given delta
+func (f *FSM) applyMemoryUpdate(delta int64) interface{} {
+	f.memoryUsage += delta
+
+	// Ensure non-negative
+	if f.memoryUsage < 0 {
+		f.memoryUsage = 0
+	}
+
+	logger.Debug("Updated memory usage by %d bytes, total: %d bytes", delta, f.memoryUsage)
+	return f.memoryUsage
+}
+
+// applyJobCountUpdate updates the job count by the given delta
+func (f *FSM) applyJobCountUpdate(delta int64) interface{} {
+	f.jobCount += delta
+
+	// Ensure non-negative
+	if f.jobCount < 0 {
+		f.jobCount = 0
+	}
+
+	logger.Debug("Updated job count by %d, total: %d jobs", delta, f.jobCount)
+	return f.jobCount
+}
+
 // validateStateTransition validates if a state transition is allowed
 func validateStateTransition(from, to JobStatus) error {
 	// Define valid transitions
@@ -364,6 +426,8 @@ type Snapshot struct {
 	jobs            map[string]*Job
 	slots           map[int64]*SlotData
 	executionStates map[string]*JobExecutionState
+	memoryUsage     int64
+	jobCount        int64
 }
 
 // Persist saves the snapshot to the given sink
@@ -374,10 +438,14 @@ func (s *Snapshot) Persist(sink raft.SnapshotSink) error {
 			Jobs            map[string]*Job               `json:"jobs"`
 			Slots           map[int64]*SlotData           `json:"slots"`
 			ExecutionStates map[string]*JobExecutionState `json:"execution_states"`
+			MemoryUsage     int64                         `json:"memory_usage"`
+			JobCount        int64                         `json:"job_count"`
 		}{
 			Jobs:            s.jobs,
 			Slots:           s.slots,
 			ExecutionStates: s.executionStates,
+			MemoryUsage:     s.memoryUsage,
+			JobCount:        s.jobCount,
 		}
 		return encoder.Encode(data)
 	}()

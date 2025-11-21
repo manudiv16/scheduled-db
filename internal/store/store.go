@@ -561,6 +561,64 @@ func (s *Store) TriggerElection() {
 	}
 }
 
+// GetMemoryUsage returns the current memory usage in bytes
+func (s *Store) GetMemoryUsage() int64 {
+	return s.fsm.GetMemoryUsage()
+}
+
+// GetJobCount returns the current job count
+func (s *Store) GetJobCount() int64 {
+	return s.fsm.GetJobCount()
+}
+
+// UpdateMemoryUsage updates the memory usage by the given delta via Raft
+func (s *Store) UpdateMemoryUsage(delta int64) error {
+	if !s.IsLeader() {
+		return fmt.Errorf("not leader")
+	}
+
+	command := Command{
+		Type:        CommandUpdateMemoryUsage,
+		MemoryDelta: delta,
+	}
+
+	data, err := json.Marshal(command)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %v", err)
+	}
+
+	future := s.raft.Apply(data, getApplyTimeout())
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to apply command: %v", err)
+	}
+
+	return nil
+}
+
+// UpdateJobCount updates the job count by the given delta via Raft
+func (s *Store) UpdateJobCount(delta int64) error {
+	if !s.IsLeader() {
+		return fmt.Errorf("not leader")
+	}
+
+	command := Command{
+		Type:          CommandUpdateJobCount,
+		JobCountDelta: delta,
+	}
+
+	data, err := json.Marshal(command)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %v", err)
+	}
+
+	future := s.raft.Apply(data, getApplyTimeout())
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to apply command: %v", err)
+	}
+
+	return nil
+}
+
 // Close closes the store
 func (s *Store) Close() error {
 	return s.raft.Shutdown().Error()
