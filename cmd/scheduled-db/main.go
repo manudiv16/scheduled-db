@@ -17,16 +17,21 @@ import (
 
 func main() {
 	var (
-		dataDir           = flag.String("data-dir", getEnvOrDefault("DATA_DIR", "./data"), "Data directory for Raft storage")
-		raftPort          = flag.String("raft-port", getEnvOrDefault("RAFT_PORT", "7000"), "Port for Raft communication")
-		httpPort          = flag.String("http-port", getEnvOrDefault("HTTP_PORT", "8080"), "Port for HTTP API")
-		nodeID            = flag.String("node-id", getEnvOrDefault("NODE_ID", "node-1"), "Unique node identifier")
-		peers             = flag.String("peers", getEnvOrDefault("PEERS", ""), "Comma-separated list of peer addresses for joining cluster")
-		slotGap           = flag.Duration("slot-gap", getEnvDurationOrDefault("SLOT_GAP", 10*time.Second), "Time gap for slot intervals")
-		discoveryStrategy = flag.String("discovery-strategy", getEnvOrDefault("DISCOVERY_STRATEGY", ""), "Discovery strategy: static, kubernetes, dns, gossip")
-		raftHost          = flag.String("raft-host", getEnvOrDefault("RAFT_HOST", "localhost"), "Host for Raft communication")
-		raftAdvertiseHost = flag.String("raft-advertise-host", getEnvOrDefault("RAFT_ADVERTISE_HOST", ""), "Host to advertise for Raft communication (empty means use raft-host)")
-		httpHost          = flag.String("http-host", getEnvOrDefault("HTTP_HOST", ""), "Host for HTTP API (empty means all interfaces)")
+		dataDir                = flag.String("data-dir", getEnvOrDefault("DATA_DIR", "./data"), "Data directory for Raft storage")
+		raftPort               = flag.String("raft-port", getEnvOrDefault("RAFT_PORT", "7000"), "Port for Raft communication")
+		httpPort               = flag.String("http-port", getEnvOrDefault("HTTP_PORT", "8080"), "Port for HTTP API")
+		nodeID                 = flag.String("node-id", getEnvOrDefault("NODE_ID", "node-1"), "Unique node identifier")
+		peers                  = flag.String("peers", getEnvOrDefault("PEERS", ""), "Comma-separated list of peer addresses for joining cluster")
+		slotGap                = flag.Duration("slot-gap", getEnvDurationOrDefault("SLOT_GAP", 10*time.Second), "Time gap for slot intervals")
+		discoveryStrategy      = flag.String("discovery-strategy", getEnvOrDefault("DISCOVERY_STRATEGY", ""), "Discovery strategy: static, kubernetes, dns, gossip")
+		raftHost               = flag.String("raft-host", getEnvOrDefault("RAFT_HOST", "localhost"), "Host for Raft communication")
+		raftAdvertiseHost      = flag.String("raft-advertise-host", getEnvOrDefault("RAFT_ADVERTISE_HOST", ""), "Host to advertise for Raft communication (empty means use raft-host)")
+		httpHost               = flag.String("http-host", getEnvOrDefault("HTTP_HOST", ""), "Host for HTTP API (empty means all interfaces)")
+		executionTimeout       = flag.Duration("execution-timeout", getEnvDurationOrDefault("JOB_EXECUTION_TIMEOUT", 5*time.Minute), "Job execution timeout")
+		inProgressTimeout      = flag.Duration("inprogress-timeout", getEnvDurationOrDefault("JOB_INPROGRESS_TIMEOUT", 5*time.Minute), "In-progress job timeout")
+		maxExecutionAttempts   = flag.Int("max-attempts", getEnvIntOrDefault("MAX_EXECUTION_ATTEMPTS", 3), "Maximum execution attempts per job")
+		historyRetention       = flag.Duration("history-retention", getEnvDurationOrDefault("EXECUTION_HISTORY_RETENTION", 30*24*time.Hour), "Execution history retention period")
+		healthFailureThreshold = flag.Float64("health-failure-threshold", getEnvFloatOrDefault("HEALTH_FAILURE_THRESHOLD", 0.1), "Health check failure threshold (ratio of failed jobs)")
 	)
 	flag.Parse()
 
@@ -70,14 +75,19 @@ func main() {
 
 	// Create application configuration
 	config := &internal.Config{
-		DataDir:         *dataDir,
-		RaftBind:        raftBind,
-		RaftAdvertise:   raftAdvertise,
-		HTTPBind:        httpBind,
-		NodeID:          *nodeID,
-		Peers:           peerList,
-		SlotGap:         *slotGap,
-		DiscoveryConfig: discoveryConfig,
+		DataDir:                *dataDir,
+		RaftBind:               raftBind,
+		RaftAdvertise:          raftAdvertise,
+		HTTPBind:               httpBind,
+		NodeID:                 *nodeID,
+		Peers:                  peerList,
+		SlotGap:                *slotGap,
+		DiscoveryConfig:        discoveryConfig,
+		ExecutionTimeout:       *executionTimeout,
+		InProgressTimeout:      *inProgressTimeout,
+		MaxExecutionAttempts:   *maxExecutionAttempts,
+		HistoryRetention:       *historyRetention,
+		HealthFailureThreshold: *healthFailureThreshold,
 	}
 
 	// Create and start application
@@ -224,6 +234,15 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 func getEnvDurationOrDefault(key string, defaultValue time.Duration) time.Duration {
 	if value := os.Getenv(key); value != "" {
 		if parsed, err := time.ParseDuration(value); err == nil {
+			return parsed
+		}
+	}
+	return defaultValue
+}
+
+func getEnvFloatOrDefault(key string, defaultValue float64) float64 {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.ParseFloat(value, 64); err == nil {
 			return parsed
 		}
 	}

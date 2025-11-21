@@ -23,6 +23,8 @@ import (
 
 type App struct {
 	store              *store.Store
+	statusTracker      *store.StatusTracker
+	executionManager   *slots.ExecutionManager
 	slotQueue          *slots.PersistentSlotQueue
 	worker             *slots.Worker
 	httpServer         *http.Server
@@ -35,14 +37,19 @@ type App struct {
 }
 
 type Config struct {
-	DataDir         string
-	RaftBind        string
-	RaftAdvertise   string
-	HTTPBind        string
-	NodeID          string
-	Peers           []string
-	SlotGap         time.Duration
-	DiscoveryConfig discovery.DiscoveryConfig
+	DataDir                string
+	RaftBind               string
+	RaftAdvertise          string
+	HTTPBind               string
+	NodeID                 string
+	Peers                  []string
+	SlotGap                time.Duration
+	DiscoveryConfig        discovery.DiscoveryConfig
+	ExecutionTimeout       time.Duration
+	InProgressTimeout      time.Duration
+	MaxExecutionAttempts   int
+	HistoryRetention       time.Duration
+	HealthFailureThreshold float64
 }
 
 func NewApp(config *Config) (*App, error) {
@@ -107,14 +114,29 @@ func NewApp(config *Config) (*App, error) {
 	// Create slot queue
 	slotQueue := slots.NewPersistentSlotQueue(config.SlotGap, jobStore)
 
+	// Create status tracker
+	statusTracker := store.NewStatusTracker(jobStore)
+
+	// Start pruning goroutine for execution history
+	statusTracker.StartPruning(config.HistoryRetention)
+
+	// Create execution manager
+	executionManager := slots.NewExecutionManager(
+		statusTracker,
+		jobStore,
+		config.NodeID,
+		config.ExecutionTimeout,
+		config.MaxExecutionAttempts,
+	)
+
 	// Create worker
-	worker := slots.NewWorker(slotQueue, jobStore)
+	worker := slots.NewWorker(slotQueue, jobStore, executionManager, config.InProgressTimeout)
 
 	// Pass HTTP bind info to store
 	jobStore.SetHTTPBind(config.HTTPBind)
 
 	// Setup HTTP API
-	handlers := api.NewHandlers(jobStore)
+	handlers := api.NewHandlers(jobStore, executionManager, config.HealthFailureThreshold)
 	router := api.NewRouter(handlers)
 
 	httpServer := &http.Server{
@@ -136,6 +158,8 @@ func NewApp(config *Config) (*App, error) {
 
 	app := &App{
 		store:              jobStore,
+		statusTracker:      statusTracker,
+		executionManager:   executionManager,
 		slotQueue:          slotQueue,
 		worker:             worker,
 		httpServer:         httpServer,
@@ -246,6 +270,10 @@ func (a *App) Stop() error {
 				logger.Warn("discovery manager shutdown timeout, continuing...")
 			}
 		}
+
+		// Stop pruning goroutine
+		logger.Info("stopping execution history pruning...")
+		a.statusTracker.StopPruning()
 
 		// Stop worker
 		logger.Info("stopping worker...")

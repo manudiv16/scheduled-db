@@ -12,17 +12,21 @@ import (
 )
 
 type Worker struct {
-	slotQueue *PersistentSlotQueue
-	store     *store.Store
-	stopCh    chan struct{}
-	running   bool
+	slotQueue         *PersistentSlotQueue
+	store             *store.Store
+	executionManager  *ExecutionManager
+	stopCh            chan struct{}
+	running           bool
+	inProgressTimeout time.Duration
 }
 
-func NewWorker(slotQueue *PersistentSlotQueue, store *store.Store) *Worker {
+func NewWorker(slotQueue *PersistentSlotQueue, store *store.Store, executionManager *ExecutionManager, inProgressTimeout time.Duration) *Worker {
 	return &Worker{
-		slotQueue: slotQueue,
-		store:     store,
-		stopCh:    make(chan struct{}),
+		slotQueue:         slotQueue,
+		store:             store,
+		executionManager:  executionManager,
+		stopCh:            make(chan struct{}),
+		inProgressTimeout: inProgressTimeout,
 	}
 }
 
@@ -55,6 +59,10 @@ func (w *Worker) run() {
 	defer ticker.Stop()
 	defer logger.Debug("worker run() exiting")
 
+	// Timeout checker runs every 30 seconds
+	timeoutTicker := time.NewTicker(30 * time.Second)
+	defer timeoutTicker.Stop()
+
 	for {
 		select {
 		case <-w.stopCh:
@@ -62,6 +70,8 @@ func (w *Worker) run() {
 			return
 		case <-ticker.C:
 			w.processSlots()
+		case <-timeoutTicker.C:
+			w.checkTimeouts()
 		}
 	}
 }
@@ -86,7 +96,6 @@ func (w *Worker) processSlots() {
 			logger.Debug("slot %d not ready yet (now: %d < min: %d)", slot.Key, now, slot.MinTime)
 			break
 		}
-
 
 		if len(slot.Jobs) > 0 {
 			logger.Info("processing slot %d with %d jobs (ready at %d, now %d)", slot.Key, len(slot.Jobs), slot.MinTime, now)
@@ -179,11 +188,11 @@ func (w *Worker) isTimeForRecurringJob(job *store.Job, now int64) bool {
 
 func (w *Worker) executeJob(job *store.Job) {
 	start := time.Now()
-	logger.Info("executed job %s", job.ID)
+	logger.Info("executing job %s", job.ID)
 
-	// Execute webhook asynchronously if configured
-	success := true
-	store.ExecuteWebhook(job)
+	// Execute job through ExecutionManager (handles idempotency and status tracking)
+	err := w.executionManager.Execute(job)
+	success := err == nil
 
 	// Record metrics
 	duration := time.Since(start)
@@ -199,7 +208,11 @@ func (w *Worker) executeJob(job *store.Job) {
 		metrics.GlobalWorkerInstrumentation.RecordProcessingCycle(context.Background(), duration, 0)
 	}
 
-	logger.JobExecuted()
+	if success {
+		logger.JobExecuted()
+	} else {
+		logger.JobError(job.ID, "execution failed: %v", err)
+	}
 }
 
 func (w *Worker) calculateNextExecution(job *store.Job, now int64) int64 {
@@ -220,4 +233,20 @@ func (w *Worker) calculateNextExecution(job *store.Job, now int64) int64 {
 	}
 
 	return nextTimestamp
+}
+
+func (w *Worker) checkTimeouts() {
+	if !w.store.IsLeader() {
+		return
+	}
+
+	timedOutJobs, err := w.executionManager.statusTracker.CheckTimeouts(w.inProgressTimeout)
+	if err != nil {
+		logger.Error("failed to check timeouts: %v", err)
+		return
+	}
+
+	if len(timedOutJobs) > 0 {
+		logger.Info("found %d timed-out jobs", len(timedOutJobs))
+	}
 }

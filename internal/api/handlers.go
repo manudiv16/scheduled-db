@@ -12,14 +12,17 @@ import (
 
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/metrics"
+	"scheduled-db/internal/slots"
 	"scheduled-db/internal/store"
 
 	"github.com/gorilla/mux"
 )
 
 type Handlers struct {
-	store      *store.Store
-	addressMap map[string]string // Map Raft address to HTTP address
+	store                  *store.Store
+	executionManager       *slots.ExecutionManager
+	addressMap             map[string]string // Map Raft address to HTTP address
+	healthFailureThreshold float64
 }
 
 type HealthResponse struct {
@@ -52,10 +55,12 @@ type ClusterDebugResponse struct {
 	JobCount  int                 `json:"job_count"`
 }
 
-func NewHandlers(store *store.Store) *Handlers {
+func NewHandlers(store *store.Store, executionManager *slots.ExecutionManager, healthFailureThreshold float64) *Handlers {
 	handlers := &Handlers{
-		store:      store,
-		addressMap: make(map[string]string),
+		store:                  store,
+		executionManager:       executionManager,
+		addressMap:             make(map[string]string),
+		healthFailureThreshold: healthFailureThreshold,
 	}
 
 	// Build initial address mapping from environment variables
@@ -421,6 +426,244 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 		logger.Error("failed to encode join response: %v", err)
 	}
 	logger.Info("added node %s (%s) to cluster via join API", req.NodeID, req.Address)
+}
+
+// GetJobStatus returns the execution status of a job
+func (h *Handlers) GetJobStatus(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		// Record status query latency
+		ctx := context.Background()
+		if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
+			globalMetrics.RecordStatusQueryLatency(ctx, duration, "get_job_status")
+		}
+	}()
+
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if id == "" {
+		h.writeError(w, http.StatusBadRequest, "Job ID is required")
+		return
+	}
+
+	// Check if job exists first
+	_, exists := h.store.GetJob(id)
+	if !exists {
+		h.writeError(w, http.StatusNotFound, "Job not found")
+		return
+	}
+
+	// Get status from FSM (works on both leader and follower)
+	statusTracker := store.NewStatusTracker(h.store)
+	state, err := statusTracker.GetStatus(id)
+	if err != nil {
+		// If no execution state exists yet, return pending status
+		state = &store.JobExecutionState{
+			JobID:     id,
+			Status:    store.StatusPending,
+			CreatedAt: time.Now().Unix(),
+			Attempts:  []store.ExecutionAttempt{},
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(state); err != nil {
+		logger.Error("failed to encode job status response: %v", err)
+	}
+}
+
+// GetJobExecutions returns the execution history of a job
+func (h *Handlers) GetJobExecutions(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		// Record status query latency
+		ctx := context.Background()
+		if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
+			globalMetrics.RecordStatusQueryLatency(ctx, duration, "get_job_executions")
+		}
+	}()
+
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if id == "" {
+		h.writeError(w, http.StatusBadRequest, "Job ID is required")
+		return
+	}
+
+	// Check if job exists first
+	_, exists := h.store.GetJob(id)
+	if !exists {
+		h.writeError(w, http.StatusNotFound, "Job not found")
+		return
+	}
+
+	// Get execution history from FSM (works on both leader and follower)
+	statusTracker := store.NewStatusTracker(h.store)
+	attempts, err := statusTracker.GetExecutionHistory(id)
+	if err != nil {
+		// If no execution state exists yet, return empty attempts
+		attempts = []store.ExecutionAttempt{}
+	}
+
+	response := map[string]interface{}{
+		"job_id":   id,
+		"attempts": attempts,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logger.Error("failed to encode job executions response: %v", err)
+	}
+}
+
+// CancelJob cancels a job
+func (h *Handlers) CancelJob(w http.ResponseWriter, r *http.Request) {
+	// If not leader, try to proxy to leader
+	if !h.store.IsLeader() {
+		h.proxyToLeader(w, r)
+		return
+	}
+
+	vars := mux.Vars(r)
+	id := vars["id"]
+
+	if id == "" {
+		h.writeError(w, http.StatusBadRequest, "Job ID is required")
+		return
+	}
+
+	// Check if job exists first
+	_, exists := h.store.GetJob(id)
+	if !exists {
+		h.writeError(w, http.StatusNotFound, "Job not found")
+		return
+	}
+
+	// Parse optional cancellation reason from request body
+	var req struct {
+		Reason string `json:"reason,omitempty"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			// If body is empty or invalid JSON, just use empty reason
+			req.Reason = ""
+		}
+	}
+
+	// Check current status to see if job is in progress
+	statusTracker := store.NewStatusTracker(h.store)
+	state, err := statusTracker.GetStatus(id)
+	wasInProgress := false
+	if err == nil && state.Status == store.StatusInProgress {
+		wasInProgress = true
+		// Attempt to cancel in-progress execution
+		if h.executionManager != nil {
+			cancelled := h.executionManager.CancelJob(id)
+			if cancelled {
+				logger.Info("cancelled in-progress execution for job %s", id)
+			}
+		}
+	}
+
+	// Mark job as cancelled in Raft
+	if err := statusTracker.MarkCancelled(id, req.Reason); err != nil {
+		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to cancel job: %v", err))
+		return
+	}
+
+	// Get updated status
+	state, err = statusTracker.GetStatus(id)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get job status: %v", err))
+		return
+	}
+
+	response := map[string]interface{}{
+		"job_id":       id,
+		"status":       state.Status,
+		"cancelled_at": state.CancelledAt,
+	}
+
+	if wasInProgress {
+		response["message"] = "Job was in progress, cancellation attempted"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logger.Error("failed to encode cancel job response: %v", err)
+	}
+	logger.Info("cancelled job %s via API", id)
+}
+
+// ListJobsByStatus returns all jobs with a given status
+func (h *Handlers) ListJobsByStatus(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		// Record status query latency
+		ctx := context.Background()
+		if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
+			globalMetrics.RecordStatusQueryLatency(ctx, duration, "list_jobs_by_status")
+		}
+	}()
+
+	statusParam := r.URL.Query().Get("status")
+
+	if statusParam == "" {
+		h.writeError(w, http.StatusBadRequest, "status query parameter is required")
+		return
+	}
+
+	// Validate status parameter
+	status := store.JobStatus(statusParam)
+	validStatuses := []store.JobStatus{
+		store.StatusPending,
+		store.StatusInProgress,
+		store.StatusCompleted,
+		store.StatusFailed,
+		store.StatusCancelled,
+		store.StatusTimeout,
+	}
+
+	isValid := false
+	for _, validStatus := range validStatuses {
+		if status == validStatus {
+			isValid = true
+			break
+		}
+	}
+
+	if !isValid {
+		h.writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid status: %s", statusParam))
+		return
+	}
+
+	// Get jobs by status from FSM (works on both leader and follower)
+	statusTracker := store.NewStatusTracker(h.store)
+	states, err := statusTracker.ListByStatus(status)
+	if err != nil {
+		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to list jobs: %v", err))
+		return
+	}
+
+	// If no states found, return empty array
+	if states == nil {
+		states = []*store.JobExecutionState{}
+	}
+
+	response := map[string]interface{}{
+		"jobs":  states,
+		"total": len(states),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logger.Error("failed to encode jobs by status response: %v", err)
+	}
 }
 
 func (h *Handlers) writeError(w http.ResponseWriter, status int, message string) {

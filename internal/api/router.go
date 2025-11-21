@@ -12,8 +12,12 @@ func NewRouter(handlers *Handlers) *mux.Router {
 	// API routes
 	api := router.PathPrefix("/").Subrouter()
 	api.HandleFunc("/jobs", handlers.CreateJob).Methods("POST")
+	api.HandleFunc("/jobs", handlers.ListJobsByStatus).Methods("GET")
 	api.HandleFunc("/jobs/{id}", handlers.GetJob).Methods("GET")
 	api.HandleFunc("/jobs/{id}", handlers.DeleteJob).Methods("DELETE")
+	api.HandleFunc("/jobs/{id}/status", handlers.GetJobStatus).Methods("GET")
+	api.HandleFunc("/jobs/{id}/executions", handlers.GetJobExecutions).Methods("GET")
+	api.HandleFunc("/jobs/{id}/cancel", handlers.CancelJob).Methods("POST")
 	api.HandleFunc("/health", handlers.Health).Methods("GET")
 	api.HandleFunc("/join", handlers.JoinCluster).Methods("POST")
 	api.HandleFunc("/debug/cluster", handlers.ClusterDebug).Methods("GET")

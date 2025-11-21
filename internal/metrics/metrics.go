@@ -70,6 +70,12 @@ type Metrics struct {
 	WebhookErrors   metric.Int64Counter
 	WebhookDuration metric.Float64Histogram
 
+	// Status tracking metrics
+	JobsByStatus       metric.Int64UpDownCounter
+	ExecutionFailures  metric.Int64Counter
+	RetryCount         metric.Int64Histogram
+	StatusQueryLatency metric.Float64Histogram
+
 	// System metrics
 	SystemStartTime metric.Float64ObservableGauge
 	SystemUptime    metric.Float64ObservableGauge
@@ -423,6 +429,45 @@ func NewMetrics() (*Metrics, error) {
 		return nil, err
 	}
 
+	// Status tracking metrics
+	m.JobsByStatus, err = meter.Int64UpDownCounter(
+		"jobs_by_status",
+		metric.WithDescription("Number of jobs by status"),
+		metric.WithUnit("{job}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	m.ExecutionFailures, err = meter.Int64Counter(
+		"execution_failures_total",
+		metric.WithDescription("Total number of job execution failures"),
+		metric.WithUnit("{failure}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	m.RetryCount, err = meter.Int64Histogram(
+		"retry_count",
+		metric.WithDescription("Number of retries per job"),
+		metric.WithUnit("{retry}"),
+		metric.WithExplicitBucketBoundaries(0, 1, 2, 3, 5, 10),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	m.StatusQueryLatency, err = meter.Float64Histogram(
+		"status_query_duration_seconds",
+		metric.WithDescription("Status query latency in seconds"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(0.001, 0.01, 0.1, 0.5, 1.0, 5.0, 10.0),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// System metrics
 	m.SystemStartTime, err = meter.Float64ObservableGauge(
 		"system_start_time_seconds",
@@ -661,6 +706,41 @@ func (m *Metrics) RecordWebhookDuration(ctx context.Context, duration time.Durat
 	}
 	m.WebhookDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(
 		attribute.String("status", status),
+	))
+}
+
+// Status tracking metrics methods
+func (m *Metrics) UpdateJobsByStatus(ctx context.Context, status string, delta int64) {
+	if m == nil {
+		return
+	}
+	m.JobsByStatus.Add(ctx, delta, metric.WithAttributes(
+		attribute.String("status", status),
+	))
+}
+
+func (m *Metrics) IncrementExecutionFailures(ctx context.Context, errorType string) {
+	if m == nil {
+		return
+	}
+	m.ExecutionFailures.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("error_type", errorType),
+	))
+}
+
+func (m *Metrics) RecordRetryCount(ctx context.Context, retryCount int64) {
+	if m == nil {
+		return
+	}
+	m.RetryCount.Record(ctx, retryCount)
+}
+
+func (m *Metrics) RecordStatusQueryLatency(ctx context.Context, duration time.Duration, endpoint string) {
+	if m == nil {
+		return
+	}
+	m.StatusQueryLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(
+		attribute.String("endpoint", endpoint),
 	))
 }
 

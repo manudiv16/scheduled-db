@@ -103,6 +103,22 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 					},
 				},
 			),
+			metric.NewView(
+				metric.Instrument{Name: "status_query_duration_seconds"},
+				metric.Stream{
+					Aggregation: metric.AggregationExplicitBucketHistogram{
+						Boundaries: []float64{0.001, 0.01, 0.1, 0.5, 1.0, 5.0, 10.0},
+					},
+				},
+			),
+			metric.NewView(
+				metric.Instrument{Name: "retry_count"},
+				metric.Stream{
+					Aggregation: metric.AggregationExplicitBucketHistogram{
+						Boundaries: []float64{0, 1, 2, 3, 5, 10},
+					},
+				},
+			),
 		),
 	)
 
