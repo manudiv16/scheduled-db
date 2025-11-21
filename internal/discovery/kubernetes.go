@@ -103,17 +103,7 @@ func (k *KubernetesStrategy) Discover(ctx context.Context) ([]Node, error) {
 			continue
 		}
 
-		// Use DNS name for StatefulSet pods instead of IP
-		var nodeAddress string
-		if strings.HasPrefix(nodeID, "scheduled-db-") {
-			// Use StatefulSet DNS name: podname.servicename.namespace.svc.cluster.local
-			nodeAddress = fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local", nodeID)
-		} else {
-			// Fallback to IP for non-StatefulSet pods
-			nodeAddress = podIP
-		}
-
-		// Get Raft port from pod spec
+		// Get Raft port from pod spec first
 		raftPort := 7000 // default
 		for _, container := range pod.Spec.Containers {
 			for _, port := range container.Ports {
@@ -122,6 +112,16 @@ func (k *KubernetesStrategy) Discover(ctx context.Context) ([]Node, error) {
 					break
 				}
 			}
+		}
+
+		// Use DNS name for StatefulSet pods instead of IP
+		var nodeAddress string
+		if strings.HasPrefix(nodeID, "scheduled-db-") {
+			// Use StatefulSet DNS name with port: podname.servicename.namespace.svc.cluster.local:port
+			nodeAddress = fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local:%d", nodeID, raftPort)
+		} else {
+			// Fallback to IP with port for non-StatefulSet pods
+			nodeAddress = fmt.Sprintf("%s:%d", podIP, raftPort)
 		}
 
 		node := Node{
@@ -189,7 +189,7 @@ func (k *KubernetesStrategy) checkQuorumAndHandleSplitBrain(healthyNodes, totalN
 	if healthyNodes > expectedClusterSize/2 {
 		// Log cluster stabilization on first quorum achievement
 		if k.lastQuorumStatus != "healthy" {
-			logger.Info("✅ CLUSTER STABILIZED: %d/%d nodes healthy, quorum established", 
+			logger.Info("✅ CLUSTER STABILIZED: %d/%d nodes healthy, quorum established",
 				healthyNodes, expectedClusterSize)
 			k.lastQuorumStatus = "healthy"
 		} else {
@@ -225,13 +225,13 @@ func (k *KubernetesStrategy) getExpectedClusterSize() int {
 			return size
 		}
 	}
-	
+
 	// Dynamic sizing: discover current nodes and use that count
 	nodes, err := k.Discover(context.Background())
 	if err == nil && len(nodes) > 0 {
 		return len(nodes)
 	}
-	
+
 	// Fallback to minimum cluster size
 	return 1
 }
