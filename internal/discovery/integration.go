@@ -267,22 +267,8 @@ func (dm *DiscoveryManager) updateRaftPeersWithNodes(nodes []Node) {
 			continue // Skip local node
 		}
 
-		// Use pod IP instead of complex hostname
-		peerIP := node.Meta["pod_ip"]
-		if peerIP == "" {
-			logger.Debug("Node %s has no pod IP, skipping", node.ID)
-			continue
-		}
-		
-		// Use server ID directly - ServerAddressProvider will handle DNS resolution
-		var peerAddr string
-		if strings.HasPrefix(node.ID, "scheduled-db-") {
-			// For StatefulSet pods, use just the node ID
-			peerAddr = node.ID
-		} else {
-			// For other cases, use IP:port format
-			peerAddr = fmt.Sprintf("%s:%d", peerIP, dm.getRaftPortFromNode(node))
-		}
+		// Use node.Address directly - it already includes the port from discovery
+		peerAddr := node.Address
 
 		// Check if peer exists by ID
 		if !existingByID[node.ID] {
@@ -437,14 +423,14 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 // isPeerReachable checks if a peer is reachable on its Raft port
 func (dm *DiscoveryManager) isPeerReachable(address string) bool {
 	var fullAddress string
-	
+
 	// If address is just a node ID (like "scheduled-db-1"), convert to DNS name
 	if strings.HasPrefix(address, "scheduled-db-") && !strings.Contains(address, ":") {
 		fullAddress = fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local:7000", address)
 	} else {
 		fullAddress = address
 	}
-	
+
 	conn, err := net.DialTimeout("tcp", fullAddress, 2*time.Second)
 	if err != nil {
 		return false
@@ -469,6 +455,12 @@ func (dm *DiscoveryManager) attemptJoinExistingCluster(nodes []Node) bool {
 			continue // Skip self
 		}
 
+		// Extract hostname from node.Address (which includes port like "host:7000")
+		nodeHost := node.Address
+		if idx := strings.LastIndex(node.Address, ":"); idx != -1 {
+			nodeHost = node.Address[:idx]
+		}
+
 		// Use HTTP port directly from environment
 		httpPort := 8080
 		if portStr := os.Getenv("HTTP_PORT"); portStr != "" {
@@ -476,7 +468,7 @@ func (dm *DiscoveryManager) attemptJoinExistingCluster(nodes []Node) bool {
 				httpPort = port
 			}
 		}
-		healthURL := fmt.Sprintf("http://%s:%d/health", node.Address, httpPort)
+		healthURL := fmt.Sprintf("http://%s:%d/health", nodeHost, httpPort)
 
 		logger.Debug("Checking if node %s is leader via %s", node.ID, healthURL)
 
@@ -486,7 +478,7 @@ func (dm *DiscoveryManager) attemptJoinExistingCluster(nodes []Node) bool {
 
 			// Get our local address for joining
 			localRaftAddr := dm.getLocalRaftAddress()
-			joinURL := fmt.Sprintf("http://%s:%d/join", node.Address, httpPort)
+			joinURL := fmt.Sprintf("http://%s:%d/join", nodeHost, httpPort)
 
 			if dm.requestJoin(joinURL, localNodeID, localRaftAddr) {
 				logger.Debug("Successfully joined existing cluster via leader %s", node.ID)
@@ -511,6 +503,12 @@ func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 			continue // Skip self
 		}
 
+		// Extract hostname from node.Address (which includes port like "host:7000")
+		nodeHost := node.Address
+		if idx := strings.LastIndex(node.Address, ":"); idx != -1 {
+			nodeHost = node.Address[:idx]
+		}
+
 		// Use HTTP port directly from environment
 		httpPort := 8080
 		if portStr := os.Getenv("HTTP_PORT"); portStr != "" {
@@ -518,7 +516,7 @@ func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 				httpPort = port
 			}
 		}
-		healthURL := fmt.Sprintf("http://%s:%d/health", node.Address, httpPort)
+		healthURL := fmt.Sprintf("http://%s:%d/health", nodeHost, httpPort)
 
 		logger.Debug("Checking if node %s is leader via %s", node.ID, healthURL)
 
@@ -526,7 +524,7 @@ func (dm *DiscoveryManager) attemptJoinViaHTTP(nodes []Node) {
 		if dm.isNodeLeader(healthURL) {
 			logger.Debug("Found leader %s, attempting to join cluster", node.ID)
 
-			joinURL := fmt.Sprintf("http://%s:%d/join", node.Address, httpPort)
+			joinURL := fmt.Sprintf("http://%s:%d/join", nodeHost, httpPort)
 			if dm.requestJoin(joinURL, localNodeID, localRaftAddr) {
 				logger.Debug("Successfully joined cluster via leader %s", node.ID)
 				return
@@ -774,18 +772,18 @@ func (dm *DiscoveryManager) getExpectedClusterSize() int {
 			return size
 		}
 	}
-	
+
 	// Dynamic sizing: use the maximum of discovered nodes and Raft configuration
 	discoveredNodes, _ := dm.strategy.Discover(dm.ctx)
 	discoveredCount := len(discoveredNodes)
-	
+
 	// Get current Raft cluster configuration
 	servers, err := dm.store.GetClusterConfiguration()
 	raftCount := 0
 	if err == nil {
 		raftCount = len(servers)
 	}
-	
+
 	// Use the maximum, with a minimum of 1
 	expectedSize := discoveredCount
 	if raftCount > expectedSize {
@@ -794,7 +792,7 @@ func (dm *DiscoveryManager) getExpectedClusterSize() int {
 	if expectedSize < 1 {
 		expectedSize = 1
 	}
-	
+
 	return expectedSize
 }
 
