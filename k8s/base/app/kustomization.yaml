@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: scheduled-db-app
+
+resources:
+  - rbac.yaml
+  - service.yaml
+  - statefulset.yaml
+  - pdb.yaml
+  - hpa.yaml
+  - configmap.yaml
+
+labels:
+  - pairs:
+      app: scheduled-db
+      component: database
+
+namespace: default
+
+images:
+  - name: scheduled-db
+    newName: scheduled-db
+    newTag: latest

@@ -1,0 +1,73 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: scheduled-db-dev
+
+resources:
+  - ../../base/app
+  - ../../base/monitoring
+
+namespace: default
+
+namePrefix: dev-
+
+labels:
+  - pairs:
+      environment: dev
+
+replicas:
+  - name: scheduled-db
+    count: 1
+
+patches:
+  # Reduce resources for dev environment
+  - target:
+      kind: StatefulSet
+      name: scheduled-db
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 64Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 50m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 256Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 200m
+      - op: replace
+        path: /spec/template/spec/containers/0/env/5/value
+        value: "dev-otel-collector-collector:4317"
+
+
+  # Disable HPA in dev
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: scheduled-db-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+
+  # Add dev-specific config
+  - target:
+      kind: ConfigMap
+      name: scheduled-db-config
+    patch: |-
+      - op: add
+        path: /data/LOG_LEVEL
+        value: debug
+      - op: add
+        path: /data/ENVIRONMENT
+        value: development
+
+images:
+  - name: scheduled-db
+    newName: scheduled-db
+    newTag: v301
