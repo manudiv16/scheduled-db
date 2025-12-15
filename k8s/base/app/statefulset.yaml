@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: scheduled-db
+  namespace: default
+  labels:
+    app: scheduled-db
+    component: statefulset
+spec:
+  serviceName: scheduled-db
+  replicas: 3
+  selector:
+    matchLabels:
+      app: scheduled-db
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
+  template:
+    metadata:
+      labels:
+        app: scheduled-db
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: scheduled-db
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        fsGroup: 1000
+      containers:
+        - name: scheduled-db
+          image: scheduled-db:v1.0.0-13-ge20a7f9-dirty
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7000
+              name: raft
+              protocol: TCP
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 9090
+              name: metrics
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_ID
+              value: "$(POD_NAME)"
+            - name: RAFT_ADVERTISE_HOST
+              value: "$(POD_IP)"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector-collector:4317"
+          envFrom:
+            - configMapRef:
+                name: scheduled-db-config
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: scheduled-db
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        storageClassName: standard

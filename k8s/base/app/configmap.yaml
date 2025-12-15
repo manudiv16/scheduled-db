@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scheduled-db-config
+  namespace: default
+  labels:
+    app: scheduled-db
+    component: config
+data:
+  # Discovery Configuration - usar kubernetes
+  DISCOVERY_STRATEGY: "kubernetes"
+
+  # Raft Configuration
+  RAFT_HOST: "0.0.0.0"
+  RAFT_ADVERTISE_HOST: "" # Will be set to POD_IP in StatefulSet
+  HTTP_HOST: "0.0.0.0"
+
+  # Ports
+  RAFT_PORT: "7000"
+  HTTP_PORT: "8080"
+
+  # Slot Configuration
+  SLOT_GAP: "10s"
+
+  # Data Directory
+  DATA_DIR: "/data"
+
+  # Kubernetes Service Discovery
+  KUBERNETES_NAMESPACE: "default"
+  KUBERNETES_SERVICE_NAME: "scheduled-db"
+  KUBERNETES_LABEL_SELECTOR: "app=scheduled-db"
+
+  # Cluster Configuration
+  CLUSTER_SIZE: "3"
+
+  # Logging
+  LOG_LEVEL: "DEBUG"
+
+  # Health Check
+  HEALTH_CHECK_INTERVAL: "30s"

@@ -1,0 +1,87 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: scheduled-db-production
+
+resources:
+  - ../../base/app
+  - ../../base/monitoring
+
+namespace: default
+
+namePrefix: prod-
+
+labels:
+  - pairs:
+      environment: production
+
+replicas:
+  - name: scheduled-db
+    count: 3
+
+patches:
+  # Production-grade resources
+  - target:
+      kind: StatefulSet
+      name: scheduled-db
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 256Mi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 200m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/env/4/value
+        value: "prod-otel-collector-collector:4317"
+
+  # Aggressive HPA for production
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: scheduled-db-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 7
+      - op: replace
+        path: /spec/metrics/0/resource/target/averageUtilization
+        value: 70
+      - op: replace
+        path: /spec/metrics/1/resource/target/averageUtilization
+        value: 80
+
+  # Production config
+  - target:
+      kind: ConfigMap
+      name: scheduled-db-config
+    patch: |-
+      - op: add
+        path: /data/LOG_LEVEL
+        value: warn
+      - op: add
+        path: /data/ENVIRONMENT
+        value: production
+
+  # Increase PDB for production
+  - target:
+      kind: PodDisruptionBudget
+      name: scheduled-db-pdb
+    patch: |-
+      - op: replace
+        path: /spec/minAvailable
+        value: 2
+
+images:
+  - name: scheduled-db
+    newName: scheduled-db
+    newTag: 5b18b6c6411819e0981afa0d4bf3e7761f7b5b8c89dd7897eaf6e1bed81a375b

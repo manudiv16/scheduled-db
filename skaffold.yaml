@@ -1,0 +1,25 @@
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: scheduled-db
+build:
+  artifacts:
+    - image: scheduled-db
+      context: .
+      docker:
+        dockerfile: docker/Dockerfile
+manifests:
+  kustomize:
+    paths:
+      - k8s
+profiles:
+  - name: monitoring
+    manifests:
+      kustomize:
+        paths:
+          - k8s/monitoring
+  - name: grafana-operator
+    manifests:
+      kustomize:
+        paths:
+          - k8s/monitoring/grafana-operator

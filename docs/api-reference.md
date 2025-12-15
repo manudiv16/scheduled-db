@@ -16,7 +16,9 @@ Currently, the API does not require authentication. For production deployments, 
 
 ## Endpoints
 
-### Create Job
+### Job Management
+
+#### Create Job
 
 Create a new scheduled job.
 
@@ -113,7 +115,7 @@ curl -X POST http://localhost:8080/jobs \
 
 ---
 
-### Get Job
+#### Get Job
 
 Retrieve job details by ID.
 
@@ -156,7 +158,7 @@ curl http://localhost:8080/jobs/550e8400-e29b-41d4-a716-446655440000
 
 ---
 
-### Delete Job
+#### Delete Job
 
 Delete a scheduled job.
 
@@ -186,7 +188,223 @@ curl -X DELETE http://localhost:8080/jobs/550e8400-e29b-41d4-a716-446655440000
 
 ---
 
-### Health Check
+### Job Status Tracking
+
+#### Get Job Status
+
+Get the current execution status of a job.
+
+**Endpoint:** `GET /jobs/{id}/status`
+
+**Response:** `200 OK`
+
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "completed",
+  "attempt_count": 1,
+  "created_at": 1704060000,
+  "first_attempt_at": 1704067200,
+  "last_attempt_at": 1704067200,
+  "completed_at": 1704067201,
+  "executing_node_id": "node-1"
+}
+```
+
+**Status Values:**
+- `pending` - Job created, not yet executed
+- `in_progress` - Currently executing
+- `completed` - Successfully executed
+- `failed` - Execution failed
+- `cancelled` - Cancelled by user
+- `timeout` - Execution timed out
+
+**Example:**
+
+```bash
+curl http://localhost:8080/jobs/550e8400-e29b-41d4-a716-446655440000/status | jq
+```
+
+**Error Responses:**
+
+```json
+// 404 Not Found
+{
+  "error": "Job not found"
+}
+```
+
+---
+
+#### Get Job Execution History
+
+Get detailed execution history with all attempts.
+
+**Endpoint:** `GET /jobs/{id}/executions`
+
+**Response:** `200 OK`
+
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "attempts": [
+    {
+      "attempt_num": 1,
+      "start_time": 1704067200,
+      "end_time": 1704067201,
+      "node_id": "node-1",
+      "status": "failed",
+      "http_status": 0,
+      "response_time_ms": 5000,
+      "error_message": "context deadline exceeded",
+      "error_type": "timeout"
+    },
+    {
+      "attempt_num": 2,
+      "start_time": 1704067500,
+      "end_time": 1704067501,
+      "node_id": "node-1",
+      "status": "completed",
+      "http_status": 200,
+      "response_time_ms": 234,
+      "error_message": "",
+      "error_type": ""
+    }
+  ]
+}
+```
+
+**Example:**
+
+```bash
+curl http://localhost:8080/jobs/550e8400-e29b-41d4-a716-446655440000/executions | jq
+```
+
+**Error Responses:**
+
+```json
+// 404 Not Found
+{
+  "error": "Job not found"
+}
+```
+
+---
+
+#### List Jobs by Status
+
+Filter jobs by execution status.
+
+**Endpoint:** `GET /jobs?status={status}`
+
+**Query Parameters:**
+- `status` - Filter by status (pending, in_progress, completed, failed, cancelled, timeout)
+
+**Response:** `200 OK`
+
+```json
+{
+  "jobs": [
+    {
+      "job_id": "550e8400-e29b-41d4-a716-446655440000",
+      "status": "completed",
+      "attempt_count": 1,
+      "created_at": 1704060000,
+      "completed_at": 1704067201
+    },
+    {
+      "job_id": "660e8400-e29b-41d4-a716-446655440001",
+      "status": "completed",
+      "attempt_count": 2,
+      "created_at": 1704060100,
+      "completed_at": 1704067301
+    }
+  ],
+  "total": 2
+}
+```
+
+**Examples:**
+
+```bash
+# List completed jobs
+curl http://localhost:8080/jobs?status=completed | jq
+
+# List failed jobs
+curl http://localhost:8080/jobs?status=failed | jq
+
+# List jobs in progress
+curl http://localhost:8080/jobs?status=in_progress | jq
+```
+
+**Error Responses:**
+
+```json
+// 400 Bad Request - Invalid status
+{
+  "error": "Invalid status value"
+}
+```
+
+---
+
+#### Cancel Job
+
+Cancel a pending or in-progress job.
+
+**Endpoint:** `POST /jobs/{id}/cancel`
+
+**Request Body:**
+
+```json
+{
+  "reason": "No longer needed"
+}
+```
+
+**Response:** `200 OK`
+
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "cancelled",
+  "cancelled_at": 1704067300
+}
+```
+
+**Examples:**
+
+```bash
+# Cancel with reason
+curl -X POST http://localhost:8080/jobs/550e8400-e29b-41d4-a716-446655440000/cancel \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "Requirements changed"}'
+
+# Cancel without reason
+curl -X POST http://localhost:8080/jobs/550e8400-e29b-41d4-a716-446655440000/cancel \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Error Responses:**
+
+```json
+// 404 Not Found
+{
+  "error": "Job not found"
+}
+
+// 400 Bad Request - Already completed
+{
+  "error": "Cannot cancel completed job"
+}
+```
+
+---
+
+### Health and Cluster
+
+#### Health Check
 
 Get node health and cluster role.
 
@@ -196,10 +414,21 @@ Get node health and cluster role.
 
 ```json
 {
-  "status": "ok",
+  "status": "healthy",
   "role": "leader",
   "node_id": "node-1",
-  "leader": ""
+  "leader": "",
+  "jobs_by_status": {
+    "pending": 10,
+    "in_progress": 2,
+    "completed": 100,
+    "failed": 5,
+    "cancelled": 1,
+    "timeout": 0
+  },
+  "jobs_executing": 2,
+  "last_execution_at": 1704067200,
+  "timed_out_jobs": 0
 }
 ```
 
@@ -207,22 +436,71 @@ For follower nodes:
 
 ```json
 {
-  "status": "ok",
+  "status": "healthy",
   "role": "follower",
   "node_id": "node-2",
-  "leader": "node-1:7000"
+  "leader": "node-1:7000",
+  "jobs_by_status": {
+    "pending": 10,
+    "in_progress": 2,
+    "completed": 100,
+    "failed": 5,
+    "cancelled": 1,
+    "timeout": 0
+  },
+  "jobs_executing": 2,
+  "last_execution_at": 1704067200,
+  "timed_out_jobs": 0
+}
+```
+
+**Health Status Values:**
+- `healthy` - System operating normally
+- `degraded` - Some failures but still operational (or memory utilization > 90%)
+- `unhealthy` - High failure rate or critical issues
+
+**Response with Capacity Information:**
+
+```json
+{
+  "status": "degraded",
+  "role": "leader",
+  "node_id": "node-1",
+  "leader": "",
+  "memory": {
+    "current_bytes": 920000000,
+    "limit_bytes": 1000000000,
+    "available_bytes": 80000000,
+    "utilization_percent": 92.0
+  },
+  "jobs": {
+    "current_count": 95000,
+    "limit": 100000,
+    "available": 5000
+  },
+  "jobs_by_status": {
+    "pending": 10,
+    "in_progress": 2,
+    "completed": 100,
+    "failed": 5,
+    "cancelled": 1,
+    "timeout": 0
+  },
+  "jobs_executing": 2,
+  "last_execution_at": 1704067200,
+  "timed_out_jobs": 0
 }
 ```
 
 **Example:**
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8080/health | jq
 ```
 
 ---
 
-### Cluster Debug
+#### Cluster Debug
 
 Get detailed cluster information (for debugging).
 
@@ -262,7 +540,7 @@ curl http://localhost:8080/debug/cluster | jq
 
 ---
 
-### Join Cluster
+#### Join Cluster
 
 Manually add a node to the cluster (typically handled by service discovery).
 
@@ -530,6 +808,11 @@ Currently, no rate limiting is implemented. For production:
 - Implement retry logic with exponential backoff
 - Log errors for debugging
 - Handle 503 (no leader) by retrying
+- Handle 507 (capacity exceeded) by:
+  - Deleting old completed jobs
+  - Increasing memory/job limits
+  - Scaling horizontally
+  - Implementing job prioritization
 
 ## Examples
 
@@ -550,11 +833,77 @@ echo "Created job: $JOB_ID"
 # 2. Get job details
 curl http://localhost:8080/jobs/$JOB_ID | jq
 
-# 3. Wait for execution...
+# 3. Check initial status
+curl http://localhost:8080/jobs/$JOB_ID/status | jq
+# Expected: {"status": "pending", ...}
+
+# 4. Wait for execution...
 # (Job will execute at specified timestamp)
 
-# 4. Delete job (if needed before execution)
+# 5. Check status after execution
+curl http://localhost:8080/jobs/$JOB_ID/status | jq
+# Expected: {"status": "completed", ...}
+
+# 6. View execution history
+curl http://localhost:8080/jobs/$JOB_ID/executions | jq
+
+# 7. Delete job (if needed)
 curl -X DELETE http://localhost:8080/jobs/$JOB_ID
+```
+
+### Job Status Monitoring
+
+```bash
+# Monitor job status in real-time
+JOB_ID="your-job-id"
+
+# Watch status changes
+watch -n 1 "curl -s http://localhost:8080/jobs/$JOB_ID/status | jq"
+
+# Check if job completed successfully
+STATUS=$(curl -s http://localhost:8080/jobs/$JOB_ID/status | jq -r '.status')
+if [ "$STATUS" = "completed" ]; then
+  echo "Job completed successfully"
+elif [ "$STATUS" = "failed" ]; then
+  echo "Job failed"
+  curl -s http://localhost:8080/jobs/$JOB_ID/executions | jq '.attempts[-1]'
+fi
+```
+
+### Handling Failed Jobs
+
+```bash
+# List all failed jobs
+curl http://localhost:8080/jobs?status=failed | jq
+
+# Get details of a failed job
+JOB_ID="failed-job-id"
+curl http://localhost:8080/jobs/$JOB_ID/executions | jq
+
+# Check error details
+curl http://localhost:8080/jobs/$JOB_ID/executions | jq '.attempts[] | {
+  attempt: .attempt_num,
+  error_type: .error_type,
+  error_message: .error_message,
+  response_time: .response_time_ms
+}'
+```
+
+### Cancelling Jobs
+
+```bash
+# Cancel a pending job
+curl -X POST http://localhost:8080/jobs/pending-job-id/cancel \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "Requirements changed"}'
+
+# Cancel an in-progress job (will attempt to stop)
+curl -X POST http://localhost:8080/jobs/running-job-id/cancel \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "Taking too long"}'
+
+# List all cancelled jobs
+curl http://localhost:8080/jobs?status=cancelled | jq
 ```
 
 ### Batch Job Creation
@@ -675,12 +1024,172 @@ createJob('http://localhost:8080', job)
   .catch(error => console.error('Error:', error));
 ```
 
+## Capacity Management
+
+### Overview
+
+Scheduled-DB enforces memory-based and count-based limits to prevent system overload. When limits are reached, job creation requests are rejected with HTTP 507 status code.
+
+### Configuration
+
+Configure limits via environment variables:
+
+```bash
+# Explicit memory limit (takes precedence)
+export QUEUE_MEMORY_LIMIT=2GB
+
+# Memory percentage (used if QUEUE_MEMORY_LIMIT not set)
+export QUEUE_MEMORY_PERCENT=50
+
+# Job count limit
+export QUEUE_JOB_LIMIT=100000
+```
+
+**Memory Limit Formats:**
+- `2GB` - 2 gigabytes
+- `500MB` - 500 megabytes
+- `1073741824` - Bytes (no suffix)
+
+**Auto-Detection:**
+If `QUEUE_MEMORY_LIMIT` is not set, the system detects available memory and uses `QUEUE_MEMORY_PERCENT` (default 50%).
+
+### Capacity Errors
+
+When capacity is exceeded, the API returns 507 status:
+
+**Memory Limit Exceeded:**
+
+```json
+{
+  "error": "insufficient memory: current=950000000 bytes, limit=1000000000 bytes, requested=100000000 bytes",
+  "type": "memory",
+  "current": 950000000,
+  "limit": 1000000000,
+  "requested": 100000000
+}
+```
+
+**Job Count Limit Exceeded:**
+
+```json
+{
+  "error": "maximum jobs reached: current=100000, limit=100000",
+  "type": "job_count",
+  "current": 100000,
+  "limit": 100000
+}
+```
+
+### Monitoring Capacity
+
+**Health Endpoint:**
+
+```bash
+curl http://localhost:8080/health | jq '.memory'
+curl http://localhost:8080/health | jq '.jobs'
+```
+
+**Prometheus Metrics:**
+
+```bash
+# Memory metrics
+curl http://localhost:9090/metrics | grep scheduled_db_queue_memory_usage_bytes
+curl http://localhost:9090/metrics | grep scheduled_db_queue_memory_limit_bytes
+curl http://localhost:9090/metrics | grep scheduled_db_queue_memory_utilization_percent
+
+# Job count metrics
+curl http://localhost:9090/metrics | grep scheduled_db_queue_job_count
+curl http://localhost:9090/metrics | grep scheduled_db_queue_job_limit
+
+# Rejection metrics
+curl http://localhost:9090/metrics | grep scheduled_db_job_rejections_total
+```
+
+### Handling Capacity Issues
+
+**When receiving 507 errors:**
+
+1. **Check current capacity:**
+   ```bash
+   curl http://localhost:8080/health | jq
+   ```
+
+2. **Delete old completed jobs:**
+   ```bash
+   # List completed jobs
+   curl http://localhost:8080/jobs?status=completed | jq
+   
+   # Delete specific job
+   curl -X DELETE http://localhost:8080/jobs/{job-id}
+   ```
+
+3. **Increase limits:**
+   ```bash
+   # Increase memory limit
+   export QUEUE_MEMORY_LIMIT=4GB
+   
+   # Increase job count limit
+   export QUEUE_JOB_LIMIT=200000
+   
+   # Restart service
+   ```
+
+4. **Scale horizontally:**
+   - Add more nodes to the cluster
+   - Distribute load across multiple clusters
+
+### Job Size Calculation
+
+Job memory size includes:
+- Job ID string
+- Webhook URL string
+- Cron expression string
+- Serialized payload (JSON)
+- Fixed metadata overhead (~64 bytes)
+
+**Example sizes:**
+- Minimal job (no payload): ~200 bytes
+- Job with 1KB payload: ~1.2KB
+- Job with 10KB payload: ~10.2KB
+
+### Best Practices
+
+1. **Set appropriate limits** based on available system memory
+2. **Monitor utilization** using Prometheus metrics
+3. **Set up alerts** when utilization exceeds 80%
+4. **Clean up completed jobs** regularly
+5. **Use job count limits** to prevent unbounded growth
+6. **Test capacity** under expected load before production
+
 ## Metrics Endpoint
 
 Prometheus metrics are exposed on port 9090:
 
 ```bash
 curl http://localhost:9090/metrics
+```
+
+**Capacity Metrics:**
+
+```
+# Memory usage in bytes
+scheduled_db_queue_memory_usage_bytes
+
+# Configured memory limit in bytes
+scheduled_db_queue_memory_limit_bytes
+
+# Memory utilization percentage (0-100)
+scheduled_db_queue_memory_utilization_percent
+
+# Current job count
+scheduled_db_queue_job_count
+
+# Configured job count limit
+scheduled_db_queue_job_limit
+
+# Job rejections counter with reason label
+scheduled_db_job_rejections_total{reason="memory"}
+scheduled_db_job_rejections_total{reason="job_count"}
 ```
 
 See [Monitoring Guide](./monitoring-guide.md) for details.

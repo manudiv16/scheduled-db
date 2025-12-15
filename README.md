@@ -149,6 +149,27 @@ curl -X POST http://localhost:8080/jobs \
   }'
 ```
 
+### Job Status Tracking
+
+Monitor job execution status and history:
+
+```bash
+# Check job status
+curl http://localhost:8080/jobs/{job-id}/status | jq
+
+# View execution history
+curl http://localhost:8080/jobs/{job-id}/executions | jq
+
+# List jobs by status
+curl http://localhost:8080/jobs?status=completed | jq
+curl http://localhost:8080/jobs?status=failed | jq
+
+# Cancel a job
+curl -X POST http://localhost:8080/jobs/{job-id}/cancel \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "No longer needed"}'
+```
+
 ## 🏗️ Architecture
 
 ```mermaid
@@ -245,6 +266,9 @@ curl http://localhost:9090/metrics
 **Available Metrics:**
 - Job creation/deletion rates
 - Job execution success/failure
+- Queue memory usage and limits
+- Job count and capacity
+- Job rejections by reason
 - Raft cluster health
 - Leader election events
 - Slot queue size
@@ -346,6 +370,10 @@ make cluster-info
 | POST | `/jobs` | Create job |
 | GET | `/jobs/{id}` | Get job details |
 | DELETE | `/jobs/{id}` | Delete job |
+| GET | `/jobs/{id}/status` | Get job execution status |
+| GET | `/jobs/{id}/executions` | Get execution history |
+| GET | `/jobs?status={status}` | List jobs by status |
+| POST | `/jobs/{id}/cancel` | Cancel job |
 | GET | `/health` | Health check |
 | GET | `/debug/cluster` | Cluster info |
 | POST | `/join` | Join cluster |
@@ -371,6 +399,92 @@ curl http://localhost:8080/health | jq '.role'
 
 # Check job timestamp is in future
 curl http://localhost:8080/jobs/{job-id} | jq '.timestamp'
+
+# Check job status
+curl http://localhost:8080/jobs/{job-id}/status | jq
+```
+
+**Job stuck in "in_progress" status**
+```bash
+# Check if job timed out
+curl http://localhost:8080/jobs/{job-id}/status | jq '.status'
+
+# View execution history for errors
+curl http://localhost:8080/jobs/{job-id}/executions | jq
+
+# Adjust timeout if needed
+export JOB_INPROGRESS_TIMEOUT=10m
+```
+
+**Duplicate job executions**
+```bash
+# Status tracking prevents duplicates automatically
+# Check execution history to verify
+curl http://localhost:8080/jobs/{job-id}/executions | jq
+
+# Verify idempotency is working
+curl http://localhost:8080/jobs/{job-id}/status | jq '.attempt_count'
+```
+
+**Failed job executions**
+```bash
+# View execution history with error details
+curl http://localhost:8080/jobs/{job-id}/executions | jq
+
+# Check error type and message
+curl http://localhost:8080/jobs/{job-id}/status | jq
+
+# Common error types:
+# - timeout: Webhook took too long
+# - connection_error: Cannot reach webhook
+# - dns_error: Cannot resolve webhook hostname
+# - http_error: Webhook returned error status
+```
+
+**High failure rate**
+```bash
+# Check health endpoint for failure metrics
+curl http://localhost:8080/health | jq
+
+# List all failed jobs
+curl http://localhost:8080/jobs?status=failed | jq
+
+# Check Prometheus metrics
+curl http://localhost:9090/metrics | grep execution_failures
+```
+
+**Job creation rejected with 507 error**
+```bash
+# Check memory usage
+curl http://localhost:8080/health | jq '.memory'
+
+# Check job count
+curl http://localhost:8080/health | jq '.jobs'
+
+# View capacity metrics
+curl http://localhost:9090/metrics | grep queue_memory
+curl http://localhost:9090/metrics | grep queue_job
+
+# Increase limits if needed
+export QUEUE_MEMORY_LIMIT=4GB
+export QUEUE_JOB_LIMIT=200000
+
+# Or scale horizontally by adding nodes
+```
+
+**Memory utilization high**
+```bash
+# Check current utilization
+curl http://localhost:8080/health | jq '.memory.utilization_percent'
+
+# Delete old completed jobs
+curl -X DELETE http://localhost:8080/jobs/{old-job-id}
+
+# Monitor rejection rate
+curl http://localhost:9090/metrics | grep job_rejections_total
+
+# Consider increasing memory limit
+export QUEUE_MEMORY_LIMIT=4GB
 ```
 
 **Split-brain detected**

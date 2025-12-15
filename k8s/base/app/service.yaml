@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: scheduled-db
+  namespace: default
+  labels:
+    app: scheduled-db
+    component: service
+spec:
+  type: ClusterIP
+  clusterIP: None # Headless service for StatefulSet
+  selector:
+    app: scheduled-db
+  ports:
+    - name: raft
+      port: 7000
+      targetPort: 7000
+      protocol: TCP
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  publishNotReadyAddresses: true # Important for Raft cluster formation
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scheduled-db-api
+  namespace: default
+  labels:
+    app: scheduled-db
+    component: api
+spec:
+  type: ClusterIP
+  selector:
+    app: scheduled-db
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  sessionAffinity: None

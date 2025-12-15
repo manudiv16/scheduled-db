@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: otel-collector
+
+resources:
+  - otel-collector.yaml
+
+labels:
+  - pairs:
+      app: otel-collector
+      component: monitoring
+
+namespace: default
