@@ -420,3 +420,58 @@ func (st *StatusTracker) StartPruning(retention time.Duration) {
 func (st *StatusTracker) StopPruning() {
 	close(st.pruningStop)
 }
+
+// ExecutionStats holds aggregated execution statistics
+type ExecutionStats struct {
+	Pending      int64   `json:"pending"`
+	InProgress   int64   `json:"in_progress"`
+	Completed    int64   `json:"completed"`
+	Failed       int64   `json:"failed"`
+	Cancelled    int64   `json:"cancelled"`
+	Timeout      int64   `json:"timeout"`
+	Total        int64   `json:"total"`
+	LastExecuted int64   `json:"last_executed_at,omitempty"`
+	FailureRate  float64 `json:"failure_rate"`
+}
+
+// GetExecutionStats calculates and returns execution statistics
+func (st *StatusTracker) GetExecutionStats() (*ExecutionStats, error) {
+	allStates := st.store.fsm.GetAllExecutionStates()
+
+	stats := &ExecutionStats{
+		Total: int64(len(allStates)),
+	}
+
+	for _, state := range allStates {
+		switch state.Status {
+		case StatusPending:
+			stats.Pending++
+		case StatusInProgress:
+			stats.InProgress++
+		case StatusCompleted:
+			stats.Completed++
+			if state.CompletedAt > stats.LastExecuted {
+				stats.LastExecuted = state.CompletedAt
+			}
+		case StatusFailed:
+			stats.Failed++
+			if state.CompletedAt > stats.LastExecuted {
+				stats.LastExecuted = state.CompletedAt
+			}
+		case StatusCancelled:
+			stats.Cancelled++
+		case StatusTimeout:
+			stats.Timeout++
+		}
+	}
+
+	// Calculate failure rate
+	// We consider completed, failed, and timeout as "terminal" states that represent attempted executions
+	finishedCount := stats.Completed + stats.Failed + stats.Timeout
+	if finishedCount > 0 {
+		// Failure rate = (Failed + Timeout) / (Completed + Failed + Timeout)
+		stats.FailureRate = float64(stats.Failed+stats.Timeout) / float64(finishedCount)
+	}
+
+	return stats, nil
+}

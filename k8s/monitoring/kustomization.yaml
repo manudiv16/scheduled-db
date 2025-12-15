@@ -13,8 +13,6 @@ resources:
   # Grafana Operator
   - grafana-resources.yaml
 
-  # OpenTelemetry Collector
-  - otel-collector.yaml
 
   # ServiceMonitors (optional - for Prometheus Operator)
   - servicemonitor.yaml

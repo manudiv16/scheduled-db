@@ -217,6 +217,8 @@ create-jobs:
 		pod_name=$$(kubectl get pods -l app=$(APP_NAME) -n $(NAMESPACE) -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); \
 		if [ -n "$$pod_name" ]; then \
 			echo "Using pod: $$pod_name"; \
+			pkill -f "kubectl port-forward" || true; \
+			sleep 1; \
 			kubectl port-forward "$$pod_name" 8080:8080 -n $(NAMESPACE) & \
 			sleep 3; \
 			scripts/create-test-jobs.sh -u 5 -r 3 -v -s http://127.0.0.1:8080; \

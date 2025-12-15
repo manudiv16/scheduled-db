@@ -169,8 +169,21 @@ graph LR
 - **SlotQueue**: Min-heap based priority queue
 - **PersistentSlotQueue**: Raft-backed slot persistence
 - **Worker**: Job execution engine (leader-only)
+- **LimitManager**: Enforces memory and job count limits
 
-### 4. Service Discovery
+### 4. Capacity Tracking
+
+**Location:** `internal/slots/`
+
+Prevents system overload by enforcing limits on the job queue:
+
+- **Memory Tracker**: Tracks estimated memory usage of jobs in the queue
+- **Job Counter**: Tracks total number of jobs
+- **Size Calculator**: Estimates memory footprint of job objects
+
+Limits are configurable via environment variables (`QUEUE_MEMORY_LIMIT`, `QUEUE_JOB_LIMIT`) and enforced at admission time (API level).
+
+### 5. Service Discovery
 
 **Location:** `internal/discovery/`
 

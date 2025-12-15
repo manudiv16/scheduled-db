@@ -9,6 +9,7 @@ A distributed job scheduling system built on Raft consensus. Provides reliable, 
   - **Unico**: One-time execution at specific timestamp
   - **Recurrente**: Recurring execution with cron expressions
 - **Time-Slotted Scheduling** - Efficient job organization and execution
+- **Queue Size Limits** - Configurable memory and job count limits to prevent OOM
 - **High Availability** - Automatic failover and graceful leader resignation
 - **Service Discovery** - Multiple strategies (Kubernetes, DNS, Gossip, Static)
 - **Observability** - Prometheus metrics and OpenTelemetry integration
@@ -277,6 +278,9 @@ LOG_LEVEL=ERROR ./scheduled-db
 | `SLOT_GAP` | `10s` | Slot interval |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `DISCOVERY_STRATEGY` | `` | Discovery method |
+| `QUEUE_MEMORY_LIMIT` | `` | Memory limit (e.g., 2GB) |
+| `QUEUE_MEMORY_PERCENT` | `50.0` | Memory % limit (default 50%) |
+| `QUEUE_JOB_LIMIT` | `100000` | Job count limit |
 
 ### Command-Line Flags
 

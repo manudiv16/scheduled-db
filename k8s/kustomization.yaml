@@ -10,16 +10,14 @@ resources:
   - pdb.yaml
   - hpa.yaml
   - configmap.yaml
-  - monitoring/prometheus-config.yaml
-  - monitoring/prometheus-deployment.yaml
-  - monitoring/grafana-config.yaml
-  - monitoring/grafana-deployment.yaml
-  - monitoring/otel-collector.yaml
+  - otel-collector.yaml
+
+
 
 images:
   - name: scheduled-db
     newName: scheduled-db
-    newTag: v1.0.0-dirty
+    newTag: v302
 
 replicas:
   - name: scheduled-db

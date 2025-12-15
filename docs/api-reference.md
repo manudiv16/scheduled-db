@@ -100,6 +100,15 @@ curl -X POST http://localhost:8080/jobs \
 {
   "error": "No leader available"
 }
+
+// 507 Insufficient Storage - Queue full
+{
+  "error": "insufficient memory: current=1000, limit=1000",
+  "type": "memory",
+  "current": 1000,
+  "limit": 1000,
+  "requested": 100
+}
 ```
 
 ---
@@ -486,6 +495,7 @@ Currently, no rate limiting is implemented. For production:
 | 404 | Not Found | Job ID doesn't exist |
 | 500 | Internal Server Error | Raft error, database error |
 | 503 | Service Unavailable | No leader elected |
+| 507 | Insufficient Storage | Queue memory or job count limit reached |
 
 ## Best Practices
 
