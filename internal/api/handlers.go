@@ -33,12 +33,13 @@ type JobStats struct {
 }
 
 type HealthResponse struct {
-	Status string             `json:"status"`
-	Role   string             `json:"role"`
-	Leader string             `json:"leader,omitempty"`
-	NodeID string             `json:"node_id"`
-	Memory *slots.MemoryUsage `json:"memory,omitempty"`
-	Jobs   *JobStats          `json:"jobs,omitempty"`
+	Status    string                `json:"status"`
+	Role      string                `json:"role"`
+	Leader    string                `json:"leader,omitempty"`
+	NodeID    string                `json:"node_id"`
+	Memory    *slots.MemoryUsage    `json:"memory,omitempty"`
+	Jobs      *JobStats             `json:"jobs,omitempty"`      // Capacity stats
+	Execution *store.ExecutionStats `json:"execution,omitempty"` // Status stats
 }
 
 type ErrorResponse struct {
@@ -154,9 +155,9 @@ func (h *Handlers) calculateHTTPAddress(raftAddr string) (string, error) {
 
 	// For Kubernetes DNS names, convert to HTTP service address
 	if strings.Contains(host, ".svc.cluster.local") {
-		// Extract pod name from DNS (e.g., scheduled-db-2.scheduled-db.default.svc.cluster.local -> scheduled-db-2)
-		podName := strings.Split(host, ".")[0]
-		return fmt.Sprintf("http://%s:8080", podName), nil
+		// Use the full FQDN for proper DNS resolution in Kubernetes
+		// (e.g., scheduled-db-2.scheduled-db.default.svc.cluster.local:8080)
+		return fmt.Sprintf("http://%s:8080", host), nil
 	}
 
 	// Convert localhost to 127.0.0.1 for consistency
@@ -369,6 +370,25 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 			Count:     jobCount,
 			Limit:     jobLimit,
 			Available: jobAvailable,
+		}
+	}
+
+	// Add execution stats
+	statusTracker := store.NewStatusTracker(h.store)
+	if execStats, err := statusTracker.GetExecutionStats(); err == nil {
+		response.Execution = execStats
+
+		// Check for degraded status based on failure rate
+		// Only check if we have enough data (e.g. at least 10 finished jobs)
+		finishedJobs := execStats.Completed + execStats.Failed + execStats.Timeout
+		if finishedJobs >= 10 && execStats.FailureRate > h.healthFailureThreshold {
+			// If already degraded (e.g. by memory), keep it, otherwise set to degraded
+			if response.Status == "ok" {
+				response.Status = "degraded"
+			} else if response.Status == "degraded" && execStats.FailureRate > 0.5 {
+				// If failure rate is very high (>50%), mark as unhealthy
+				response.Status = "unhealthy"
+			}
 		}
 	}
 

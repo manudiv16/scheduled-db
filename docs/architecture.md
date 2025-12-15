@@ -179,112 +179,21 @@ graph LR
 - **SlotQueue**: Min-heap based priority queue
 - **PersistentSlotQueue**: Raft-backed slot persistence
 - **Worker**: Job execution engine (leader-only)
+- **LimitManager**: Enforces memory and job count limits
 
-### 4. Status Tracking Layer
-
-**Location:** `internal/store/status_tracker.go`, `internal/slots/execution_manager.go`
-
-Manages job execution state and provides idempotency guarantees:
-
-```mermaid
-graph TB
-    EM[Execution Manager] --> ST[Status Tracker]
-    ST --> FSM[FSM with Execution States]
-    EM --> WH[Webhook Executor]
-    
-    subgraph "Status Tracker"
-        ST --> CHECK[Check Status]
-        ST --> UPDATE[Update Status]
-        ST --> QUERY[Query Status]
-    end
-    
-    subgraph "Execution Manager"
-        EM --> IDEMPOTENCY[Idempotency Check]
-        EM --> EXECUTE[Execute Job]
-        EM --> RECORD[Record Attempt]
-    end
-    
-    style ST fill:#90EE90
-    style EM fill:#FFD700
-```
-
-**Components:**
-
-**StatusTracker:**
-- Manages job execution states (pending, in_progress, completed, failed, cancelled, timeout)
-- Provides idempotency checks to prevent duplicate execution
-- Records execution attempts with detailed information
-- Handles timeout detection and re-execution
-- Supports status queries and filtering
-
-**ExecutionManager:**
-- Coordinates job execution with status tracking
-- Checks idempotency before execution
-- Marks jobs as in_progress before webhook call
-- Records execution attempts with timing and error details
-- Classifies errors (timeout, connection_error, dns_error, http_error)
-- Updates final status (completed/failed) after execution
-
-**Key Features:**
-- Prevents duplicate execution during leader failover
-- Maintains detailed execution history
-- Supports configurable timeouts and retry limits
-- Provides execution metrics for monitoring
-- Enables job cancellation (pending and in-progress)
-
-### 5. Capacity Management Layer
+### 4. Capacity Tracking
 
 **Location:** `internal/slots/`
 
-Enforces memory-based and count-based limits to prevent system overload:
+Prevents system overload by enforcing limits on the job queue:
 
-```mermaid
-graph TB
-    API[API Layer] --> LM[Limit Manager]
-    
-    subgraph "Capacity Tracking"
-        LM --> SC[Size Calculator]
-        LM --> MT[Memory Tracker]
-        LM --> JC[Job Counter]
-        
-        MT --> FSM[FSM State]
-        JC --> FSM
-    end
-    
-    LM -->|Check Capacity| API
-    LM -->|507 Error| API
-    
-    style LM fill:#FFD700
-    style MT fill:#90EE90
-    style SC fill:#87CEEB
-```
+- **Memory Tracker**: Tracks estimated memory usage of jobs in the queue
+- **Job Counter**: Tracks total number of jobs
+- **Size Calculator**: Estimates memory footprint of job objects
 
-**Components:**
+Limits are configurable via environment variables (`QUEUE_MEMORY_LIMIT`, `QUEUE_JOB_LIMIT`) and enforced at admission time (API level).
 
-**Size Calculator:**
-- Calculates job memory footprint
-- Includes payload serialization size
-- Accounts for string fields and metadata
-- Performance: < 1ms per calculation
-
-**Memory Tracker:**
-- Tracks total memory usage via Raft
-- Enforces configurable memory limits
-- Provides utilization metrics
-- Auto-detects system memory
-
-**Job Counter:**
-- Tracks total job count via Raft
-- Enforces configurable count limits
-- Prevents unbounded growth
-
-**Limit Manager:**
-- Coordinates capacity checks
-- Rejects jobs when limits exceeded
-- Returns 507 HTTP status code
-- Updates metrics on rejections
-
-### 6. Service Discovery
+### 5. Service Discovery
 
 **Location:** `internal/discovery/`
 

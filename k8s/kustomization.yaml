@@ -8,4 +8,21 @@ kind: Kustomization
 #   kubectl apply -k overlays/production
 
 resources:
-  - overlays/production
+  - rbac.yaml
+  - service.yaml
+  - statefulset.yaml
+  - pdb.yaml
+  - hpa.yaml
+  - configmap.yaml
+  - otel-collector.yaml
+
+
+
+images:
+  - name: scheduled-db
+    newName: scheduled-db
+    newTag: v302
+
+replicas:
+  - name: scheduled-db
+    count: 3

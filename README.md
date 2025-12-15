@@ -9,9 +9,7 @@ A distributed job scheduling system built on Raft consensus. Provides reliable, 
   - **Unico**: One-time execution at specific timestamp
   - **Recurrente**: Recurring execution with cron expressions
 - **Time-Slotted Scheduling** - Efficient job organization and execution
-- **Queue Size Limits** - Memory-based capacity management with configurable limits
-- **Job Status Tracking** - Comprehensive execution state management with history
-- **Idempotency Guarantees** - Prevents duplicate execution during failover
+- **Queue Size Limits** - Configurable memory and job count limits to prevent OOM
 - **High Availability** - Automatic failover and graceful leader resignation
 - **Service Discovery** - Multiple strategies (Kubernetes, DNS, Gossip, Static)
 - **Observability** - Prometheus metrics and OpenTelemetry integration
@@ -304,14 +302,9 @@ LOG_LEVEL=ERROR ./scheduled-db
 | `SLOT_GAP` | `10s` | Slot interval |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `DISCOVERY_STRATEGY` | `` | Discovery method |
-| `JOB_EXECUTION_TIMEOUT` | `5m` | Webhook execution timeout |
-| `JOB_INPROGRESS_TIMEOUT` | `5m` | In-progress job timeout |
-| `MAX_EXECUTION_ATTEMPTS` | `3` | Maximum retry attempts |
-| `EXECUTION_HISTORY_RETENTION` | `30d` | History retention period |
-| `HEALTH_FAILURE_THRESHOLD` | `0.1` | Health check failure ratio |
-| `QUEUE_MEMORY_LIMIT` | `` | Memory limit (e.g., "2GB", "500MB") |
-| `QUEUE_MEMORY_PERCENT` | `50` | Memory percentage if limit not set |
-| `QUEUE_JOB_LIMIT` | `100000` | Maximum number of jobs |
+| `QUEUE_MEMORY_LIMIT` | `` | Memory limit (e.g., 2GB) |
+| `QUEUE_MEMORY_PERCENT` | `50.0` | Memory % limit (default 50%) |
+| `QUEUE_JOB_LIMIT` | `100000` | Job count limit |
 
 ### Command-Line Flags
 
