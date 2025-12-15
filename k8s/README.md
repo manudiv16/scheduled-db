@@ -6,14 +6,41 @@ This directory contains Kubernetes manifests and configuration files for deployi
 
 ```
 k8s/
-├── README.md                 # This file
-├── configmap.yaml           # Configuration for the cluster
-├── rbac.yaml               # ServiceAccount and RBAC permissions
-├── service.yaml            # Kubernetes services
-├── statefulset.yaml        # StatefulSet for the cluster nodes
-├── pdb.yaml               # PodDisruptionBudget for HA
-├── hpa.yaml               # HorizontalPodAutoscaler
-└── kustomization.yaml     # Kustomize configuration
+├── README.md                          # This file
+├── kustomization.yaml                 # Root kustomization (points to production)
+├── base/                              # Base resources (shared across environments)
+│   ├── app/                          # Application resources
+│   │   ├── kustomization.yaml
+│   │   ├── configmap.yaml           # Configuration for the cluster
+│   │   ├── rbac.yaml               # ServiceAccount and RBAC permissions
+│   │   ├── service.yaml            # Kubernetes services
+│   │   ├── statefulset.yaml        # StatefulSet for the cluster nodes
+│   │   ├── pdb.yaml               # PodDisruptionBudget for HA
+│   │   └── hpa.yaml               # HorizontalPodAutoscaler
+│   └── monitoring/                   # Monitoring stack
+│       ├── kustomization.yaml
+│       ├── prometheus/              # Prometheus monitoring
+│       │   ├── kustomization.yaml
+│       │   ├── prometheus-config.yaml
+│       │   └── prometheus-deployment.yaml
+│       ├── grafana/                 # Grafana dashboards
+│       │   ├── kustomization.yaml
+│       │   ├── grafana-resources.yaml
+│       │   └── operator/
+│       │       └── kustomization.yaml
+│       ├── otel/                    # OpenTelemetry Collector
+│       │   ├── kustomization.yaml
+│       │   └── otel-collector.yaml
+│       └── servicemonitor/          # ServiceMonitors
+│           ├── kustomization.yaml
+│           └── servicemonitor.yaml
+└── overlays/                         # Environment-specific configurations
+    ├── dev/                         # Development environment
+    │   └── kustomization.yaml
+    ├── staging/                     # Staging environment
+    │   └── kustomization.yaml
+    └── production/                  # Production environment
+        └── kustomization.yaml
 ```
 
 ## 🚀 Quick Start
@@ -30,8 +57,13 @@ k8s/
 # Build and push the Docker image
 make docker-build docker-push
 
-# Deploy to Kubernetes
+# Deploy to production (default)
 make k8s-deploy
+
+# Or deploy to specific environment
+kubectl apply -k k8s/overlays/dev
+kubectl apply -k k8s/overlays/staging
+kubectl apply -k k8s/overlays/production
 
 # Check deployment status
 make k8s-status
@@ -40,14 +72,79 @@ make k8s-status
 ### Alternative: Using kubectl directly
 
 ```bash
-# Apply all manifests
-kubectl apply -k k8s/
+# Deploy to development
+kubectl apply -k k8s/overlays/dev
 
-# Check pods
+# Deploy to staging
+kubectl apply -k k8s/overlays/staging
+
+# Deploy to production
+kubectl apply -k k8s/overlays/production
+
+# Check pods (adjust prefix based on environment: dev-, staging-, prod-)
 kubectl get pods -l app=scheduled-db
 
 # Check services
 kubectl get svc -l app=scheduled-db
+```
+
+## 🏗️ Kustomize Architecture
+
+This deployment uses Kustomize with a **base/overlays** pattern for managing multiple environments efficiently.
+
+### Base Resources
+
+The `base/` directory contains all shared Kubernetes manifests:
+
+- **base/app/**: Core application resources (StatefulSet, Services, ConfigMaps, RBAC, HPA, PDB)
+- **base/monitoring/**: Complete monitoring stack organized by component
+  - **prometheus/**: Prometheus server configuration and deployment
+  - **grafana/**: Grafana operator and dashboard resources
+  - **otel/**: OpenTelemetry Collector for traces and metrics
+  - **servicemonitor/**: ServiceMonitor CRDs for Prometheus Operator
+
+### Overlays (Environments)
+
+Each overlay customizes the base resources for a specific environment:
+
+#### Development (`overlays/dev/`)
+- **Replicas**: 1 instance
+- **Resources**: Minimal (64Mi-256Mi RAM, 50m-200m CPU)
+- **HPA**: Disabled (fixed 1 replica)
+- **Image Tag**: `dev-latest`
+- **Logging**: Debug level
+- **Use Case**: Local development and testing
+
+#### Staging (`overlays/staging/`)
+- **Replicas**: 2 instances
+- **Resources**: Moderate (128Mi-512Mi RAM, 100m-500m CPU)
+- **HPA**: 2-4 replicas
+- **Image Tag**: `staging-latest`
+- **Logging**: Info level
+- **Use Case**: Pre-production testing and validation
+
+#### Production (`overlays/production/`)
+- **Replicas**: 3 instances (minimum for Raft consensus)
+- **Resources**: Full (256Mi-1Gi RAM, 200m-1000m CPU)
+- **HPA**: 3-7 replicas (aggressive scaling)
+- **Image Tag**: `v1.0.0` (semantic versioning)
+- **Logging**: Warn level
+- **Use Case**: Production workloads
+
+### Customizing Overlays
+
+To customize an environment, edit the corresponding `overlays/{env}/kustomization.yaml`:
+
+```bash
+# Example: Change production replicas
+cd k8s/overlays/production
+# Edit kustomization.yaml and modify the replicas section
+
+# Preview changes
+kustomize build .
+
+# Apply changes
+kubectl apply -k .
 ```
 
 ## 📋 Components
@@ -247,52 +344,112 @@ minikube service scheduled-db-api
 
 ## 🔧 Customization
 
-### Using Kustomize
+### Using Kustomize Overlays
 
-The `kustomization.yaml` file allows easy customization:
+The new structure makes it easy to customize deployments per environment:
 
 ```bash
-# Custom namespace
-cd k8s/
-kustomize edit set namespace production
+# Customize development environment
+cd k8s/overlays/dev
 
-# Custom image
-kustomize edit set image scheduled-db=myregistry/scheduled-db:v1.2.3
+# Change image tag
+kustomize edit set image scheduled-db=myregistry/scheduled-db:dev-v2.0.0
+
+# Change namespace
+kustomize edit set namespace development
+
+# Preview the final manifests
+kustomize build .
 
 # Apply with custom settings
 kubectl apply -k .
 ```
 
-### Environment-Specific Overlays
+### Creating a New Environment
 
-Create environment-specific configurations:
+To create a new environment (e.g., `qa`):
 
 ```bash
-mkdir -p k8s/overlays/production
-cd k8s/overlays/production
+# Create new overlay directory
+mkdir -p k8s/overlays/qa
 
 # Create kustomization.yaml
-cat > kustomization.yaml << EOF
+cat > k8s/overlays/qa/kustomization.yaml << 'EOF'
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-- ../../base
+  - ../../base/app
+  - ../../base/monitoring
 
-patchesStrategicMerge:
-- replica-count.yaml
-- resource-limits.yaml
+namespace: qa
+
+namePrefix: qa-
+
+commonLabels:
+  environment: qa
+
+replicas:
+  - name: scheduled-db
+    count: 2
+
+images:
+  - name: scheduled-db
+    newName: scheduled-db
+    newTag: qa-latest
 EOF
 
-# Create patches for production
-cat > replica-count.yaml << EOF
+# Deploy to QA
+kubectl apply -k k8s/overlays/qa
+```
+
+### Customizing Base Resources
+
+To modify base resources that affect all environments:
+
+```bash
+# Edit base application resources
+vim k8s/base/app/statefulset.yaml
+
+# Edit monitoring configuration
+vim k8s/base/monitoring/prometheus/prometheus-config.yaml
+
+# Validate changes across all environments
+kustomize build k8s/overlays/dev
+kustomize build k8s/overlays/staging
+kustomize build k8s/overlays/production
+```
+
+### Environment-Specific Patches
+
+Add custom patches to any overlay:
+
+```bash
+# Create a custom patch file
+cat > k8s/overlays/production/custom-patch.yaml << 'EOF'
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: scheduled-db
 spec:
-  replicas: 5
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - scheduled-db
+            topologyKey: kubernetes.io/hostname
 EOF
+
+# Reference it in kustomization.yaml
+# Add to the patches section:
+# patchesStrategicMerge:
+#   - custom-patch.yaml
 ```
 
 ## 🔒 Security
