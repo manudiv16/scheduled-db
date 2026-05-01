@@ -25,6 +25,7 @@ type ExecutionManager struct {
 	maxAttempts      int
 	cancelFuncs      map[string]context.CancelFunc
 	cancelMu         sync.RWMutex
+	httpClient       *http.Client // reusable HTTP client for webhook calls
 }
 
 // NewExecutionManager creates a new ExecutionManager
@@ -36,6 +37,14 @@ func NewExecutionManager(statusTracker *store.StatusTracker, st *store.Store, no
 		executionTimeout: executionTimeout,
 		maxAttempts:      maxAttempts,
 		cancelFuncs:      make(map[string]context.CancelFunc),
+		httpClient: &http.Client{
+			Timeout: executionTimeout,
+			Transport: &http.Transport{
+				MaxIdleConns:        50,
+				MaxIdleConnsPerHost: 10,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
 	}
 
 	// Set up status change callback for metrics
@@ -203,9 +212,8 @@ func (em *ExecutionManager) executeWebhook(ctx context.Context, job *store.Job) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Execute request
-	client := &http.Client{Timeout: em.executionTimeout}
-	resp, err := client.Do(req)
+	// Execute request using reusable client
+	resp, err := em.httpClient.Do(req)
 	responseTime := time.Since(startTime).Milliseconds()
 
 	if err != nil {

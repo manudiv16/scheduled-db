@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"scheduled-db/internal/logger"
@@ -14,8 +16,9 @@ type StatusChangeCallback func(oldStatus, newStatus JobStatus)
 // StatusTracker manages job execution status
 type StatusTracker struct {
 	store                *Store
-	statusChangeCallback StatusChangeCallback
+	statusChangeCallback atomic.Value
 	pruningStop          chan struct{}
+	pruningCloseOnce     sync.Once
 }
 
 // NewStatusTracker creates a new StatusTracker
@@ -28,7 +31,16 @@ func NewStatusTracker(store *Store) *StatusTracker {
 
 // SetStatusChangeCallback sets the callback for status changes
 func (st *StatusTracker) SetStatusChangeCallback(callback StatusChangeCallback) {
-	st.statusChangeCallback = callback
+	st.statusChangeCallback.Store(callback)
+}
+
+func (st *StatusTracker) getStatusChangeCallback() StatusChangeCallback {
+	if v := st.statusChangeCallback.Load(); v != nil {
+		if cb, ok := v.(StatusChangeCallback); ok {
+			return cb
+		}
+	}
+	return nil
 }
 
 // GetStatus returns the current status of a job
@@ -94,8 +106,8 @@ func (st *StatusTracker) MarkInProgress(jobID string, nodeID string) error {
 	}
 
 	// Notify callback
-	if st.statusChangeCallback != nil {
-		st.statusChangeCallback(prevStatus, StatusInProgress)
+	if cb := st.getStatusChangeCallback(); cb != nil {
+		cb(prevStatus, StatusInProgress)
 	}
 
 	return nil
@@ -131,8 +143,8 @@ func (st *StatusTracker) MarkCompleted(jobID string, attempt *ExecutionAttempt) 
 	}
 
 	// Notify callback
-	if st.statusChangeCallback != nil {
-		st.statusChangeCallback(prevStatus, StatusCompleted)
+	if cb := st.getStatusChangeCallback(); cb != nil {
+		cb(prevStatus, StatusCompleted)
 	}
 
 	return nil
@@ -168,8 +180,8 @@ func (st *StatusTracker) MarkFailed(jobID string, attempt *ExecutionAttempt) err
 	}
 
 	// Notify callback
-	if st.statusChangeCallback != nil {
-		st.statusChangeCallback(prevStatus, StatusFailed)
+	if cb := st.getStatusChangeCallback(); cb != nil {
+		cb(prevStatus, StatusFailed)
 	}
 
 	return nil
@@ -200,8 +212,8 @@ func (st *StatusTracker) MarkCancelled(jobID string, reason string) error {
 	}
 
 	// Notify callback
-	if st.statusChangeCallback != nil {
-		st.statusChangeCallback(prevStatus, StatusCancelled)
+	if cb := st.getStatusChangeCallback(); cb != nil {
+		cb(prevStatus, StatusCancelled)
 	}
 
 	logger.Info("job %s cancelled: %s", jobID, reason)
@@ -235,8 +247,8 @@ func (st *StatusTracker) CheckTimeouts(timeout time.Duration) ([]string, error) 
 				}
 
 				// Notify callback
-				if st.statusChangeCallback != nil {
-					st.statusChangeCallback(StatusInProgress, StatusTimeout)
+				if cb := st.getStatusChangeCallback(); cb != nil {
+					cb(StatusInProgress, StatusTimeout)
 				}
 
 				timedOutJobs = append(timedOutJobs, jobID)
@@ -418,7 +430,9 @@ func (st *StatusTracker) StartPruning(retention time.Duration) {
 
 // StopPruning stops the pruning goroutine
 func (st *StatusTracker) StopPruning() {
-	close(st.pruningStop)
+	st.pruningCloseOnce.Do(func() {
+		close(st.pruningStop)
+	})
 }
 
 // ExecutionStats holds aggregated execution statistics

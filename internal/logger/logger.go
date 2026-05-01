@@ -3,6 +3,7 @@ package logger
 import (
 	"log"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -19,6 +20,7 @@ const (
 type Logger struct {
 	level       Level
 	jobMetrics  *JobMetrics
+	mu          sync.Mutex // protects lastMetrics
 	lastMetrics time.Time
 }
 
@@ -35,7 +37,7 @@ func init() {
 		jobMetrics:  &JobMetrics{},
 		lastMetrics: time.Now(),
 	}
-	
+
 	// Set log level from environment
 	if level := os.Getenv("LOG_LEVEL"); level != "" {
 		switch level {
@@ -95,14 +97,17 @@ func JobFailed() {
 }
 
 func (l *Logger) logMetricsIfNeeded() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	if time.Since(l.lastMetrics) > 5*time.Minute {
 		executed := atomic.SwapInt64(&l.jobMetrics.executed, 0)
 		failed := atomic.SwapInt64(&l.jobMetrics.failed, 0)
-		
+
 		if executed > 0 || failed > 0 {
 			Info("job_metrics executed=%d failed=%d", executed, failed)
 		}
-		
+
 		l.lastMetrics = time.Now()
 	}
 }

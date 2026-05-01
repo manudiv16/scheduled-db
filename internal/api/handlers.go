@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -22,8 +23,9 @@ type Handlers struct {
 	store                  *store.Store
 	executionManager       *slots.ExecutionManager
 	limitManager           *slots.LimitManager
-	addressMap             map[string]string // Map Raft address to HTTP address
+	addressMap             map[string]string // Map Raft address to HTTP address (populated once at init)
 	healthFailureThreshold float64
+	proxyClient            *http.Client // reusable HTTP client for proxy requests
 }
 
 type JobStats struct {
@@ -72,6 +74,14 @@ func NewHandlers(store *store.Store, executionManager *slots.ExecutionManager, l
 		limitManager:           limitManager,
 		addressMap:             make(map[string]string),
 		healthFailureThreshold: healthFailureThreshold,
+		proxyClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        20,
+				MaxIdleConnsPerHost: 5,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
 	}
 
 	// Build initial address mapping from environment variables
@@ -458,9 +468,8 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Execute proxy request
-	client := &http.Client{}
-	resp, err := client.Do(proxyReq)
+	// Execute proxy request using reusable client
+	resp, err := h.proxyClient.Do(proxyReq)
 	if err != nil {
 		h.writeError(w, http.StatusBadGateway, fmt.Sprintf("Failed to proxy request: %v", err))
 		return
@@ -477,19 +486,9 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 	// Copy status code and body
 	w.WriteHeader(resp.StatusCode)
 
-	// Copy response body
-	buf := make([]byte, 1024)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			if _, err := w.Write(buf[:n]); err != nil {
-				logger.Error("failed to write proxy response: %v", err)
-				break
-			}
-		}
-		if err != nil {
-			break
-		}
+	// Copy response body efficiently
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		logger.Error("failed to write proxy response: %v", err)
 	}
 	logger.Debug("proxied %s %s to leader %s", r.Method, r.URL.Path, leader)
 }
