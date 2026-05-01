@@ -1,0 +1,83 @@
+---
+import Layout from '../layouts/Layout.astro';
+import AnimatedHero from '../components/AnimatedHero.svelte';
+import FeatureCards from '../components/FeatureCards.svelte';
+import ArchitectureDiagram from '../components/ArchitectureDiagram.svelte';
+import CodeTabs from '../components/CodeTabs.svelte';
+import { apiEndpoints } from '../data/features';
+---
+
+<Layout title="Scheduled-DB — Distributed Job Scheduling">
+  <main>
+    <AnimatedHero client:load />
+
+    <section id="features">
+      <div class="container">
+        <h2 class="section-title">Features</h2>
+        <p class="section-subtitle">
+          Everything you need for reliable, distributed job scheduling at scale.
+        </p>
+        <FeatureCards client:visible />
+      </div>
+    </section>
+
+    <section id="architecture">
+      <div class="container">
+        <h2 class="section-title">Architecture</h2>
+        <p class="section-subtitle">
+          Built on Raft consensus for strong consistency and automatic failover.
+        </p>
+        <ArchitectureDiagram client:visible />
+      </div>
+    </section>
+
+    <section id="quickstart">
+      <div class="container">
+        <h2 class="section-title">Quick Start</h2>
+        <p class="section-subtitle">
+          Get a 3-node cluster running in seconds.
+        </p>
+        <CodeTabs client:visible />
+      </div>
+    </section>
+
+    <section id="api">
+      <div class="container">
+        <h2 class="section-title">API Reference</h2>
+        <p class="section-subtitle">
+          Simple RESTful HTTP interface for job management.
+        </p>
+        <div class="api-wrapper">
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>Method</th>
+                <th>Endpoint</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {apiEndpoints.map((ep) => (
+                <tr>
+                  <td><code>{ep.method}</code></td>
+                  <td><code>{ep.path}</code></td>
+                  <td>{ep.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</Layout>
+
+<style>
+  .api-wrapper {
+    max-width: 800px;
+    margin: 0 auto;
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+  }
+</style>

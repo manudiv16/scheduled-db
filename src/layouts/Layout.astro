@@ -1,0 +1,57 @@
+---
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <nav>
+      <div class="container">
+        <a href="/" class="logo">
+          <svg width="24" height="24" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="6" fill="#0f172a"/>
+            <path d="M8 10h4l4 6-4 6H8l4-6-4-6z" fill="#38bdf8"/>
+            <path d="M14 10h4l4 6-4 6h-4l4-6-4-6z" fill="#818cf8"/>
+            <path d="M20 10h4l4 6-4 6h-4l4-6-4-6z" fill="#c084fc"/>
+          </svg>
+          <span>Scheduled-DB</span>
+        </a>
+        <ul>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#quickstart">Quick Start</a></li>
+          <li><a href="#api">API</a></li>
+          <li><a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener">GitHub</a></li>
+        </ul>
+      </div>
+    </nav>
+    <slot />
+    <footer>
+      <div class="container">
+        <div class="footer-links">
+          <a href="https://github.com/manudiv16/scheduled-db">GitHub</a>
+          <a href="https://raft.github.io/">Raft Consensus</a>
+          <a href="https://prometheus.io/">Prometheus</a>
+          <a href="https://opentelemetry.io/">OpenTelemetry</a>
+        </div>
+        <p>Built with HashiCorp Raft, Gorilla Mux, Robfig Cron, Prometheus & OpenTelemetry</p>
+      </div>
+    </footer>
+  </body>
+</html>
+
+<style is:global>
+  @import '../styles/global.css';
+</style>
