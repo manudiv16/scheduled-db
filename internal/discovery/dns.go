@@ -3,8 +3,8 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"scheduled-db/internal/logger"
 	"net"
+	"scheduled-db/internal/logger"
 	"strconv"
 	"strings"
 	"time"

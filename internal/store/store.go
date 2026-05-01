@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"scheduled-db/internal/logger"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -22,14 +23,19 @@ func (s *Store) getDNSAddress() string {
 	return string(s.transport.LocalAddr())
 }
 
-// getApplyTimeout returns the Raft apply timeout from environment or default
-func getApplyTimeout() time.Duration {
+// cachedApplyTimeout is computed once at init to avoid per-call os.Getenv overhead.
+var cachedApplyTimeout = func() time.Duration {
 	if timeoutStr := os.Getenv("RAFT_APPLY_TIMEOUT"); timeoutStr != "" {
 		if t, err := time.ParseDuration(timeoutStr); err == nil {
 			return t
 		}
 	}
 	return 5 * time.Second // Default
+}()
+
+// getApplyTimeout returns the Raft apply timeout (cached at startup)
+func getApplyTimeout() time.Duration {
+	return cachedApplyTimeout
 }
 
 type JobEventHandler func(event string, job *Job)
@@ -38,11 +44,11 @@ type Store struct {
 	raft          *raft.Raft
 	fsm           *FSM
 	transport     raft.Transport
-	eventHandler  JobEventHandler
+	eventHandler  atomic.Value
 	nodeID        string
 	raftBind      string
 	raftAdvertise string
-	httpBind      string
+	httpBind      atomic.Value
 }
 
 func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (*Store, error) {
@@ -200,7 +206,7 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 
 // SetHTTPBind sets the HTTP bind address for this store
 func (s *Store) SetHTTPBind(httpBind string) {
-	s.httpBind = httpBind
+	s.httpBind.Store(httpBind)
 }
 
 // GetNodeID returns the node ID
@@ -220,12 +226,15 @@ func (s *Store) GetRaftAdvertise() string {
 
 // GetHTTPBind returns the HTTP bind address
 func (s *Store) GetHTTPBind() string {
-	return s.httpBind
+	if v := s.httpBind.Load(); v != nil {
+		return v.(string)
+	}
+	return ""
 }
 
 // SetEventHandler sets the callback for job events
 func (s *Store) SetEventHandler(handler JobEventHandler) {
-	s.eventHandler = handler
+	s.eventHandler.Store(handler)
 }
 
 // CreateJob creates a new job
@@ -249,9 +258,8 @@ func (s *Store) CreateJob(job *Job) error {
 		return fmt.Errorf("failed to apply command: %v", err)
 	}
 
-	// Notify event handler if this is the leader
-	if s.eventHandler != nil && s.IsLeader() {
-		s.eventHandler("created", job)
+	if handler, ok := s.eventHandler.Load().(JobEventHandler); ok && handler != nil && s.IsLeader() {
+		handler("created", job)
 	}
 
 	return nil
@@ -262,6 +270,8 @@ func (s *Store) DeleteJob(id string) error {
 	if !s.IsLeader() {
 		return fmt.Errorf("not leader")
 	}
+
+	job, _ := s.GetJob(id)
 
 	command := Command{
 		Type: CommandDeleteJob,
@@ -278,10 +288,8 @@ func (s *Store) DeleteJob(id string) error {
 		return fmt.Errorf("failed to apply command: %v", err)
 	}
 
-	// Notify event handler if this is the leader
-	if s.eventHandler != nil && s.IsLeader() {
-		job, _ := s.GetJob(id)
-		s.eventHandler("deleted", job)
+	if handler, ok := s.eventHandler.Load().(JobEventHandler); ok && handler != nil && s.IsLeader() {
+		handler("deleted", job)
 	}
 
 	return nil
@@ -370,16 +378,22 @@ func (s *Store) GetRaftState() string {
 	return s.raft.State().String()
 }
 
-// WaitForLeader waits until a leader is elected
+// WaitForLeader waits until a leader is elected (event-driven via LeaderCh)
 func (s *Store) WaitForLeader(timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	// Fast path: leader already exists
+	if s.raft.Leader() != "" {
+		return nil
+	}
+
+	select {
+	case <-s.raft.LeaderCh():
+		return nil
+	case <-time.After(timeout):
 		if s.raft.Leader() != "" {
 			return nil
 		}
-		time.Sleep(100 * time.Millisecond)
+		return fmt.Errorf("timeout waiting for leader")
 	}
-	return fmt.Errorf("timeout waiting for leader")
 }
 
 // GetRaft returns the underlying Raft instance

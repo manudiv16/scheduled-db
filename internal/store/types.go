@@ -28,12 +28,48 @@ type Job struct {
 	Payload    map[string]interface{} `json:"payload,omitempty"`
 }
 
+// Clone returns a deep copy of the Job
+func (j *Job) Clone() *Job {
+	if j == nil {
+		return nil
+	}
+	clone := *j
+	if j.Timestamp != nil {
+		ts := *j.Timestamp
+		clone.Timestamp = &ts
+	}
+	if j.LastDate != nil {
+		ld := *j.LastDate
+		clone.LastDate = &ld
+	}
+	if j.Payload != nil {
+		clone.Payload = make(map[string]interface{}, len(j.Payload))
+		for k, v := range j.Payload {
+			clone.Payload[k] = v
+		}
+	}
+	return &clone
+}
+
 // SlotData representa un slot persistido en Raft
 type SlotData struct {
 	Key     int64    `json:"key"`
 	MinTime int64    `json:"min_time"`
 	MaxTime int64    `json:"max_time"`
 	JobIDs  []string `json:"job_ids"`
+}
+
+// Clone returns a deep copy of the SlotData
+func (s *SlotData) Clone() *SlotData {
+	if s == nil {
+		return nil
+	}
+	clone := *s
+	if s.JobIDs != nil {
+		clone.JobIDs = make([]string, len(s.JobIDs))
+		copy(clone.JobIDs, s.JobIDs)
+	}
+	return &clone
 }
 
 type CreateJobRequest struct {
@@ -148,9 +184,7 @@ func (j *Job) Validate() error {
 		if j.CronExpr == "" {
 			return fmt.Errorf("cron_expression is required for recurrente jobs")
 		}
-		// Validate cron expression
-		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(j.CronExpr); err != nil {
+		if _, err := cronParser.Parse(j.CronExpr); err != nil {
 			return fmt.Errorf("invalid cron expression: %v", err)
 		}
 	}
@@ -211,3 +245,19 @@ type JobExecutionState struct {
 	ExecutingNodeID    string             `json:"executing_node_id,omitempty"`
 	Attempts           []ExecutionAttempt `json:"attempts"`
 }
+
+// Clone returns a deep copy of the JobExecutionState
+func (s *JobExecutionState) Clone() *JobExecutionState {
+	if s == nil {
+		return nil
+	}
+	clone := *s
+	if s.Attempts != nil {
+		clone.Attempts = make([]ExecutionAttempt, len(s.Attempts))
+		copy(clone.Attempts, s.Attempts)
+	}
+	return &clone
+}
+
+// var cronParser is a shared parser to avoid per-call allocation
+var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)

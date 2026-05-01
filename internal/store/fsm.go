@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 
 	"scheduled-db/internal/logger"
 
@@ -46,14 +47,25 @@ type StatusCommand struct {
 	CancellationReason string            `json:"cancellation_reason,omitempty"`
 }
 
+// validTransitions is the canonical state machine for job status transitions.
+// Pre-allocated to avoid per-call map allocation.
+var validTransitions = map[JobStatus][]JobStatus{
+	StatusPending:    {StatusInProgress, StatusCancelled},
+	StatusInProgress: {StatusCompleted, StatusFailed, StatusTimeout, StatusCancelled},
+	StatusTimeout:    {StatusInProgress},
+	StatusFailed:     {StatusInProgress},
+	StatusCompleted:  {},
+	StatusCancelled:  {},
+}
+
 // FSM implements the raft.FSM interface
 type FSM struct {
 	mu              sync.RWMutex
 	jobs            map[string]*Job
 	slots           map[int64]*SlotData
 	executionStates map[string]*JobExecutionState
-	memoryUsage     int64 // Total memory used by jobs in slots
-	jobCount        int64 // Total number of jobs
+	memoryUsage     atomic.Int64
+	jobCount        atomic.Int64
 }
 
 func NewFSM() *FSM {
@@ -81,7 +93,6 @@ func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 			return fmt.Errorf("job is required for create command")
 		}
 		f.jobs[cmd.Job.ID] = cmd.Job
-		// Initialize execution state for new job
 		f.executionStates[cmd.Job.ID] = &JobExecutionState{
 			JobID:     cmd.Job.ID,
 			Status:    StatusPending,
@@ -109,7 +120,6 @@ func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 		if cmd.ID == "" {
 			return fmt.Errorf("slot key is required for delete slot command")
 		}
-		// Parse key from string
 		var key int64
 		if _, err := fmt.Sscanf(cmd.ID, "%d", &key); err != nil {
 			return fmt.Errorf("invalid slot key: %s", cmd.ID)
@@ -141,35 +151,33 @@ func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 	}
 }
 
-// Snapshot creates a snapshot of the FSM state
+// Snapshot creates a snapshot of the FSM state.
+// Deep-copies all data to prevent races with Apply() during Persist().
 func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	// Create a copy of the jobs map
-	jobs := make(map[string]*Job)
+	jobs := make(map[string]*Job, len(f.jobs))
 	for k, v := range f.jobs {
-		jobs[k] = v
+		jobs[k] = v.Clone()
 	}
 
-	// Create a copy of the slots map
-	slots := make(map[int64]*SlotData)
+	slots := make(map[int64]*SlotData, len(f.slots))
 	for k, v := range f.slots {
-		slots[k] = v
+		slots[k] = v.Clone()
 	}
 
-	// Create a copy of the execution states map
-	executionStates := make(map[string]*JobExecutionState)
+	executionStates := make(map[string]*JobExecutionState, len(f.executionStates))
 	for k, v := range f.executionStates {
-		executionStates[k] = v
+		executionStates[k] = v.Clone()
 	}
 
 	return &Snapshot{
 		jobs:            jobs,
 		slots:           slots,
 		executionStates: executionStates,
-		memoryUsage:     f.memoryUsage,
-		jobCount:        f.jobCount,
+		memoryUsage:     f.memoryUsage.Load(),
+		jobCount:        f.jobCount.Load(),
 	}, nil
 }
 
@@ -207,93 +215,97 @@ func (f *FSM) Restore(reader io.ReadCloser) error {
 		f.executionStates = make(map[string]*JobExecutionState)
 	}
 
-	f.memoryUsage = snapshot.MemoryUsage
-	f.jobCount = snapshot.JobCount
+	f.memoryUsage.Store(snapshot.MemoryUsage)
+	f.jobCount.Store(snapshot.JobCount)
 
 	logger.Debug("Restored %d jobs, %d slots, %d execution states, %d bytes memory, %d job count from snapshot",
-		len(f.jobs), len(f.slots), len(f.executionStates), f.memoryUsage, f.jobCount)
+		len(f.jobs), len(f.slots), len(f.executionStates), snapshot.MemoryUsage, snapshot.JobCount)
 	return nil
 }
 
-// GetJob returns a job by ID
+// GetJob returns a deep copy of a job by ID
 func (f *FSM) GetJob(id string) (*Job, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	job, exists := f.jobs[id]
-	return job, exists
+	if !exists {
+		return nil, false
+	}
+	return job.Clone(), true
 }
 
-// GetAllJobs returns all jobs
+// GetAllJobs returns deep copies of all jobs
 func (f *FSM) GetAllJobs() map[string]*Job {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	jobs := make(map[string]*Job)
+	jobs := make(map[string]*Job, len(f.jobs))
 	for k, v := range f.jobs {
-		jobs[k] = v
+		jobs[k] = v.Clone()
 	}
 	return jobs
 }
 
-// GetSlot returns a slot by key
+// GetSlot returns a deep copy of a slot by key
 func (f *FSM) GetSlot(key int64) (*SlotData, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	slot, exists := f.slots[key]
-	return slot, exists
+	if !exists {
+		return nil, false
+	}
+	return slot.Clone(), true
 }
 
-// GetAllSlots returns all slots
+// GetAllSlots returns deep copies of all slots
 func (f *FSM) GetAllSlots() map[int64]*SlotData {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	slots := make(map[int64]*SlotData)
+	slots := make(map[int64]*SlotData, len(f.slots))
 	for k, v := range f.slots {
-		slots[k] = v
+		slots[k] = v.Clone()
 	}
 	return slots
 }
 
-// GetExecutionState returns the execution state for a job
+// GetExecutionState returns a deep copy of the execution state for a job
 func (f *FSM) GetExecutionState(jobID string) (*JobExecutionState, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	state, exists := f.executionStates[jobID]
-	return state, exists
+	if !exists {
+		return nil, false
+	}
+	return state.Clone(), true
 }
 
-// GetAllExecutionStates returns all execution states
+// GetAllExecutionStates returns deep copies of all execution states
 func (f *FSM) GetAllExecutionStates() map[string]*JobExecutionState {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	states := make(map[string]*JobExecutionState)
+	states := make(map[string]*JobExecutionState, len(f.executionStates))
 	for k, v := range f.executionStates {
-		states[k] = v
+		states[k] = v.Clone()
 	}
 	return states
 }
 
-// GetMemoryUsage returns the current memory usage in bytes
+// GetMemoryUsage returns the current memory usage in bytes (lock-free via atomic)
 func (f *FSM) GetMemoryUsage() int64 {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	return f.memoryUsage
+	return f.memoryUsage.Load()
 }
 
-// GetJobCount returns the current job count
+// GetJobCount returns the current job count (lock-free via atomic)
 func (f *FSM) GetJobCount() int64 {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	return f.jobCount
+	return f.jobCount.Load()
 }
 
 // applyStatusUpdate applies a status update command
 func (f *FSM) applyStatusUpdate(cmd *StatusCommand) error {
 	state, exists := f.executionStates[cmd.JobID]
 	if !exists {
-		// Initialize state if it doesn't exist (for backward compatibility)
 		state = &JobExecutionState{
 			JobID:     cmd.JobID,
 			Status:    StatusPending,
@@ -303,15 +315,12 @@ func (f *FSM) applyStatusUpdate(cmd *StatusCommand) error {
 		f.executionStates[cmd.JobID] = state
 	}
 
-	// Validate state transition
 	if err := validateStateTransition(state.Status, cmd.Status); err != nil {
 		return err
 	}
 
-	// Update status
 	state.Status = cmd.Status
 
-	// Update timestamps and node ID based on status
 	switch cmd.Status {
 	case StatusInProgress:
 		if state.FirstAttemptAt == 0 {
@@ -347,7 +356,6 @@ func (f *FSM) applyRecordAttempt(cmd *StatusCommand) error {
 		return fmt.Errorf("attempt is required for record attempt command")
 	}
 
-	// Add attempt to history
 	state.Attempts = append(state.Attempts, *cmd.Attempt)
 
 	logger.Debug("Recorded attempt %d for job %s", cmd.Attempt.AttemptNum, cmd.JobID)
@@ -371,42 +379,28 @@ func (f *FSM) applyPruneAttempts(cmd *StatusCommand, keptAttempts []ExecutionAtt
 
 // applyMemoryUpdate updates the memory usage by the given delta
 func (f *FSM) applyMemoryUpdate(delta int64) interface{} {
-	f.memoryUsage += delta
-
-	// Ensure non-negative
-	if f.memoryUsage < 0 {
-		f.memoryUsage = 0
+	newVal := f.memoryUsage.Add(delta)
+	if newVal < 0 {
+		f.memoryUsage.Store(0)
 	}
 
-	logger.Debug("Updated memory usage by %d bytes, total: %d bytes", delta, f.memoryUsage)
-	return f.memoryUsage
+	logger.Debug("Updated memory usage by %d bytes, total: %d bytes", delta, f.memoryUsage.Load())
+	return f.memoryUsage.Load()
 }
 
 // applyJobCountUpdate updates the job count by the given delta
 func (f *FSM) applyJobCountUpdate(delta int64) interface{} {
-	f.jobCount += delta
-
-	// Ensure non-negative
-	if f.jobCount < 0 {
-		f.jobCount = 0
+	newVal := f.jobCount.Add(delta)
+	if newVal < 0 {
+		f.jobCount.Store(0)
 	}
 
-	logger.Debug("Updated job count by %d, total: %d jobs", delta, f.jobCount)
-	return f.jobCount
+	logger.Debug("Updated job count by %d, total: %d jobs", delta, f.jobCount.Load())
+	return f.jobCount.Load()
 }
 
 // validateStateTransition validates if a state transition is allowed
 func validateStateTransition(from, to JobStatus) error {
-	// Define valid transitions
-	validTransitions := map[JobStatus][]JobStatus{
-		StatusPending:    {StatusInProgress, StatusCancelled},
-		StatusInProgress: {StatusCompleted, StatusFailed, StatusTimeout, StatusCancelled},
-		StatusTimeout:    {StatusInProgress},
-		StatusFailed:     {StatusInProgress},
-		StatusCompleted:  {},
-		StatusCancelled:  {},
-	}
-
 	allowed, exists := validTransitions[from]
 	if !exists {
 		return fmt.Errorf("unknown status: %s", from)

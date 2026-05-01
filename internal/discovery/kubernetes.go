@@ -189,7 +189,7 @@ func (k *KubernetesStrategy) checkQuorumAndHandleSplitBrain(healthyNodes, totalN
 	if healthyNodes > expectedClusterSize/2 {
 		// Log cluster stabilization on first quorum achievement
 		if k.lastQuorumStatus != "healthy" {
-			logger.Info("✅ CLUSTER STABILIZED: %d/%d nodes healthy, quorum established", 
+			logger.Info("✅ CLUSTER STABILIZED: %d/%d nodes healthy, quorum established",
 				healthyNodes, expectedClusterSize)
 			k.lastQuorumStatus = "healthy"
 		} else {
@@ -225,13 +225,13 @@ func (k *KubernetesStrategy) getExpectedClusterSize() int {
 			return size
 		}
 	}
-	
+
 	// Dynamic sizing: discover current nodes and use that count
 	nodes, err := k.Discover(context.Background())
 	if err == nil && len(nodes) > 0 {
 		return len(nodes)
 	}
-	
+
 	// Fallback to minimum cluster size
 	return 1
 }

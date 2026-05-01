@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"sync/atomic"
+
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/store"
 
@@ -25,7 +27,7 @@ type DiscoveryManager struct {
 	config           Config
 	ctx              context.Context
 	cancel           context.CancelFunc
-	isRunning        bool
+	isRunning        atomic.Bool
 	shutdownCallback func() error
 }
 
@@ -77,14 +79,13 @@ func NewDiscoveryManager(config DiscoveryConfig, store *store.Store, shutdownCal
 		config:           config.Config,
 		ctx:              ctx,
 		cancel:           cancel,
-		isRunning:        false,
 		shutdownCallback: shutdownCallback,
 	}, nil
 }
 
 // Start begins the discovery process
 func (dm *DiscoveryManager) Start() error {
-	if dm.isRunning {
+	if dm.isRunning.Load() {
 		return fmt.Errorf("discovery manager already running")
 	}
 
@@ -113,14 +114,14 @@ func (dm *DiscoveryManager) Start() error {
 		}
 	}()
 
-	dm.isRunning = true
+	dm.isRunning.Store(true)
 	logger.Info("discovery manager started using %s strategy", dm.strategy.Name())
 	return nil
 }
 
 // Stop shuts down the discovery manager
 func (dm *DiscoveryManager) Stop() error {
-	if !dm.isRunning {
+	if !dm.isRunning.Load() {
 		return nil
 	}
 
@@ -147,7 +148,7 @@ func (dm *DiscoveryManager) Stop() error {
 		logger.Warn("deregistration timeout, forcing shutdown...")
 	}
 
-	dm.isRunning = false
+	dm.isRunning.Store(false)
 	logger.Info("discovery manager stopped")
 	return nil
 }
@@ -273,7 +274,7 @@ func (dm *DiscoveryManager) updateRaftPeersWithNodes(nodes []Node) {
 			logger.Debug("Node %s has no pod IP, skipping", node.ID)
 			continue
 		}
-		
+
 		// Use server ID directly - ServerAddressProvider will handle DNS resolution
 		var peerAddr string
 		if strings.HasPrefix(node.ID, "scheduled-db-") {
@@ -437,14 +438,14 @@ func getEnvIntOrDefault(key string, defaultValue int) int {
 // isPeerReachable checks if a peer is reachable on its Raft port
 func (dm *DiscoveryManager) isPeerReachable(address string) bool {
 	var fullAddress string
-	
+
 	// If address is just a node ID (like "scheduled-db-1"), convert to DNS name
 	if strings.HasPrefix(address, "scheduled-db-") && !strings.Contains(address, ":") {
 		fullAddress = fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local:7000", address)
 	} else {
 		fullAddress = address
 	}
-	
+
 	conn, err := net.DialTimeout("tcp", fullAddress, 2*time.Second)
 	if err != nil {
 		return false
@@ -774,18 +775,18 @@ func (dm *DiscoveryManager) getExpectedClusterSize() int {
 			return size
 		}
 	}
-	
+
 	// Dynamic sizing: use the maximum of discovered nodes and Raft configuration
 	discoveredNodes, _ := dm.strategy.Discover(dm.ctx)
 	discoveredCount := len(discoveredNodes)
-	
+
 	// Get current Raft cluster configuration
 	servers, err := dm.store.GetClusterConfiguration()
 	raftCount := 0
 	if err == nil {
 		raftCount = len(servers)
 	}
-	
+
 	// Use the maximum, with a minimum of 1
 	expectedSize := discoveredCount
 	if raftCount > expectedSize {
@@ -794,7 +795,7 @@ func (dm *DiscoveryManager) getExpectedClusterSize() int {
 	if expectedSize < 1 {
 		expectedSize = 1
 	}
-	
+
 	return expectedSize
 }
 

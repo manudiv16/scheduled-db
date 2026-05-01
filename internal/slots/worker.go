@@ -2,6 +2,8 @@ package slots
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"scheduled-db/internal/logger"
@@ -11,12 +13,16 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// cronParser is shared across all calculateNextExecution calls to avoid per-call allocation.
+var workerCronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+
 type Worker struct {
 	slotQueue         *PersistentSlotQueue
 	store             *store.Store
 	executionManager  *ExecutionManager
+	mu                sync.Mutex // protects stopCh and running
 	stopCh            chan struct{}
-	running           bool
+	running           atomic.Bool
 	inProgressTimeout time.Duration
 }
 
@@ -25,31 +31,37 @@ func NewWorker(slotQueue *PersistentSlotQueue, store *store.Store, executionMana
 		slotQueue:         slotQueue,
 		store:             store,
 		executionManager:  executionManager,
-		stopCh:            make(chan struct{}),
 		inProgressTimeout: inProgressTimeout,
 	}
 }
 
 func (w *Worker) Start() {
-	if w.running {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.running.Load() {
 		logger.Debug("worker already running, skipping start")
 		return
 	}
 
-	w.running = true
+	w.stopCh = make(chan struct{})
+	w.running.Store(true)
 	go w.run()
 	logger.Debug("worker started")
 }
 
 func (w *Worker) Stop() {
-	if !w.running {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.running.Load() {
 		logger.Debug("worker already stopped, skipping stop")
 		return
 	}
 
 	logger.Debug("stopping worker")
 	close(w.stopCh)
-	w.running = false
+	w.running.Store(false)
 	logger.Debug("worker stopped")
 }
 
@@ -107,7 +119,7 @@ func (w *Worker) processSlots() {
 		}
 
 		// Process jobs in this slot
-		jobsToRemove := make([]string, 0)
+		jobsToRemove := make([]string, 0, len(slot.Jobs))
 		jobsToReschedule := make([]*store.Job, 0)
 		anyJobExecuted := false
 		hasJobsNotReady := false
@@ -216,8 +228,7 @@ func (w *Worker) executeJob(job *store.Job) {
 }
 
 func (w *Worker) calculateNextExecution(job *store.Job, now int64) int64 {
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	schedule, err := parser.Parse(job.CronExpr)
+	schedule, err := workerCronParser.Parse(job.CronExpr)
 	if err != nil {
 		logger.JobError(job.ID, "invalid cron expression: %v", err)
 		return 0
