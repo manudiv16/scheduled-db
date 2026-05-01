@@ -2,50 +2,53 @@
   import { onMount } from 'svelte';
   import anime from 'animejs';
 
-  let svgRef: HTMLElement;
+  let containerRef: HTMLElement;
 
   onMount(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
+            // Animate node cards
             anime({
-              targets: svgRef.querySelectorAll('.node'),
+              targets: containerRef.querySelectorAll('.arch-node'),
               opacity: [0, 1],
-              scale: [0.5, 1],
-              delay: anime.stagger(200),
-              duration: 800,
-              easing: 'easeOutBack',
+              translateY: [30, 0],
+              scale: [0.9, 1],
+              delay: anime.stagger(120, { start: 200 }),
+              duration: 700,
+              easing: 'easeOutCubic',
             });
 
+            // Animate connections
             anime({
-              targets: svgRef.querySelectorAll('.connection'),
-              strokeDashoffset: [anime.setDashoffset, 0],
-              opacity: [0, 0.6],
-              delay: anime.stagger(150, { start: 600 }),
-              duration: 1000,
-              easing: 'easeInOutSine',
+              targets: containerRef.querySelectorAll('.arch-connection'),
+              opacity: [0, 1],
+              scaleX: [0, 1],
+              delay: anime.stagger(100, { start: 800 }),
+              duration: 500,
+              easing: 'easeOutCubic',
             });
 
+            // Pulse the leader indicator
             anime({
-              targets: svgRef.querySelectorAll('.pulse'),
-              scale: [1, 1.3],
+              targets: containerRef.querySelector('.leader-pulse'),
+              scale: [1, 1.6],
               opacity: [0.6, 0],
               duration: 2000,
-              delay: anime.stagger(400, { start: 1500 }),
               loop: true,
               easing: 'easeOutSine',
             });
 
+            // Animate data flow dots
             anime({
-              targets: svgRef.querySelectorAll('.data-flow'),
-              translateX: [0, 10],
-              opacity: [0.3, 0.8, 0.3],
-              duration: 2500,
+              targets: containerRef.querySelectorAll('.flow-dot'),
+              translateX: [0, 60],
+              opacity: [0.8, 0],
+              duration: 1500,
               loop: true,
-              direction: 'alternate',
-              easing: 'easeInOutSine',
-              delay: anime.stagger(300, { start: 2000 }),
+              delay: anime.stagger(300),
+              easing: 'easeInCubic',
             });
 
             observer.disconnect();
@@ -55,87 +58,344 @@
       { threshold: 0.2 }
     );
 
-    observer.observe(svgRef);
+    observer.observe(containerRef);
   });
 </script>
 
-<div bind:this={svgRef} class="arch-container">
-  <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg" class="arch-svg">
-    <!-- Connections -->
-    <line class="connection" x1="300" y1="120" x2="180" y2="260" stroke="#22d3ee" stroke-width="2" opacity="0"/>
-    <line class="connection" x1="300" y1="120" x2="420" y2="260" stroke="#22d3ee" stroke-width="2" opacity="0"/>
-    <line class="connection" x1="180" y1="260" x2="420" y2="260" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="5,5" opacity="0"/>
+<div bind:this={containerRef} class="arch-wrapper">
+  <!-- Client -->
+  <div class="arch-row arch-row-top">
+    <div class="arch-node client-node" style="opacity: 0;">
+      <div class="node-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+      </div>
+      <span class="node-label">API Clients</span>
+      <span class="node-detail">HTTP / REST</span>
+    </div>
+  </div>
 
-    <!-- Leader Node -->
-    <g class="node" style="opacity: 0; transform-origin: 300px 100px;">
-      <circle class="pulse" cx="300" cy="100" r="42" fill="none" stroke="#fbbf24" stroke-width="2"/>
-      <circle cx="300" cy="100" r="36" fill="#1e293b" stroke="#fbbf24" stroke-width="2.5"/>
-      <text x="300" y="95" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="bold">LEADER</text>
-      <text x="300" y="112" text-anchor="middle" fill="#94a3b8" font-size="9">Node 1</text>
-    </g>
+  <!-- Connection: Client -> Cluster -->
+  <div class="arch-connection-vertical" style="opacity: 0;">
+    <div class="connection-line"></div>
+    <div class="flow-dot"></div>
+    <div class="flow-dot"></div>
+  </div>
 
-    <!-- Follower 1 -->
-    <g class="node" style="opacity: 0; transform-origin: 180px 260px;">
-      <circle class="pulse" cx="180" cy="260" r="38" fill="none" stroke="#3b82f6" stroke-width="2"/>
-      <circle cx="180" cy="260" r="32" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/>
-      <text x="180" y="255" text-anchor="middle" fill="#3b82f6" font-size="10" font-weight="bold">FOLLOWER</text>
-      <text x="180" y="272" text-anchor="middle" fill="#94a3b8" font-size="9">Node 2</text>
-    </g>
+  <!-- Cluster Box -->
+  <div class="arch-cluster">
+    <div class="cluster-label">Raft Cluster</div>
 
-    <!-- Follower 2 -->
-    <g class="node" style="opacity: 0; transform-origin: 420px 260px;">
-      <circle class="pulse" cx="420" cy="260" r="38" fill="none" stroke="#3b82f6" stroke-width="2"/>
-      <circle cx="420" cy="260" r="32" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/>
-      <text x="420" y="255" text-anchor="middle" fill="#3b82f6" font-size="10" font-weight="bold">FOLLOWER</text>
-      <text x="420" y="272" text-anchor="middle" fill="#94a3b8" font-size="9">Node 3</text>
-    </g>
+    <div class="arch-row arch-row-nodes">
+      <!-- Leader -->
+      <div class="arch-node leader-node" style="opacity: 0;">
+        <div class="leader-indicator">
+          <div class="leader-pulse"></div>
+          <div class="leader-dot"></div>
+        </div>
+        <div class="node-icon leader-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <span class="node-label">Node 1</span>
+        <span class="node-role leader-role">LEADER</span>
+        <span class="node-detail">Writes + Execution</span>
+      </div>
 
-    <!-- Client -->
-    <g class="node" style="opacity: 0; transform-origin: 520px 100px;">
-      <rect x="485" y="75" width="70" height="50" rx="8" fill="#1e293b" stroke="#34d399" stroke-width="2"/>
-      <text x="520" y="100" text-anchor="middle" fill="#34d399" font-size="10" font-weight="bold">CLIENT</text>
-      <text x="520" y="115" text-anchor="middle" fill="#94a3b8" font-size="8">HTTP API</text>
-    </g>
+      <!-- Follower 1 -->
+      <div class="arch-node follower-node" style="opacity: 0;">
+        <div class="node-icon follower-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <span class="node-label">Node 2</span>
+        <span class="node-role follower-role">FOLLOWER</span>
+        <span class="node-detail">Replication</span>
+      </div>
 
-    <!-- Worker -->
-    <g class="node" style="opacity: 0; transform-origin: 80px 100px;">
-      <rect x="35" y="75" width="80" height="50" rx="8" fill="#1e293b" stroke="#f472b6" stroke-width="2"/>
-      <text x="75" y="97" text-anchor="middle" fill="#f472b6" font-size="10" font-weight="bold">WORKER</text>
-      <text x="75" y="113" text-anchor="middle" fill="#94a3b8" font-size="8">Job Executor</text>
-    </g>
+      <!-- Follower 2 -->
+      <div class="arch-node follower-node" style="opacity: 0;">
+        <div class="node-icon follower-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+            <path d="M2 17l10 5 10-5"/>
+            <path d="M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <span class="node-label">Node 3</span>
+        <span class="node-role follower-role">FOLLOWER</span>
+        <span class="node-detail">Replication</span>
+      </div>
+    </div>
 
-    <!-- Data flow indicators -->
-    <circle class="data-flow" cx="240" cy="185" r="3" fill="#22d3ee" opacity="0"/>
-    <circle class="data-flow" cx="360" cy="185" r="3" fill="#22d3ee" opacity="0"/>
-    <circle class="data-flow" cx="300" cy="260" r="3" fill="#a78bfa" opacity="0"/>
+    <!-- Connections between nodes -->
+    <div class="arch-connections-inner">
+      <div class="arch-connection horizontal-conn" style="opacity: 0;">
+        <span class="conn-label">Raft Log Replication</span>
+      </div>
+    </div>
+  </div>
 
-    <!-- Connection line: Client -> Leader -->
-    <line class="connection" x1="485" y1="100" x2="336" y2="100" stroke="#34d399" stroke-width="1.5" opacity="0"/>
-    <!-- Connection line: Leader -> Worker -->
-    <line class="connection" x1="264" y1="100" x2="115" y2="100" stroke="#f472b6" stroke-width="1.5" opacity="0"/>
+  <!-- Connection: Cluster -> Worker -->
+  <div class="arch-connection-vertical" style="opacity: 0;">
+    <div class="connection-line"></div>
+    <div class="flow-dot"></div>
+  </div>
 
-    <!-- Labels -->
-    <text x="300" y="360" text-anchor="middle" fill="#64748b" font-size="11">Raft Consensus Protocol</text>
-    <text x="410" y="135" text-anchor="middle" fill="#34d399" font-size="8" opacity="0.7">REST API</text>
-    <text x="190" y="135" text-anchor="middle" fill="#f472b6" font-size="8" opacity="0.7">Webhooks</text>
-    <text x="240" y="210" text-anchor="middle" fill="#22d3ee" font-size="8" opacity="0.7">Replication</text>
-    <text x="360" y="210" text-anchor="middle" fill="#22d3ee" font-size="8" opacity="0.7">Replication</text>
-  </svg>
+  <!-- Bottom row -->
+  <div class="arch-row arch-row-bottom">
+    <div class="arch-node worker-node" style="opacity: 0;">
+      <div class="node-icon worker-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68 1.65 1.65 0 0010 3.17V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+        </svg>
+      </div>
+      <span class="node-label">Worker</span>
+      <span class="node-detail">Job Execution</span>
+    </div>
+
+    <div class="arch-node webhook-node" style="opacity: 0;">
+      <div class="node-icon webhook-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+      </div>
+      <span class="node-label">Webhooks</span>
+      <span class="node-detail">HTTP Callbacks</span>
+    </div>
+
+    <div class="arch-node metrics-node" style="opacity: 0;">
+      <div class="node-icon metrics-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="20" x2="18" y2="10"/>
+          <line x1="12" y1="20" x2="12" y2="4"/>
+          <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+      </div>
+      <span class="node-label">Metrics</span>
+      <span class="node-detail">Prometheus / OTel</span>
+    </div>
+  </div>
 </div>
 
 <style>
-  .arch-container {
-    max-width: 700px;
+  .arch-wrapper {
+    max-width: 750px;
     margin: 0 auto;
-    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
   }
 
-  .arch-svg {
-    width: 100%;
-    height: auto;
+  .arch-row {
+    display: flex;
+    gap: 1.25rem;
+    justify-content: center;
+    flex-wrap: wrap;
   }
 
-  .connection {
-    stroke-linecap: round;
+  .arch-node {
+    position: relative;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 130px;
+    transition: all 0.3s ease;
+  }
+
+  .arch-node:hover {
+    border-color: #475569;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  .node-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    margin-bottom: 0.25rem;
+  }
+
+  .client-node { border-color: #334155; }
+  .client-node .node-icon { background: rgba(34, 211, 238, 0.1); color: #22d3ee; }
+
+  .leader-node { border-color: rgba(251, 191, 36, 0.3); }
+  .leader-node .node-icon { background: rgba(251, 191, 36, 0.1); color: #fbbf24; }
+
+  .follower-node { border-color: rgba(59, 130, 246, 0.3); }
+  .follower-node .node-icon { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+
+  .worker-node .node-icon { background: rgba(244, 114, 182, 0.1); color: #f472b6; }
+  .webhook-node .node-icon { background: rgba(52, 211, 153, 0.1); color: #34d399; }
+  .metrics-node .node-icon { background: rgba(167, 139, 250, 0.1); color: #a78bfa; }
+
+  .node-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #f1f5f9;
+  }
+
+  .node-role {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+  }
+
+  .leader-role {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+  }
+
+  .follower-role {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+  }
+
+  .node-detail {
+    font-size: 0.7rem;
+    color: #64748b;
+  }
+
+  .leader-indicator {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+  }
+
+  .leader-dot {
+    width: 12px;
+    height: 12px;
+    background: #fbbf24;
+    border-radius: 50%;
+    position: relative;
+    z-index: 1;
+  }
+
+  .leader-pulse {
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: #fbbf24;
+    z-index: 0;
+  }
+
+  .arch-cluster {
+    position: relative;
+    border: 1px dashed rgba(34, 211, 238, 0.3);
+    border-radius: 16px;
+    padding: 2.5rem 2rem 1.5rem;
+    margin: 0.5rem 0;
+    background: rgba(34, 211, 238, 0.02);
+  }
+
+  .cluster-label {
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0a0e1a;
+    padding: 0 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #22d3ee;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .arch-connections-inner {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: center;
+  }
+
+  .arch-connection {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: center;
+  }
+
+  .horizontal-conn {
+    width: 80%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(34, 211, 238, 0.4), transparent);
+    position: relative;
+  }
+
+  .conn-label {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.65rem;
+    color: #64748b;
+    white-space: nowrap;
+  }
+
+  .arch-connection-vertical {
+    width: 1px;
+    height: 32px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .connection-line {
+    position: absolute;
+    inset: 0;
+    width: 1px;
+    margin: 0 auto;
+    background: linear-gradient(180deg, rgba(34, 211, 238, 0.4), rgba(167, 139, 250, 0.4));
+  }
+
+  .flow-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #22d3ee;
+    position: absolute;
+    top: 0;
+  }
+
+  .arch-row-nodes {
+    gap: 1.5rem;
+  }
+
+  @media (max-width: 768px) {
+    .arch-row-nodes {
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .arch-cluster {
+      padding: 2.5rem 1rem 1.5rem;
+    }
+
+    .arch-node {
+      min-width: 110px;
+    }
   }
 </style>

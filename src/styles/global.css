@@ -105,48 +105,91 @@ nav {
   top: 0;
   width: 100%;
   z-index: 100;
-  backdrop-filter: blur(12px);
-  background: rgba(10, 14, 26, 0.85);
-  border-bottom: 1px solid var(--border-color);
+  backdrop-filter: blur(16px) saturate(180%);
+  background: rgba(10, 14, 26, 0.75);
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
 }
 
-nav .container {
+nav .nav-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 60px;
+  height: 64px;
 }
 
 nav .logo {
   font-weight: 700;
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+nav .logo:hover {
+  opacity: 0.85;
+}
+
+nav .logo-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+nav .logo-text {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+nav .logo-highlight {
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
+}
+
+nav .nav-links {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-nav .logo span {
-  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+nav .nav-link {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  transition: all 0.2s;
+  text-decoration: none;
 }
 
-nav ul {
+nav .nav-link:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+nav .nav-github {
   display: flex;
-  list-style: none;
-  gap: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  margin-left: 0.75rem;
+  transition: all 0.2s;
+  border: 1px solid transparent;
 }
 
-nav ul a {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  transition: color 0.2s;
-}
-
-nav ul a:hover {
-  color: var(--accent-cyan);
+nav .nav-github:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-color);
 }
 
 .hero {
@@ -326,7 +369,7 @@ footer a {
 }
 
 @media (max-width: 768px) {
-  nav ul {
+  nav .nav-links {
     display: none;
   }
 
@@ -340,5 +383,10 @@ footer a {
 
   section {
     padding: 3rem 0;
+  }
+
+  .footer-links {
+    flex-wrap: wrap;
+    gap: 1rem;
   }
 }
