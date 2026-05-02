@@ -28,9 +28,7 @@ spec:
             periodSeconds: 2
           env:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: ""
-            - name: OTEL_EXPORTER_OTLP_TIMEOUT
-              value: "0s"
+              value: "disabled"
       volumes:
         - name: data
           emptyDir:

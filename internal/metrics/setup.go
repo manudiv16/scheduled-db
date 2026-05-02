@@ -51,34 +51,41 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 		return nil, nil, nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	// Get OTLP endpoint from environment or use default
 	otlpEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	if otlpEndpoint == "" {
-		otlpEndpoint = "otel-collector:4317" // gRPC endpoint without http://
-	}
+	otlpDisabled := otlpEndpoint == "disabled"
 
-	// Create OTLP exporter
-	otlpExporter, err := otlpmetricgrpc.New(ctx,
-		otlpmetricgrpc.WithEndpoint(otlpEndpoint),
-		otlpmetricgrpc.WithInsecure(),
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
-	}
-
-	// Create Prometheus exporter for local metrics endpoint
 	prometheusExporter, err := prometheus.New()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create Prometheus exporter: %w", err)
 	}
 
-	// Create meter provider with both OTLP and Prometheus exporters
-	meterProvider := metric.NewMeterProvider(
+	var providerOpts []metric.Option
+	providerOpts = append(providerOpts,
 		metric.WithResource(res),
-		metric.WithReader(metric.NewPeriodicReader(otlpExporter, metric.WithInterval(15*time.Second))),
 		metric.WithReader(prometheusExporter),
+	)
+
+	var otlpExporter *otlpmetricgrpc.Exporter
+
+	if !otlpDisabled {
+		if otlpEndpoint == "" {
+			otlpEndpoint = "otel-collector:4317"
+		}
+		var err error
+		otlpExporter, err = otlpmetricgrpc.New(ctx,
+			otlpmetricgrpc.WithEndpoint(otlpEndpoint),
+			otlpmetricgrpc.WithInsecure(),
+		)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
+		}
+		providerOpts = append(providerOpts,
+			metric.WithReader(metric.NewPeriodicReader(otlpExporter, metric.WithInterval(15*time.Second))),
+		)
+	}
+
+	providerOpts = append(providerOpts,
 		metric.WithView(
-			// Add custom views for better histograms
 			metric.NewView(
 				metric.Instrument{Name: "job_execution_duration_seconds"},
 				metric.Stream{
@@ -122,6 +129,8 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 		),
 	)
 
+	meterProvider := metric.NewMeterProvider(providerOpts...)
+
 	// Set global meter provider
 	otel.SetMeterProvider(meterProvider)
 
@@ -130,9 +139,10 @@ func Setup(ctx context.Context, config *Config) (*metric.MeterProvider, func(), 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// Shutdown OTLP exporter
-		if err := otlpExporter.Shutdown(ctx); err != nil {
-			fmt.Printf("Error shutting down OTLP exporter: %v\n", err)
+		if otlpExporter != nil {
+			if err := otlpExporter.Shutdown(ctx); err != nil {
+				fmt.Printf("Error shutting down OTLP exporter: %v\n", err)
+			}
 		}
 
 		// Shutdown Prometheus exporter

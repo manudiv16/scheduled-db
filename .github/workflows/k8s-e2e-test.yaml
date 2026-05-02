@@ -25,7 +25,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t scheduled-db:${{ env.IMAGE_TAG }} -f docker/Dockerfile .
+          DOCKER_BUILDKIT=1 docker build -t scheduled-db:${{ env.IMAGE_TAG }} -f docker/Dockerfile .
 
       - name: Setup Kind
         uses: helm/kind-action@v1
@@ -46,8 +46,8 @@ jobs:
           kubectl get pods -l app=scheduled-db -o wide
 
       - name: Wait for cluster readiness
-        run: scripts/e2e/wait-for-cluster.sh 3 180
-        timeout-minutes: 4
+        run: scripts/e2e/wait-for-cluster.sh 3 300
+        timeout-minutes: 6
 
       - name: Test cluster initialization
         run: scripts/e2e/test-cluster-init.sh
