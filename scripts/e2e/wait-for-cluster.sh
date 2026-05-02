@@ -9,7 +9,7 @@ echo "Waiting for $POD_COUNT scheduled-db pods to be ready (max ${MAX_WAIT}s)...
 elapsed=0
 while [ $elapsed -lt $MAX_WAIT ]; do
     ready=$(kubectl get pods -l app=scheduled-db \
-        -o jsonpath='{.items[?(@.status.phase=="Running")].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null \
+        -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null \
         | grep -c "True" || true)
 
     if [ "$ready" -ge "$POD_COUNT" ]; then
