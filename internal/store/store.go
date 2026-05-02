@@ -49,9 +49,14 @@ type Store struct {
 	raftBind      string
 	raftAdvertise string
 	httpBind      atomic.Value
+	coldStore     *BoltColdSlotStore
 }
 
 func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (*Store, error) {
+	return NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID, peers, false)
+}
+
+func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, peers []string, enableColdSpilling bool) (*Store, error) {
 	// Use pod IP for Raft advertise address (simpler and more reliable than hostnames)
 	if os.Getenv("POD_IP") != "" && os.Getenv("DISCOVERY_STRATEGY") == "kubernetes" {
 		podIP := os.Getenv("POD_IP")
@@ -73,6 +78,16 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 	config.LeaderLeaseTimeout = 4000 * time.Millisecond
 
 	fsm := NewFSM()
+
+	var coldStore *BoltColdSlotStore
+	if enableColdSpilling {
+		var err error
+		coldStore, err = NewBoltColdSlotStore(dataDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create cold slot store: %v", err)
+		}
+		fsm = NewFSMWithColdStore(coldStore)
+	}
 
 	// Create data directory
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
@@ -151,6 +166,7 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 		nodeID:        nodeID,
 		raftBind:      raftBind,
 		raftAdvertise: raftAdvertise,
+		coldStore:     coldStore,
 	}
 
 	// Smart bootstrap logic for StatefulSet deployment
@@ -635,5 +651,90 @@ func (s *Store) UpdateJobCount(delta int64) error {
 
 // Close closes the store
 func (s *Store) Close() error {
+	if s.coldStore != nil {
+		if err := s.coldStore.Close(); err != nil {
+			logger.Debug("Failed to close cold slot store: %v", err)
+		}
+	}
 	return s.raft.Shutdown().Error()
+}
+
+func (s *Store) ArchiveSlot(key int64) error {
+	if !s.IsLeader() {
+		return fmt.Errorf("not leader")
+	}
+
+	slotData, exists := s.fsm.GetSlot(key)
+	if !exists {
+		return fmt.Errorf("slot %d not found", key)
+	}
+
+	cmd := Command{
+		Type:     CommandArchiveSlot,
+		ColdSlot: slotData,
+	}
+
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %v", err)
+	}
+
+	future := s.raft.Apply(data, getApplyTimeout())
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to apply command: %v", err)
+	}
+
+	logger.Debug("Archived slot %d to cold store", key)
+	return nil
+}
+
+func (s *Store) UnarchiveSlot(key int64) error {
+	if !s.IsLeader() {
+		return fmt.Errorf("not leader")
+	}
+
+	cmd := Command{
+		Type: CommandUnarchiveSlot,
+		ID:   fmt.Sprintf("%d", key),
+	}
+
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		return fmt.Errorf("failed to marshal command: %v", err)
+	}
+
+	future := s.raft.Apply(data, getApplyTimeout())
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to apply command: %v", err)
+	}
+
+	logger.Debug("Unarchived slot %d from cold store", key)
+	return nil
+}
+
+func (s *Store) IsSlotCold(key int64) bool {
+	return s.fsm.IsSlotCold(key)
+}
+
+func (s *Store) IsColdSpillingEnabled() bool {
+	return s.coldStore != nil
+}
+
+func (s *Store) GetHotSlotCount() int {
+	return s.fsm.GetHotSlotCount()
+}
+
+func (s *Store) GetColdSlotCount() int {
+	return s.fsm.GetColdSlotCount()
+}
+
+func (s *Store) GetColdSlotKeys() []int64 {
+	return s.fsm.GetColdSlotKeys()
+}
+
+func (s *Store) GetColdSlotData(key int64) (*SlotData, error) {
+	if s.coldStore == nil {
+		return nil, fmt.Errorf("cold store not enabled")
+	}
+	return s.coldStore.GetColdSlot(key)
 }

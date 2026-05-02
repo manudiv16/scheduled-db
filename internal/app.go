@@ -27,6 +27,7 @@ type App struct {
 	executionManager   *slots.ExecutionManager
 	slotQueue          *slots.PersistentSlotQueue
 	worker             *slots.Worker
+	slotEvictor        *slots.SlotEvictor
 	httpServer         *http.Server
 	metricsServer      *http.Server
 	prometheusExporter *prometheus.Exporter
@@ -37,21 +38,24 @@ type App struct {
 }
 
 type Config struct {
-	DataDir                string
-	RaftBind               string
-	RaftAdvertise          string
-	HTTPBind               string
-	NodeID                 string
-	Peers                  []string
-	SlotGap                time.Duration
-	DiscoveryConfig        discovery.DiscoveryConfig
-	ExecutionTimeout       time.Duration
-	InProgressTimeout      time.Duration
-	MaxExecutionAttempts   int
-	HistoryRetention       time.Duration
-	HealthFailureThreshold float64
-	QueueMemoryLimit       int64
-	QueueJobLimit          int64
+	DataDir                   string
+	RaftBind                  string
+	RaftAdvertise             string
+	HTTPBind                  string
+	NodeID                    string
+	Peers                     []string
+	SlotGap                   time.Duration
+	DiscoveryConfig           discovery.DiscoveryConfig
+	ExecutionTimeout          time.Duration
+	InProgressTimeout         time.Duration
+	MaxExecutionAttempts      int
+	HistoryRetention          time.Duration
+	HealthFailureThreshold    float64
+	QueueMemoryLimit          int64
+	QueueJobLimit             int64
+	EnableColdSpilling        bool
+	ColdSpillingHotWindow     time.Duration
+	ColdSpillingCheckInterval time.Duration
 }
 
 func NewApp(config *Config) (*App, error) {
@@ -73,7 +77,7 @@ func NewApp(config *Config) (*App, error) {
 	}
 
 	// Create store with Raft (start with configured peers, discovery will handle dynamic joining)
-	jobStore, err := store.NewStore(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers)
+	jobStore, err := store.NewStoreWithColdSpilling(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers, config.EnableColdSpilling)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("failed to create store: %v", err)
@@ -134,6 +138,15 @@ func NewApp(config *Config) (*App, error) {
 	// Create worker
 	worker := slots.NewWorker(slotQueue, jobStore, executionManager, config.InProgressTimeout)
 
+	var slotEvictor *slots.SlotEvictor
+	if config.EnableColdSpilling {
+		slotEvictor = slots.NewSlotEvictor(jobStore, slots.SlotEvictionConfig{
+			Enabled:       true,
+			HotWindow:     config.ColdSpillingHotWindow,
+			CheckInterval: config.ColdSpillingCheckInterval,
+		})
+	}
+
 	// Pass HTTP bind info to store
 	jobStore.SetHTTPBind(config.HTTPBind)
 
@@ -177,6 +190,7 @@ func NewApp(config *Config) (*App, error) {
 		executionManager:   executionManager,
 		slotQueue:          slotQueue,
 		worker:             worker,
+		slotEvictor:        slotEvictor,
 		httpServer:         httpServer,
 		metricsServer:      metricsServer,
 		prometheusExporter: prometheusExporter,
@@ -452,8 +466,11 @@ func (a *App) monitorLeadership() {
 func (a *App) becomeLeader() {
 	logger.ClusterInfo("node %s becoming leader - starting worker", a.nodeID)
 
-	// Start worker (slots are already loaded from persistent store)
 	a.worker.Start()
+
+	if a.slotEvictor != nil {
+		a.slotEvictor.Start()
+	}
 
 	logger.Info("🎯 CLUSTER READY: Node %s is leader, cluster fully operational", a.nodeID)
 }
@@ -461,6 +478,9 @@ func (a *App) becomeLeader() {
 func (a *App) loseLeadership() {
 	logger.ClusterInfo("node %s losing leadership - stopping worker", a.nodeID)
 	a.worker.Stop()
+	if a.slotEvictor != nil {
+		a.slotEvictor.Stop()
+	}
 	logger.ClusterInfo("node %s worker stopped due to leadership loss", a.nodeID)
 }
 
