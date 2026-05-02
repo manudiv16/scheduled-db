@@ -42,14 +42,17 @@ echo "::endgroup::"
 echo ""
 echo "::group::Step 3: Create test job on leader"
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-JOB_B64=$(echo "{\"type\":\"unico\",\"timestamp\":\"${ts}\",\"payload\":{\"test\":\"e2e-replication\"}}" | base64 -w0)
-kubectl exec "$leader_pod" -- /bin/sh -c "echo $JOB_B64 | base64 -d > /tmp/job.json && cat /tmp/job.json"
+JOB_DATA="{\"type\":\"unico\",\"timestamp\":\"${ts}\",\"payload\":{\"test\":\"e2e-replication\"}}"
 
-create_response=$(kubectl exec "$leader_pod" -- wget -qO- --post-file=/tmp/job.json --header='Content-Type: application/json' http://localhost:8080/jobs 2>&1 || echo "WGET_FAILED")
+create_response=$(kubectl exec "$leader_pod" -- wget -S -O- \
+    --post-data="$JOB_DATA" \
+    --header='Content-Type: application/json' \
+    http://localhost:8080/jobs 2>&1 || true)
 
-if echo "$create_response" | grep -q "WGET_FAILED"; then
-    echo "FAIL: wget failed to create job"
-    echo "Response: $create_response"
+if echo "$create_response" | grep -q "400 Bad Request"; then
+    echo "FAIL: Server returned 400 Bad Request"
+    echo "Full response:"
+    echo "$create_response"
     exit 1
 fi
 
@@ -112,10 +115,12 @@ echo "::group::Step 6: Test write forwarding from follower"
 if [ ${#follower_pods[@]} -gt 0 ]; then
     follower="${follower_pods[0]}"
     ts2=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    JOB2_B64=$(echo "{\"type\":\"unico\",\"timestamp\":\"${ts2}\",\"payload\":{\"test\":\"e2e-forward\"}}" | base64 -w0)
-    kubectl exec "$follower" -- /bin/sh -c "echo $JOB2_B64 | base64 -d > /tmp/job2.json"
+    FORWARD_DATA="{\"type\":\"unico\",\"timestamp\":\"${ts2}\",\"payload\":{\"test\":\"e2e-forward\"}}"
 
-    forward_response=$(kubectl exec "$follower" -- wget -qO- --post-file=/tmp/job2.json --header='Content-Type: application/json' http://localhost:8080/jobs 2>&1 || echo "WGET_FAILED")
+    forward_response=$(kubectl exec "$follower" -- wget -S -O- \
+        --post-data="$FORWARD_DATA" \
+        --header='Content-Type: application/json' \
+        http://localhost:8080/jobs 2>&1 || true)
 
     forward_id=$(echo "$forward_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
     if [ -n "$forward_id" ]; then
