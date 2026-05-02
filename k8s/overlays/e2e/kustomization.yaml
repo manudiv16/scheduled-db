@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: scheduled-db-e2e
+
+resources:
+  - ../../base/app
+
+namespace: default
+
+patches:
+  - path: statefulset-patch.yaml
+    target:
+      kind: StatefulSet
+      name: scheduled-db
+
+  - target:
+      kind: ConfigMap
+      name: scheduled-db-config
+    patch: |-
+      - op: replace
+        path: /data/LOG_LEVEL
+        value: DEBUG
+      - op: add
+        path: /data/AUTO_JOIN
+        value: "true"
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: scheduled-db-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+      - op: replace
+        path: /spec/metrics
+        value: []
+
+images:
+  - name: scheduled-db
+    newName: scheduled-db
+    newTag: e2e

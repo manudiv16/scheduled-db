@@ -1,0 +1,86 @@
+name: K8s Cluster E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: k8s-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KIND_CLUSTER_NAME: scheduled-db-e2e
+  IMAGE_TAG: e2e
+
+jobs:
+  e2e-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          DOCKER_BUILDKIT=1 docker build -t scheduled-db:${{ env.IMAGE_TAG }} -f docker/Dockerfile .
+
+      - name: Setup Kind
+        uses: helm/kind-action@v1
+        with:
+          config: k8s/kind-config.yaml
+          cluster_name: ${{ env.KIND_CLUSTER_NAME }}
+          wait: 120s
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image scheduled-db:${{ env.IMAGE_TAG }} \
+            --name ${{ env.KIND_CLUSTER_NAME }}
+
+      - name: Deploy to Kind cluster
+        run: |
+          kubectl apply -k k8s/overlays/e2e
+          echo "Waiting for StatefulSet pods to be created..."
+          kubectl get pods -l app=scheduled-db -o wide
+
+      - name: Wait for cluster readiness
+        run: scripts/e2e/wait-for-cluster.sh 3 90
+        timeout-minutes: 2
+
+      - name: Test cluster initialization
+        run: scripts/e2e/test-cluster-init.sh
+
+      - name: Test Raft replication
+        run: scripts/e2e/test-raft-replication.sh
+
+      - name: Extract & report metrics
+        run: scripts/e2e/extract-metrics.sh
+        if: always()
+
+      - name: Collect cluster debug info
+        if: always()
+        run: |
+          echo "=== Pod Status ==="
+          kubectl get pods -l app=scheduled-db -o wide
+          echo ""
+          echo "=== Pod Events ==="
+          kubectl get events --sort-by='.lastTimestamp'
+          echo ""
+          echo "=== Pod Logs ==="
+          for pod in $(kubectl get pods -l app=scheduled-db -o jsonpath='{.items[*].metadata.name}'); do
+            echo "--- $pod ---"
+            kubectl logs "$pod" --tail=100
+            echo ""
+          done
+          echo "=== Cluster Debug ==="
+          for pod in $(kubectl get pods -l app=scheduled-db -o jsonpath='{.items[*].metadata.name}'); do
+            echo "--- $pod ---"
+            kubectl exec "$pod" -- wget -qO- http://localhost:8080/debug/cluster 2>/dev/null || echo "debug endpoint not available"
+            echo ""
+          done
+
+      - name: Cleanup Kind cluster
+        if: always()
+        run: kind delete cluster --name ${{ env.KIND_CLUSTER_NAME }} 2>/dev/null || true

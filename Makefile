@@ -1,5 +1,5 @@
 # Makefile for scheduled-db project
-.PHONY: help build test clean docker-build docker-push k8s-deploy k8s-delete dev-up dev-down logs
+.PHONY: help build test clean docker-build docker-push k8s-deploy k8s-delete dev-up dev-down logs e2e e2e-test
 
 # Variables
 APP_NAME := scheduled-db
@@ -55,6 +55,8 @@ help:
 	@echo "  test-proxy         Test proxy functionality"
 	@echo "  test-failover      Test failover functionality"
 	@echo "  cluster-info       Show cluster information"
+	@echo "  e2e                Run full E2E tests (Kind setup + test)"
+	@echo "  e2e-test           Run Go E2E tests against running cluster"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  install-deps       Install development dependencies"
@@ -343,6 +345,22 @@ version:
 	@echo "Go version: $(shell go version)"
 	@echo "Platform: $(GOOS)/$(GOARCH)"
 	@echo "Docker image: $(DOCKER_IMAGE):$(DOCKER_TAG)"
+
+## e2e: Run end-to-end tests against Kind cluster
+e2e: docker-build
+	@echo "Running E2E tests against Kind cluster..."
+	scripts/e2e/setup-kind.sh
+	kind load docker-image $(APP_NAME):e2e --name scheduled-db-e2e
+	$(KUBECTL) apply -k k8s/overlays/e2e
+	scripts/e2e/wait-for-cluster.sh
+	scripts/e2e/test-cluster-init.sh
+	scripts/e2e/test-raft-replication.sh
+	@echo "E2E tests completed"
+
+## e2e-test: Run Go E2E tests against running cluster (requires port-forward or in-cluster access)
+e2e-test:
+	@echo "Running Go E2E tests..."
+	go test -v -timeout 300s ./internal/e2e/...
 
 # Default target
 .DEFAULT_GOAL := help
