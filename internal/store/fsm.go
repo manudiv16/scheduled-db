@@ -19,6 +19,8 @@ const (
 	CommandDeleteJob         CommandType = "delete_job"
 	CommandCreateSlot        CommandType = "create_slot"
 	CommandDeleteSlot        CommandType = "delete_slot"
+	CommandArchiveSlot       CommandType = "archive_slot"
+	CommandUnarchiveSlot     CommandType = "unarchive_slot"
 	CommandUpdateJobStatus   CommandType = "update_job_status"
 	CommandRecordAttempt     CommandType = "record_attempt"
 	CommandPruneAttempts     CommandType = "prune_attempts"
@@ -31,6 +33,7 @@ type Command struct {
 	Job           *Job               `json:"job,omitempty"`
 	ID            string             `json:"id,omitempty"`
 	Slot          *SlotData          `json:"slot,omitempty"`
+	ColdSlot      *SlotData          `json:"cold_slot,omitempty"`
 	StatusCommand *StatusCommand     `json:"status_command,omitempty"`
 	Attempts      []ExecutionAttempt `json:"attempts,omitempty"`
 	MemoryDelta   int64              `json:"memory_delta,omitempty"`
@@ -58,11 +61,19 @@ var validTransitions = map[JobStatus][]JobStatus{
 	StatusCancelled:  {},
 }
 
-// FSM implements the raft.FSM interface
+type ColdSlotStore interface {
+	PutColdSlot(key int64, data *SlotData) error
+	GetColdSlot(key int64) (*SlotData, error)
+	DeleteColdSlot(key int64) error
+	Close() error
+}
+
 type FSM struct {
 	mu              sync.RWMutex
 	jobs            map[string]*Job
 	slots           map[int64]*SlotData
+	coldSlotMeta    map[int64]bool
+	coldStore       ColdSlotStore
 	executionStates map[string]*JobExecutionState
 	memoryUsage     atomic.Int64
 	jobCount        atomic.Int64
@@ -72,6 +83,17 @@ func NewFSM() *FSM {
 	return &FSM{
 		jobs:            make(map[string]*Job),
 		slots:           make(map[int64]*SlotData),
+		coldSlotMeta:    make(map[int64]bool),
+		executionStates: make(map[string]*JobExecutionState),
+	}
+}
+
+func NewFSMWithColdStore(coldStore ColdSlotStore) *FSM {
+	return &FSM{
+		jobs:            make(map[string]*Job),
+		slots:           make(map[int64]*SlotData),
+		coldSlotMeta:    make(map[int64]bool),
+		coldStore:       coldStore,
 		executionStates: make(map[string]*JobExecutionState),
 	}
 }
@@ -125,7 +147,52 @@ func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 			return fmt.Errorf("invalid slot key: %s", cmd.ID)
 		}
 		delete(f.slots, key)
+		delete(f.coldSlotMeta, key)
+		if f.coldStore != nil {
+			if err := f.coldStore.DeleteColdSlot(key); err != nil {
+				logger.Debug("Failed to delete cold slot %d: %v", key, err)
+			}
+		}
 		logger.Debug("Deleted slot %d from FSM", key)
+		return nil
+	case CommandArchiveSlot:
+		if cmd.ColdSlot == nil {
+			return fmt.Errorf("cold slot data is required for archive slot command")
+		}
+		if f.coldStore == nil {
+			return fmt.Errorf("cold store not enabled, cannot archive slot")
+		}
+		key := cmd.ColdSlot.Key
+		if err := f.coldStore.PutColdSlot(key, cmd.ColdSlot); err != nil {
+			return fmt.Errorf("failed to archive slot %d to cold store: %v", key, err)
+		}
+		delete(f.slots, key)
+		f.coldSlotMeta[key] = true
+		logger.Debug("Archived slot %d to cold store", key)
+		return nil
+	case CommandUnarchiveSlot:
+		if cmd.ID == "" {
+			return fmt.Errorf("slot key is required for unarchive slot command")
+		}
+		if f.coldStore == nil {
+			return fmt.Errorf("cold store not enabled, cannot unarchive slot")
+		}
+		var key int64
+		if _, err := fmt.Sscanf(cmd.ID, "%d", &key); err != nil {
+			return fmt.Errorf("invalid slot key: %s", cmd.ID)
+		}
+		slotData, err := f.coldStore.GetColdSlot(key)
+		if err != nil {
+			return fmt.Errorf("failed to unarchive slot %d from cold store: %v", key, err)
+		}
+		if slotData != nil {
+			f.slots[key] = slotData
+		}
+		if err := f.coldStore.DeleteColdSlot(key); err != nil {
+			logger.Debug("Failed to delete cold slot %d after unarchive: %v", key, err)
+		}
+		delete(f.coldSlotMeta, key)
+		logger.Debug("Unarchived slot %d from cold store", key)
 		return nil
 	case CommandUpdateJobStatus:
 		if cmd.StatusCommand == nil {
@@ -167,6 +234,11 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 		slots[k] = v.Clone()
 	}
 
+	coldSlotMeta := make(map[int64]bool, len(f.coldSlotMeta))
+	for k, v := range f.coldSlotMeta {
+		coldSlotMeta[k] = v
+	}
+
 	executionStates := make(map[string]*JobExecutionState, len(f.executionStates))
 	for k, v := range f.executionStates {
 		executionStates[k] = v.Clone()
@@ -175,6 +247,7 @@ func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
 	return &Snapshot{
 		jobs:            jobs,
 		slots:           slots,
+		coldSlotMeta:    coldSlotMeta,
 		executionStates: executionStates,
 		memoryUsage:     f.memoryUsage.Load(),
 		jobCount:        f.jobCount.Load(),
@@ -188,6 +261,7 @@ func (f *FSM) Restore(reader io.ReadCloser) error {
 	var snapshot struct {
 		Jobs            map[string]*Job               `json:"jobs"`
 		Slots           map[int64]*SlotData           `json:"slots"`
+		ColdSlotMeta    map[int64]bool                `json:"cold_slot_meta"`
 		ExecutionStates map[string]*JobExecutionState `json:"execution_states"`
 		MemoryUsage     int64                         `json:"memory_usage"`
 		JobCount        int64                         `json:"job_count"`
@@ -210,6 +284,11 @@ func (f *FSM) Restore(reader io.ReadCloser) error {
 		f.slots = make(map[int64]*SlotData)
 	}
 
+	f.coldSlotMeta = snapshot.ColdSlotMeta
+	if f.coldSlotMeta == nil {
+		f.coldSlotMeta = make(map[int64]bool)
+	}
+
 	f.executionStates = snapshot.ExecutionStates
 	if f.executionStates == nil {
 		f.executionStates = make(map[string]*JobExecutionState)
@@ -218,8 +297,8 @@ func (f *FSM) Restore(reader io.ReadCloser) error {
 	f.memoryUsage.Store(snapshot.MemoryUsage)
 	f.jobCount.Store(snapshot.JobCount)
 
-	logger.Debug("Restored %d jobs, %d slots, %d execution states, %d bytes memory, %d job count from snapshot",
-		len(f.jobs), len(f.slots), len(f.executionStates), snapshot.MemoryUsage, snapshot.JobCount)
+	logger.Debug("Restored %d jobs, %d slots, %d cold slots, %d execution states, %d bytes memory, %d job count from snapshot",
+		len(f.jobs), len(f.slots), len(f.coldSlotMeta), len(f.executionStates), snapshot.MemoryUsage, snapshot.JobCount)
 	return nil
 }
 
@@ -249,12 +328,23 @@ func (f *FSM) GetAllJobs() map[string]*Job {
 // GetSlot returns a deep copy of a slot by key
 func (f *FSM) GetSlot(key int64) (*SlotData, bool) {
 	f.mu.RLock()
-	defer f.mu.RUnlock()
 	slot, exists := f.slots[key]
-	if !exists {
-		return nil, false
+	if exists {
+		f.mu.RUnlock()
+		return slot.Clone(), true
 	}
-	return slot.Clone(), true
+	isCold := f.coldSlotMeta[key]
+	f.mu.RUnlock()
+
+	if isCold && f.coldStore != nil {
+		coldSlot, err := f.coldStore.GetColdSlot(key)
+		if err != nil || coldSlot == nil {
+			return nil, false
+		}
+		return coldSlot.Clone(), true
+	}
+
+	return nil, false
 }
 
 // GetAllSlots returns deep copies of all slots
@@ -267,6 +357,34 @@ func (f *FSM) GetAllSlots() map[int64]*SlotData {
 		slots[k] = v.Clone()
 	}
 	return slots
+}
+
+func (f *FSM) IsSlotCold(key int64) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.coldSlotMeta[key]
+}
+
+func (f *FSM) GetColdSlotKeys() []int64 {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	keys := make([]int64, 0, len(f.coldSlotMeta))
+	for k := range f.coldSlotMeta {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+func (f *FSM) GetHotSlotCount() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return len(f.slots)
+}
+
+func (f *FSM) GetColdSlotCount() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return len(f.coldSlotMeta)
 }
 
 // GetExecutionState returns a deep copy of the execution state for a job
@@ -419,24 +537,26 @@ func validateStateTransition(from, to JobStatus) error {
 type Snapshot struct {
 	jobs            map[string]*Job
 	slots           map[int64]*SlotData
+	coldSlotMeta    map[int64]bool
 	executionStates map[string]*JobExecutionState
 	memoryUsage     int64
 	jobCount        int64
 }
 
-// Persist saves the snapshot to the given sink
 func (s *Snapshot) Persist(sink raft.SnapshotSink) error {
 	err := func() error {
 		encoder := json.NewEncoder(sink)
 		data := struct {
 			Jobs            map[string]*Job               `json:"jobs"`
 			Slots           map[int64]*SlotData           `json:"slots"`
+			ColdSlotMeta    map[int64]bool                `json:"cold_slot_meta"`
 			ExecutionStates map[string]*JobExecutionState `json:"execution_states"`
 			MemoryUsage     int64                         `json:"memory_usage"`
 			JobCount        int64                         `json:"job_count"`
 		}{
 			Jobs:            s.jobs,
 			Slots:           s.slots,
+			ColdSlotMeta:    s.coldSlotMeta,
 			ExecutionStates: s.executionStates,
 			MemoryUsage:     s.memoryUsage,
 			JobCount:        s.jobCount,

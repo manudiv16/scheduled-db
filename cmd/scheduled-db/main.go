@@ -18,24 +18,27 @@ import (
 
 func main() {
 	var (
-		dataDir                = flag.String("data-dir", getEnvOrDefault("DATA_DIR", "./data"), "Data directory for Raft storage")
-		raftPort               = flag.String("raft-port", getEnvOrDefault("RAFT_PORT", "7000"), "Port for Raft communication")
-		httpPort               = flag.String("http-port", getEnvOrDefault("HTTP_PORT", "8080"), "Port for HTTP API")
-		nodeID                 = flag.String("node-id", getEnvOrDefault("NODE_ID", "node-1"), "Unique node identifier")
-		peers                  = flag.String("peers", getEnvOrDefault("PEERS", ""), "Comma-separated list of peer addresses for joining cluster")
-		slotGap                = flag.Duration("slot-gap", getEnvDurationOrDefault("SLOT_GAP", 10*time.Second), "Time gap for slot intervals")
-		discoveryStrategy      = flag.String("discovery-strategy", getEnvOrDefault("DISCOVERY_STRATEGY", ""), "Discovery strategy: static, kubernetes, dns, gossip")
-		raftHost               = flag.String("raft-host", getEnvOrDefault("RAFT_HOST", "localhost"), "Host for Raft communication")
-		raftAdvertiseHost      = flag.String("raft-advertise-host", getEnvOrDefault("RAFT_ADVERTISE_HOST", ""), "Host to advertise for Raft communication (empty means use raft-host)")
-		httpHost               = flag.String("http-host", getEnvOrDefault("HTTP_HOST", ""), "Host for HTTP API (empty means all interfaces)")
-		executionTimeout       = flag.Duration("execution-timeout", getEnvDurationOrDefault("JOB_EXECUTION_TIMEOUT", 5*time.Minute), "Job execution timeout")
-		inProgressTimeout      = flag.Duration("inprogress-timeout", getEnvDurationOrDefault("JOB_INPROGRESS_TIMEOUT", 5*time.Minute), "In-progress job timeout")
-		maxExecutionAttempts   = flag.Int("max-attempts", getEnvIntOrDefault("MAX_EXECUTION_ATTEMPTS", 3), "Maximum execution attempts per job")
-		historyRetention       = flag.Duration("history-retention", getEnvDurationOrDefault("EXECUTION_HISTORY_RETENTION", 30*24*time.Hour), "Execution history retention period")
-		healthFailureThreshold = flag.Float64("health-failure-threshold", getEnvFloatOrDefault("HEALTH_FAILURE_THRESHOLD", 0.1), "Health check failure threshold (ratio of failed jobs)")
-		queueMemoryLimit       = flag.String("queue-memory-limit", getEnvOrDefault("QUEUE_MEMORY_LIMIT", ""), "Queue memory limit (e.g., 2GB, 500MB) - empty means auto-detect")
-		queueMemoryPercent     = flag.Float64("queue-memory-percent", getEnvFloatOrDefault("QUEUE_MEMORY_PERCENT", 50.0), "Queue memory as percentage of system memory (default 50%)")
-		queueJobLimit          = flag.Int64("queue-job-limit", getEnvInt64OrDefault("QUEUE_JOB_LIMIT", 100000), "Maximum number of jobs in queue (default 100,000)")
+		dataDir                   = flag.String("data-dir", getEnvOrDefault("DATA_DIR", "./data"), "Data directory for Raft storage")
+		raftPort                  = flag.String("raft-port", getEnvOrDefault("RAFT_PORT", "7000"), "Port for Raft communication")
+		httpPort                  = flag.String("http-port", getEnvOrDefault("HTTP_PORT", "8080"), "Port for HTTP API")
+		nodeID                    = flag.String("node-id", getEnvOrDefault("NODE_ID", "node-1"), "Unique node identifier")
+		peers                     = flag.String("peers", getEnvOrDefault("PEERS", ""), "Comma-separated list of peer addresses for joining cluster")
+		slotGap                   = flag.Duration("slot-gap", getEnvDurationOrDefault("SLOT_GAP", 10*time.Second), "Time gap for slot intervals")
+		discoveryStrategy         = flag.String("discovery-strategy", getEnvOrDefault("DISCOVERY_STRATEGY", ""), "Discovery strategy: static, kubernetes, dns, gossip")
+		raftHost                  = flag.String("raft-host", getEnvOrDefault("RAFT_HOST", "localhost"), "Host for Raft communication")
+		raftAdvertiseHost         = flag.String("raft-advertise-host", getEnvOrDefault("RAFT_ADVERTISE_HOST", ""), "Host to advertise for Raft communication (empty means use raft-host)")
+		httpHost                  = flag.String("http-host", getEnvOrDefault("HTTP_HOST", ""), "Host for HTTP API (empty means all interfaces)")
+		executionTimeout          = flag.Duration("execution-timeout", getEnvDurationOrDefault("JOB_EXECUTION_TIMEOUT", 5*time.Minute), "Job execution timeout")
+		inProgressTimeout         = flag.Duration("inprogress-timeout", getEnvDurationOrDefault("JOB_INPROGRESS_TIMEOUT", 5*time.Minute), "In-progress job timeout")
+		maxExecutionAttempts      = flag.Int("max-attempts", getEnvIntOrDefault("MAX_EXECUTION_ATTEMPTS", 3), "Maximum execution attempts per job")
+		historyRetention          = flag.Duration("history-retention", getEnvDurationOrDefault("EXECUTION_HISTORY_RETENTION", 30*24*time.Hour), "Execution history retention period")
+		healthFailureThreshold    = flag.Float64("health-failure-threshold", getEnvFloatOrDefault("HEALTH_FAILURE_THRESHOLD", 0.1), "Health check failure threshold (ratio of failed jobs)")
+		queueMemoryLimit          = flag.String("queue-memory-limit", getEnvOrDefault("QUEUE_MEMORY_LIMIT", ""), "Queue memory limit (e.g., 2GB, 500MB) - empty means auto-detect")
+		queueMemoryPercent        = flag.Float64("queue-memory-percent", getEnvFloatOrDefault("QUEUE_MEMORY_PERCENT", 50.0), "Queue memory as percentage of system memory (default 50%)")
+		queueJobLimit             = flag.Int64("queue-job-limit", getEnvInt64OrDefault("QUEUE_JOB_LIMIT", 100000), "Maximum number of jobs in queue (default 100,000)")
+		enableColdSpilling        = flag.Bool("enable-cold-spilling", getEnvBoolOrDefault("ENABLE_COLD_SPILLING", false), "Enable cold spilling for slots (archive old slots to disk)")
+		coldSpillingHotWindow     = flag.Duration("cold-spilling-hot-window", getEnvDurationOrDefault("COLD_SPILLING_HOT_WINDOW", 48*time.Hour), "Time window for hot slots in memory (default 48h)")
+		coldSpillingCheckInterval = flag.Duration("cold-spilling-check-interval", getEnvDurationOrDefault("COLD_SPILLING_CHECK_INTERVAL", 5*time.Minute), "Interval for eviction checks (default 5m)")
 	)
 	flag.Parse()
 
@@ -90,21 +93,24 @@ func main() {
 
 	// Create application configuration
 	config := &internal.Config{
-		DataDir:                *dataDir,
-		RaftBind:               raftBind,
-		RaftAdvertise:          raftAdvertise,
-		HTTPBind:               httpBind,
-		NodeID:                 *nodeID,
-		Peers:                  peerList,
-		SlotGap:                *slotGap,
-		DiscoveryConfig:        discoveryConfig,
-		ExecutionTimeout:       *executionTimeout,
-		InProgressTimeout:      *inProgressTimeout,
-		MaxExecutionAttempts:   *maxExecutionAttempts,
-		HistoryRetention:       *historyRetention,
-		HealthFailureThreshold: *healthFailureThreshold,
-		QueueMemoryLimit:       memoryLimit,
-		QueueJobLimit:          jobLimit,
+		DataDir:                   *dataDir,
+		RaftBind:                  raftBind,
+		RaftAdvertise:             raftAdvertise,
+		HTTPBind:                  httpBind,
+		NodeID:                    *nodeID,
+		Peers:                     peerList,
+		SlotGap:                   *slotGap,
+		DiscoveryConfig:           discoveryConfig,
+		ExecutionTimeout:          *executionTimeout,
+		InProgressTimeout:         *inProgressTimeout,
+		MaxExecutionAttempts:      *maxExecutionAttempts,
+		HistoryRetention:          *historyRetention,
+		HealthFailureThreshold:    *healthFailureThreshold,
+		QueueMemoryLimit:          memoryLimit,
+		QueueJobLimit:             jobLimit,
+		EnableColdSpilling:        *enableColdSpilling,
+		ColdSpillingHotWindow:     *coldSpillingHotWindow,
+		ColdSpillingCheckInterval: *coldSpillingCheckInterval,
 	}
 
 	// Create and start application
@@ -126,6 +132,11 @@ func main() {
 	logger.Info("HTTP bind: %s", httpBind)
 	logger.Info("queue memory limit: %d bytes (%.2f GB)", memoryLimit, float64(memoryLimit)/(1024*1024*1024))
 	logger.Info("queue job limit: %d jobs", jobLimit)
+	if *enableColdSpilling {
+		logger.Info("cold spilling: enabled, hot_window=%s, check_interval=%s", *coldSpillingHotWindow, *coldSpillingCheckInterval)
+	} else {
+		logger.Info("cold spilling: disabled")
+	}
 	if len(peerList) > 0 {
 		logger.Info("peers: %v", peerList)
 	} else {
