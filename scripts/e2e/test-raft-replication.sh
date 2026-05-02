@@ -41,12 +41,15 @@ echo "::endgroup::"
 
 echo ""
 echo "::group::Step 3: Create test job on leader"
-job_payload='{"type":"unico","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","payload":{"test":"e2e-replication"}}'
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+create_response=$(kubectl exec "$leader_pod" -- /bin/sh -c \
+    "echo '{\"type\":\"unico\",\"timestamp\":\"$ts\",\"payload\":{\"test\":\"e2e-replication\"}}' | wget -qO- --post-file=- --header='Content-Type: application/json' http://localhost:8080/jobs" 2>&1 || echo "WGET_FAILED")
 
-create_response=$(kubectl exec "$leader_pod" -- wget -qO- \
-    --header="Content-Type: application/json" \
-    --post-data="$job_payload" \
-    "http://localhost:8080/jobs" 2>/dev/null || echo "FAILED")
+if echo "$create_response" | grep -q "WGET_FAILED"; then
+    echo "FAIL: wget failed to create job"
+    echo "Response: $create_response"
+    exit 1
+fi
 
 job_id=$(echo "$create_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
 if [ -z "$job_id" ]; then
@@ -106,12 +109,9 @@ echo ""
 echo "::group::Step 6: Test write forwarding from follower"
 if [ ${#follower_pods[@]} -gt 0 ]; then
     follower="${follower_pods[0]}"
-    forward_payload='{"type":"unico","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","payload":{"test":"e2e-forward"}}'
-
-    forward_response=$(kubectl exec "$follower" -- wget -qO- \
-        --header="Content-Type: application/json" \
-        --post-data="$forward_payload" \
-        "http://localhost:8080/jobs" 2>/dev/null || echo "FAILED")
+    ts2=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    forward_response=$(kubectl exec "$follower" -- /bin/sh -c \
+        "echo '{\"type\":\"unico\",\"timestamp\":\"$ts2\",\"payload\":{\"test\":\"e2e-forward\"}}' | wget -qO- --post-file=- --header='Content-Type: application/json' http://localhost:8080/jobs" 2>&1 || echo "WGET_FAILED")
 
     forward_id=$(echo "$forward_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
     if [ -n "$forward_id" ]; then
@@ -125,12 +125,6 @@ echo "::endgroup::"
 
 echo ""
 echo "::group::Step 7: Cleanup test jobs"
-for pod in scheduled-db-0 scheduled-db-1 scheduled-db-2; do
-    kubectl exec "$pod" -- wget -qO- \
-        --header="Content-Type: application/json" \
-        "http://localhost:8080/jobs/$job_id" 2>/dev/null > /dev/null || true
-done
-
 kubectl exec "$leader_pod" -- wget -qO- \
     --header="Content-Type: application/json" \
     --method=DELETE \
