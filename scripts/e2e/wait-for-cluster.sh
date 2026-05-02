@@ -2,7 +2,7 @@
 set -euo pipefail
 
 POD_COUNT="${1:-3}"
-MAX_WAIT="${2:-300}"
+MAX_WAIT="${2:-180}"
 
 echo "Waiting for $POD_COUNT scheduled-db pods to be ready (max ${MAX_WAIT}s)..."
 

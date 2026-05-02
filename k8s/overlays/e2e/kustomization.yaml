@@ -10,46 +10,10 @@ resources:
 namespace: default
 
 patches:
-  - target:
+  - path: statefulset-patch.yaml
+    target:
       kind: StatefulSet
       name: scheduled-db
-    patch: |-
-      - op: replace
-        path: /spec/replicas
-        value: 3
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/requests/memory
-        value: 64Mi
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/requests/cpu
-        value: 50m
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/limits/memory
-        value: 256Mi
-      - op: replace
-        path: /spec/template/spec/containers/0/resources/limits/cpu
-        value: 200m
-      - op: replace
-        path: /spec/template/spec/containers/0/imagePullPolicy
-        value: Never
-      - op: replace
-        path: /spec/template/spec/containers/0/livenessProbe/initialDelaySeconds
-        value: 10
-      - op: replace
-        path: /spec/template/spec/containers/0/readinessProbe/initialDelaySeconds
-        value: 3
-      - op: replace
-        path: /spec/template/spec/containers/0/startupProbe/initialDelaySeconds
-        value: 5
-      - op: replace
-        path: /spec/template/spec/containers/0/startupProbe/failureThreshold
-        value: 90
-      - op: replace
-        path: /spec/template/spec/containers/0/startupProbe/periodSeconds
-        value: 2
-      - op: replace
-        path: /spec/volumeClaimTemplates/0/spec/storageClassName
-        value: standard
 
   - target:
       kind: ConfigMap
@@ -61,12 +25,6 @@ patches:
       - op: add
         path: /data/AUTO_JOIN
         value: "true"
-      - op: add
-        path: /data/OTEL_EXPORTER_OTLP_ENDPOINT
-        value: ""
-      - op: add
-        path: /data/OTEL_EXPORTER_OTLP_TIMEOUT
-        value: "0s"
 
   - target:
       kind: HorizontalPodAutoscaler

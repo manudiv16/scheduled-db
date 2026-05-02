@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: scheduled-db
+spec:
+  template:
+    spec:
+      containers:
+        - name: scheduled-db
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              memory: 64Mi
+              cpu: 50m
+            limits:
+              memory: 256Mi
+              cpu: 200m
+          imagePullPolicy: Never
+          livenessProbe:
+            initialDelaySeconds: 10
+          readinessProbe:
+            initialDelaySeconds: 3
+          startupProbe:
+            initialDelaySeconds: 5
+            failureThreshold: 60
+            periodSeconds: 2
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: ""
+            - name: OTEL_EXPORTER_OTLP_TIMEOUT
+              value: "0s"
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 128Mi
+  volumeClaimTemplates: []
