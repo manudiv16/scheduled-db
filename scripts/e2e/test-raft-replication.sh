@@ -41,7 +41,7 @@ echo "::endgroup::"
 
 echo ""
 echo "::group::Step 3: Create test job on leader"
-job_payload='{"type":"e2e-test","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}'
+job_payload='{"type":"unico","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","payload":{"test":"e2e-replication"}}'
 
 create_response=$(kubectl exec "$leader_pod" -- wget -qO- \
     --header="Content-Type: application/json" \
@@ -106,7 +106,7 @@ echo ""
 echo "::group::Step 6: Test write forwarding from follower"
 if [ ${#follower_pods[@]} -gt 0 ]; then
     follower="${follower_pods[0]}"
-    forward_payload='{"type":"e2e-forward-test","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}'
+    forward_payload='{"type":"unico","timestamp":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","payload":{"test":"e2e-forward"}}'
 
     forward_response=$(kubectl exec "$follower" -- wget -qO- \
         --header="Content-Type: application/json" \
