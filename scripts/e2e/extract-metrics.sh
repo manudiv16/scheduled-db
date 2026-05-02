@@ -21,11 +21,11 @@ echo "### Raft Cluster State" >> "$METRICS_FILE"
 echo "" >> "$METRICS_FILE"
 
 for pod in scheduled-db-0 scheduled-db-1 scheduled-db-2; do
-    role=$(kubectl exec "$pod" -- wget -qO- http://localhost:8080/health 2>/dev/null \
+    role=$(kubectl exec "$pod" -- curl -sf http://localhost:8080/health 2>/dev/null \
         | grep -o '"role":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
-    node_id=$(kubectl exec "$pod" -- wget -qO- http://localhost:8080/health 2>/dev/null \
+    node_id=$(kubectl exec "$pod" -- curl -sf http://localhost:8080/health 2>/dev/null \
         | grep -o '"node_id":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
-    leader=$(kubectl exec "$pod" -- wget -qO- http://localhost:8080/health 2>/dev/null \
+    leader=$(kubectl exec "$pod" -- curl -sf http://localhost:8080/health 2>/dev/null \
         | grep -o '"leader":"[^"]*"' | cut -d'"' -f4 || echo "")
     echo "| $pod | role=$role, leader=$leader |" >> "$METRICS_FILE"
 done
@@ -36,7 +36,7 @@ echo "" >> "$METRICS_FILE"
 
 leader_pod=""
 for pod in scheduled-db-0 scheduled-db-1 scheduled-db-2; do
-    role=$(kubectl exec "$pod" -- wget -qO- http://localhost:8080/health 2>/dev/null \
+    role=$(kubectl exec "$pod" -- curl -sf http://localhost:8080/health 2>/dev/null \
         | grep -o '"role":"[^"]*"' | cut -d'"' -f4 || echo "")
     if [ "$role" = "leader" ]; then
         leader_pod="$pod"
@@ -45,7 +45,7 @@ for pod in scheduled-db-0 scheduled-db-1 scheduled-db-2; do
 done
 
 if [ -n "$leader_pod" ]; then
-    cluster_debug=$(kubectl exec "$leader_pod" -- wget -qO- "http://localhost:8080/debug/cluster" 2>/dev/null || echo "{}")
+    cluster_debug=$(kubectl exec "$leader_pod" -- curl -sf http://localhost:8080/debug/cluster 2>/dev/null || echo "{}")
     echo '```json' >> "$METRICS_FILE"
     echo "$cluster_debug" >> "$METRICS_FILE"
     echo '```' >> "$METRICS_FILE"

@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates tzdata && \
+RUN apk --no-cache add ca-certificates tzdata curl && \
     addgroup -g 1000 appgroup && \
     adduser -D -u 1000 -G appgroup appuser && \
     mkdir -p /data && \

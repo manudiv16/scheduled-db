@@ -30,7 +30,7 @@ elapsed=0
 leader_pod=""
 while [ $elapsed -lt $MAX_LEADER_WAIT ]; do
     for pod in scheduled-db-0 scheduled-db-1 scheduled-db-2; do
-        role=$(kubectl exec "$pod" -- wget -qO- http://localhost:8080/health 2>/dev/null \
+        role=$(kubectl exec "$pod" -- curl -sf http://localhost:8080/health 2>/dev/null \
             | grep -o '"role":"[^"]*"' | cut -d'"' -f4 || echo "")
         if [ "$role" = "leader" ]; then
             leader_pod="$pod"
@@ -76,7 +76,7 @@ echo "::endgroup::"
 echo ""
 echo "::group::Step 4: Verify cluster configuration"
 leader_addr="${leader_pod}.scheduled-db.default.svc.cluster.local:8080"
-server_count=$(kubectl exec "$leader_pod" -- wget -qO- "http://localhost:8080/debug/cluster" 2>/dev/null \
+server_count=$(kubectl exec "$leader_pod" -- curl -sf http://localhost:8080/debug/cluster 2>/dev/null \
     | grep -o '"id"' | wc -l || echo "0")
 
 if [ "$server_count" -lt 3 ]; then
@@ -84,7 +84,7 @@ if [ "$server_count" -lt 3 ]; then
 
     elapsed=0
     while [ $elapsed -lt $MAX_JOIN_WAIT ]; do
-        server_count=$(kubectl exec "$leader_pod" -- wget -qO- "http://localhost:8080/debug/cluster" 2>/dev/null \
+        server_count=$(kubectl exec "$leader_pod" -- curl -sf http://localhost:8080/debug/cluster 2>/dev/null \
             | grep -o '"id"' | wc -l || echo "0")
         if [ "$server_count" -ge 3 ]; then
             break
@@ -97,7 +97,7 @@ fi
 
 if [ "$server_count" -lt 3 ]; then
     echo "FAIL: Only $server_count/3 servers in cluster after ${MAX_JOIN_WAIT}s"
-    kubectl exec "$leader_pod" -- wget -qO- "http://localhost:8080/debug/cluster" 2>/dev/null || true
+    kubectl exec "$leader_pod" -- curl -sf http://localhost:8080/debug/cluster 2>/dev/null || true
     exit 1
 fi
 
@@ -109,7 +109,7 @@ echo "::endgroup::"
 echo ""
 echo "::group::Step 5: Verify health on all nodes"
 for pod in scheduled-db-0 scheduled-db-1 scheduled-db-2; do
-    health=$(kubectl exec "$pod" -- wget -qO- http://localhost:8080/health 2>/dev/null || echo "UNREACHABLE")
+    health=$(kubectl exec "$pod" -- curl -sf http://localhost:8080/health 2>/dev/null || echo "UNREACHABLE")
     status=$(echo "$health" | grep -o '"status":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
     role=$(echo "$health" | grep -o '"role":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
     node_id=$(echo "$health" | grep -o '"node_id":"[^"]*"' | cut -d'"' -f4 || echo "unknown")

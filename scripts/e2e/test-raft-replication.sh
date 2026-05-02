@@ -11,7 +11,7 @@ echo ""
 echo "::group::Step 1: Identify leader node"
 leader_pod=""
 for pod in scheduled-db-0 scheduled-db-1 scheduled-db-2; do
-    role=$(kubectl exec "$pod" -- wget -qO- http://localhost:8080/health 2>/dev/null \
+    role=$(kubectl exec "$pod" -- curl -sf http://localhost:8080/health 2>/dev/null \
         | grep -o '"role":"[^"]*"' | cut -d'"' -f4 || echo "")
     if [ "$role" = "leader" ]; then
         leader_pod="$pod"
@@ -28,7 +28,7 @@ echo "::endgroup::"
 
 echo ""
 echo "::group::Step 2: Verify cluster has 3 nodes"
-cluster_info=$(kubectl exec "$leader_pod" -- wget -qO- "http://localhost:8080/debug/cluster" 2>/dev/null || echo "")
+cluster_info=$(kubectl exec "$leader_pod" -- curl -sf http://localhost:8080/debug/cluster 2>/dev/null || echo "")
 server_count=$(echo "$cluster_info" | grep -o '"id"' | wc -l || echo "0")
 
 if [ "$server_count" -lt 3 ]; then
@@ -41,35 +41,22 @@ echo "::endgroup::"
 
 echo ""
 echo "::group::Step 3: Create test job on leader"
-ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-JOB_B64=$(printf '{"type":"unico","timestamp":"%s","payload":{"test":"e2e-replication"}}' "$ts" | base64 -w0)
+ts=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+1H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
 
-kubectl exec "$leader_pod" -- /bin/sh -c "echo $JOB_B64 | base64 -d > /tmp/job.json"
+create_response=$(kubectl exec "$leader_pod" -- curl -sf -X POST http://localhost:8080/jobs \
+    -H "Content-Type: application/json" \
+    -d "{\"type\":\"unico\",\"timestamp\":\"${ts}\",\"payload\":{\"test\":\"e2e-replication\"}}" 2>&1 || echo "CURL_FAILED")
 
-create_response=$(kubectl exec "$leader_pod" -- wget -q -O /tmp/resp.json --post-file=/tmp/job.json --header='Content-Type: application/json' http://localhost:8080/jobs 2>&1 || true)
-
-create_body=$(kubectl exec "$leader_pod" -- cat /tmp/resp.json 2>/dev/null || echo "")
-
-if [ -z "$create_body" ]; then
-    echo "FAIL: Empty response from server"
-    echo "wget stderr: $create_response"
-    echo "Checking if file was written:"
-    kubectl exec "$leader_pod" -- ls -la /tmp/job.json /tmp/resp.json 2>/dev/null
-    kubectl exec "$leader_pod" -- cat /tmp/job.json 2>/dev/null
+if echo "$create_response" | grep -q "CURL_FAILED\|error\|Error"; then
+    echo "FAIL: Could not create job on leader"
+    echo "Response: $create_response"
     exit 1
 fi
 
-echo "Response body: $create_body"
-
-if echo "$create_body" | grep -q '"error"'; then
-    echo "FAIL: Server returned error in response body"
-    exit 1
-fi
-
-job_id=$(echo "$create_body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+job_id=$(echo "$create_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
 if [ -z "$job_id" ]; then
     echo "FAIL: Could not extract job ID from response"
-    echo "Response: $create_body"
+    echo "Response: $create_response"
     exit 1
 fi
 echo "Job created: $job_id on leader $leader_pod"
@@ -89,8 +76,7 @@ for follower in "${follower_pods[@]}"; do
     replicated=false
     elapsed=0
     while [ $elapsed -lt $REPLICATION_TIMEOUT ]; do
-        follower_response=$(kubectl exec "$follower" -- wget -qO- \
-            "http://localhost:8080/jobs/$job_id" 2>/dev/null || echo "NOT_FOUND")
+        follower_response=$(kubectl exec "$follower" -- curl -sf "http://localhost:8080/jobs/$job_id" 2>/dev/null || echo "NOT_FOUND")
 
         if echo "$follower_response" | grep -q "$job_id"; then
             echo "  $follower: REPLICATED (${elapsed}s)"
@@ -113,8 +99,7 @@ echo "::endgroup::"
 echo ""
 echo "::group::Step 5: Verify data consistency across all nodes"
 for pod in scheduled-db-0 scheduled-db-1 scheduled-db-2; do
-    job_count=$(kubectl exec "$pod" -- wget -qO- \
-        "http://localhost:8080/debug/cluster" 2>/dev/null \
+    job_count=$(kubectl exec "$pod" -- curl -sf http://localhost:8080/debug/cluster 2>/dev/null \
         | grep -o '"job_count":[0-9]*' | cut -d: -f2 || echo "0")
     echo "  $pod: job_count=$job_count"
 done
@@ -124,31 +109,25 @@ echo ""
 echo "::group::Step 6: Test write forwarding from follower"
 if [ ${#follower_pods[@]} -gt 0 ]; then
     follower="${follower_pods[0]}"
-    ts2=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    JOB2_B64=$(printf '{"type":"unico","timestamp":"%s","payload":{"test":"e2e-forward"}}' "$ts2" | base64 -w0)
+    ts2=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+1H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
 
-    kubectl exec "$follower" -- /bin/sh -c "echo $JOB2_B64 | base64 -d > /tmp/job2.json"
+    forward_response=$(kubectl exec "$follower" -- curl -sf -X POST http://localhost:8080/jobs \
+        -H "Content-Type: application/json" \
+        -d "{\"type\":\"unico\",\"timestamp\":\"${ts2}\",\"payload\":{\"test\":\"e2e-forward\"}}" 2>&1 || echo "CURL_FAILED")
 
-    forward_response=$(kubectl exec "$follower" -- wget -q -O /tmp/resp2.json --post-file=/tmp/job2.json --header='Content-Type: application/json' http://localhost:8080/jobs 2>&1 || true)
-
-    forward_body=$(kubectl exec "$follower" -- cat /tmp/resp2.json 2>/dev/null || echo "")
-
-    forward_id=$(echo "$forward_body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+    forward_id=$(echo "$forward_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
     if [ -n "$forward_id" ]; then
         echo "Write forwarding works: job $forward_id created via follower $follower"
     else
         echo "WARN: Write forwarding from $follower may not be working"
-        echo "Response: $forward_body"
+        echo "Response: $forward_response"
     fi
 fi
 echo "::endgroup::"
 
 echo ""
 echo "::group::Step 7: Cleanup test jobs"
-kubectl exec "$leader_pod" -- wget -qO- \
-    --header="Content-Type: application/json" \
-    --method=DELETE \
-    "http://localhost:8080/jobs/$job_id" 2>/dev/null > /dev/null || true
+kubectl exec "$leader_pod" -- curl -sf -X DELETE "http://localhost:8080/jobs/$job_id" 2>/dev/null > /dev/null || true
 echo "Test jobs cleaned up"
 echo "::endgroup::"
 
