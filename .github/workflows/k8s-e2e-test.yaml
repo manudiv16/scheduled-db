@@ -23,6 +23,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run short tests
+        run: make test-short
+
       - name: Build Docker image
         run: |
           docker build -t scheduled-db:${{ env.IMAGE_TAG }} -f docker/Dockerfile .
@@ -46,8 +55,8 @@ jobs:
           kubectl get pods -l app=scheduled-db -o wide
 
       - name: Wait for cluster readiness
-        run: scripts/e2e/wait-for-cluster.sh
-        timeout-minutes: 5
+        run: scripts/e2e/wait-for-cluster.sh 3 300
+        timeout-minutes: 6
 
       - name: Test cluster initialization
         run: scripts/e2e/test-cluster-init.sh

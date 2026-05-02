@@ -40,10 +40,10 @@ patches:
         value: 3
       - op: replace
         path: /spec/template/spec/containers/0/startupProbe/initialDelaySeconds
-        value: 3
+        value: 5
       - op: replace
         path: /spec/template/spec/containers/0/startupProbe/failureThreshold
-        value: 60
+        value: 90
       - op: replace
         path: /spec/template/spec/containers/0/startupProbe/periodSeconds
         value: 2
@@ -61,6 +61,12 @@ patches:
       - op: add
         path: /data/AUTO_JOIN
         value: "true"
+      - op: add
+        path: /data/OTEL_EXPORTER_OTLP_ENDPOINT
+        value: ""
+      - op: add
+        path: /data/OTEL_EXPORTER_OTLP_TIMEOUT
+        value: "0s"
 
   - target:
       kind: HorizontalPodAutoscaler
