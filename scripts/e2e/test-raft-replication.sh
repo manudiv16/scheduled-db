@@ -42,8 +42,12 @@ echo "::endgroup::"
 echo ""
 echo "::group::Step 3: Create test job on leader"
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-create_response=$(kubectl exec "$leader_pod" -- /bin/sh -c \
-    "echo '{\"type\":\"unico\",\"timestamp\":\"$ts\",\"payload\":{\"test\":\"e2e-replication\"}}' | wget -qO- --post-file=- --header='Content-Type: application/json' http://localhost:8080/jobs" 2>&1 || echo "WGET_FAILED")
+kubectl exec "$leader_pod" -- /bin/sh -c \
+    "cat > /tmp/job.json << 'JOBEOF'
+{\"type\":\"unico\",\"timestamp\":\"${ts}\",\"payload\":{\"test\":\"e2e-replication\"}}
+JOBEOF"
+
+create_response=$(kubectl exec "$leader_pod" -- wget -qO- --post-file=/tmp/job.json --header='Content-Type: application/json' http://localhost:8080/jobs 2>&1 || echo "WGET_FAILED")
 
 if echo "$create_response" | grep -q "WGET_FAILED"; then
     echo "FAIL: wget failed to create job"
@@ -110,8 +114,12 @@ echo "::group::Step 6: Test write forwarding from follower"
 if [ ${#follower_pods[@]} -gt 0 ]; then
     follower="${follower_pods[0]}"
     ts2=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    forward_response=$(kubectl exec "$follower" -- /bin/sh -c \
-        "echo '{\"type\":\"unico\",\"timestamp\":\"$ts2\",\"payload\":{\"test\":\"e2e-forward\"}}' | wget -qO- --post-file=- --header='Content-Type: application/json' http://localhost:8080/jobs" 2>&1 || echo "WGET_FAILED")
+    kubectl exec "$follower" -- /bin/sh -c \
+        "cat > /tmp/job2.json << 'JOBEOF'
+{\"type\":\"unico\",\"timestamp\":\"${ts2}\",\"payload\":{\"test\":\"e2e-forward\"}}
+JOBEOF"
+
+    forward_response=$(kubectl exec "$follower" -- wget -qO- --post-file=/tmp/job2.json --header='Content-Type: application/json' http://localhost:8080/jobs 2>&1 || echo "WGET_FAILED")
 
     forward_id=$(echo "$forward_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
     if [ -n "$forward_id" ]; then
