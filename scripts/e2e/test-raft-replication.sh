@@ -42,24 +42,34 @@ echo "::endgroup::"
 echo ""
 echo "::group::Step 3: Create test job on leader"
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-JOB_DATA="{\"type\":\"unico\",\"timestamp\":\"${ts}\",\"payload\":{\"test\":\"e2e-replication\"}}"
-echo "Posting to $leader_pod:8080/jobs with data: $JOB_DATA"
+JOB_B64=$(printf '{"type":"unico","timestamp":"%s","payload":{"test":"e2e-replication"}}' "$ts" | base64 -w0)
 
-kubectl exec "$leader_pod" -- /bin/sh -c "wget -q -O /tmp/resp.json --post-data='$JOB_DATA' --header='Content-Type: application/json' http://localhost:8080/jobs 2>/tmp/wget-err.txt; cat /tmp/wget-err.txt; echo '---BODY---'; cat /tmp/resp.json 2>/dev/null || echo '(no body)'"
+kubectl exec "$leader_pod" -- /bin/sh -c "echo $JOB_B64 | base64 -d > /tmp/job.json"
 
-create_response=$(kubectl exec "$leader_pod" -- cat /tmp/resp.json 2>/dev/null || echo "")
+create_response=$(kubectl exec "$leader_pod" -- wget -q -O /tmp/resp.json --post-file=/tmp/job.json --header='Content-Type: application/json' http://localhost:8080/jobs 2>&1 || true)
 
-if echo "$create_response" | grep -q "error\|Error\|invalid\|Invalid"; then
-    echo "FAIL: Server returned error"
-    echo "Response: $create_response"
-    kubectl exec "$leader_pod" -- cat /tmp/wget-err.txt 2>/dev/null
+create_body=$(kubectl exec "$leader_pod" -- cat /tmp/resp.json 2>/dev/null || echo "")
+
+if [ -z "$create_body" ]; then
+    echo "FAIL: Empty response from server"
+    echo "wget stderr: $create_response"
+    echo "Checking if file was written:"
+    kubectl exec "$leader_pod" -- ls -la /tmp/job.json /tmp/resp.json 2>/dev/null
+    kubectl exec "$leader_pod" -- cat /tmp/job.json 2>/dev/null
     exit 1
 fi
 
-job_id=$(echo "$create_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+echo "Response body: $create_body"
+
+if echo "$create_body" | grep -q '"error"'; then
+    echo "FAIL: Server returned error in response body"
+    exit 1
+fi
+
+job_id=$(echo "$create_body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
 if [ -z "$job_id" ]; then
-    echo "FAIL: Could not create job on leader"
-    echo "Response: $create_response"
+    echo "FAIL: Could not extract job ID from response"
+    echo "Response: $create_body"
     exit 1
 fi
 echo "Job created: $job_id on leader $leader_pod"
@@ -115,19 +125,20 @@ echo "::group::Step 6: Test write forwarding from follower"
 if [ ${#follower_pods[@]} -gt 0 ]; then
     follower="${follower_pods[0]}"
     ts2=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    FORWARD_DATA="{\"type\":\"unico\",\"timestamp\":\"${ts2}\",\"payload\":{\"test\":\"e2e-forward\"}}"
+    JOB2_B64=$(printf '{"type":"unico","timestamp":"%s","payload":{"test":"e2e-forward"}}' "$ts2" | base64 -w0)
 
-    forward_response=$(kubectl exec "$follower" -- wget -S -O- \
-        --post-data="$FORWARD_DATA" \
-        --header='Content-Type: application/json' \
-        http://localhost:8080/jobs 2>&1 || true)
+    kubectl exec "$follower" -- /bin/sh -c "echo $JOB2_B64 | base64 -d > /tmp/job2.json"
 
-    forward_id=$(echo "$forward_response" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
+    forward_response=$(kubectl exec "$follower" -- wget -q -O /tmp/resp2.json --post-file=/tmp/job2.json --header='Content-Type: application/json' http://localhost:8080/jobs 2>&1 || true)
+
+    forward_body=$(kubectl exec "$follower" -- cat /tmp/resp2.json 2>/dev/null || echo "")
+
+    forward_id=$(echo "$forward_body" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "")
     if [ -n "$forward_id" ]; then
         echo "Write forwarding works: job $forward_id created via follower $follower"
     else
         echo "WARN: Write forwarding from $follower may not be working"
-        echo "Response: $forward_response"
+        echo "Response: $forward_body"
     fi
 fi
 echo "::endgroup::"
