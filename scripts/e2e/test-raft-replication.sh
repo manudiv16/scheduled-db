@@ -43,16 +43,16 @@ echo ""
 echo "::group::Step 3: Create test job on leader"
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 JOB_DATA="{\"type\":\"unico\",\"timestamp\":\"${ts}\",\"payload\":{\"test\":\"e2e-replication\"}}"
+echo "Posting to $leader_pod:8080/jobs with data: $JOB_DATA"
 
-create_response=$(kubectl exec "$leader_pod" -- wget -S -O- \
-    --post-data="$JOB_DATA" \
-    --header='Content-Type: application/json' \
-    http://localhost:8080/jobs 2>&1 || true)
+kubectl exec "$leader_pod" -- /bin/sh -c "wget -q -O /tmp/resp.json --post-data='$JOB_DATA' --header='Content-Type: application/json' http://localhost:8080/jobs 2>/tmp/wget-err.txt; cat /tmp/wget-err.txt; echo '---BODY---'; cat /tmp/resp.json 2>/dev/null || echo '(no body)'"
 
-if echo "$create_response" | grep -q "400 Bad Request"; then
-    echo "FAIL: Server returned 400 Bad Request"
-    echo "Full response:"
-    echo "$create_response"
+create_response=$(kubectl exec "$leader_pod" -- cat /tmp/resp.json 2>/dev/null || echo "")
+
+if echo "$create_response" | grep -q "error\|Error\|invalid\|Invalid"; then
+    echo "FAIL: Server returned error"
+    echo "Response: $create_response"
+    kubectl exec "$leader_pod" -- cat /tmp/wget-err.txt 2>/dev/null
     exit 1
 fi
 
