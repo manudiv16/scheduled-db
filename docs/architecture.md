@@ -141,6 +141,8 @@ sequenceDiagram
 - **FSM (Finite State Machine)**: State transitions for jobs and slots
 - **Transport**: Network communication between nodes
 - **Snapshot**: State persistence and recovery
+- **DNSAddressProvider**: Maps StatefulSet pod IDs to DNS names (see [DNS Address Provider](#dns-address-provider))
+- **BoltColdSlotStore**: Separate BoltDB for archived slots (see [Cold Spilling Architecture](#cold-spilling-architecture))
 
 ### 3. Job Scheduling Layer
 
@@ -177,9 +179,10 @@ graph LR
 
 **Components:**
 - **SlotQueue**: Min-heap based priority queue
-- **PersistentSlotQueue**: Raft-backed slot persistence
+- **PersistentSlotQueue**: Raft-backed slot persistence with reverse index (`jobToSlot`) for O(1) removal and cached min key for O(1) next-slot lookup
 - **Worker**: Job execution engine (leader-only)
 - **LimitManager**: Enforces memory and job count limits
+- **SlotEvictor**: Archives old slots to cold storage (see [Cold Spilling Architecture](#cold-spilling-architecture))
 
 ### 4. Capacity Tracking
 
@@ -625,7 +628,8 @@ graph TB
 
 - **Slot Gap**: Configurable (default 10s)
 - **Slot Calculation**: `slot_key = timestamp / slot_gap`
-- **Lookup Complexity**: O(log n) using min-heap
+- **Lookup Complexity**: O(1) using cached min key (PersistentSlotQueue), O(log n) fallback (SlotQueue)
+- **Job Removal**: O(1) using reverse index (PersistentSlotQueue)
 - **Memory**: O(jobs + slots)
 
 ### Raft Performance
@@ -1015,9 +1019,11 @@ The `/health` endpoint includes capacity information:
 ```
 
 **Health Status:**
-- `healthy`: Utilization < 90%
-- `degraded`: Utilization >= 90%
-- `unhealthy`: Critical failures
+- `ok`: Memory utilization < 90% AND failure rate < `HEALTH_FAILURE_THRESHOLD`
+- `degraded`: Memory utilization >= 90% OR failure rate > `HEALTH_FAILURE_THRESHOLD` (with >= 10 finished jobs)
+- `unhealthy`: Failure rate > 50% (escalated from degraded)
+
+See [Health Endpoint Architecture](#health-endpoint-architecture) for full details.
 
 ### Performance Considerations
 
@@ -1069,8 +1075,449 @@ The `/health` endpoint includes capacity information:
 - Restart nodes if necessary
 - Verify snapshot/restore working correctly
 
+## Cold Spilling Architecture
+
+### Overview
+
+The cold spilling system reduces in-memory Raft state by archiving old slots (slots whose `MaxTime` is older than a configurable hot window) to a separate BoltDB database. This allows the cluster to manage large numbers of historical slots without consuming excessive memory in the FSM.
+
+### Components
+
+**BoltColdSlotStore** (`internal/store/cold_store.go`):
+- Separate BoltDB database (`cold_slots.db`) for archived slots
+- Thread-safe with `sync.RWMutex`
+- Operations: `PutColdSlot`, `GetColdSlot`, `DeleteColdSlot`
+- Persists across node restarts independently of Raft snapshots
+
+**SlotEvictor** (`internal/slots/slot_eviction.go`):
+- Background goroutine that periodically checks for eviction candidates
+- Only runs on the leader node
+- Performs both eviction (hot→cold) and promotion (cold→hot)
+- Configurable hot window and check interval
+
+**FSM Integration** (`internal/store/fsm.go`):
+- `CommandArchiveSlot`: Moves slot from FSM memory to cold store, replicated via Raft
+- `CommandUnarchiveSlot`: Moves slot from cold store back to FSM memory, replicated via Raft
+- `coldSlotMeta` map: Tracks which slots are cold (key → metadata)
+- Query methods: `IsSlotCold`, `GetColdSlotKeys`, `GetHotSlotCount`, `GetColdSlotCount`
+
+### Eviction and Promotion Flow
+
+```mermaid
+sequenceDiagram
+    participant Evictor as Slot Evictor
+    participant Store
+    participant FSM
+    participant ColdStore as BoltColdSlotStore
+
+    Note over Evictor: Runs on leader only
+    Note over Evictor: Tick every COLD_SPILLING_CHECK_INTERVAL
+
+    Evictor->>Store: GetAllSlots()
+    Store->>FSM: Get hot slots
+    FSM-->>Evictor: slot map
+
+    loop For each hot slot
+        alt slot.MaxTime < hotThreshold
+            Evictor->>Store: ArchiveSlot(key)
+            Store->>FSM: Apply(CommandArchiveSlot)
+            FSM->>ColdStore: PutColdSlot(key, data)
+            FSM->>FSM: Remove from hot map, add to coldSlotMeta
+            Note over FSM: Slot removed from memory
+        end
+    end
+
+    Evictor->>Store: GetColdSlotKeys()
+    Store->>FSM: Get cold slot keys
+    FSM-->>Evictor: cold keys
+
+    loop For each cold slot
+        alt slot.MinTime >= hotThreshold AND slot.MaxTime < hotThreshold + 2*hotWindow
+            Evictor->>Store: UnarchiveSlot(key)
+            Store->>FSM: Apply(CommandUnarchiveSlot)
+            FSM->>ColdStore: GetColdSlot(key)
+            ColdStore-->>FSM: slot data
+            FSM->>FSM: Add to hot map, remove from coldSlotMeta
+            Note over FSM: Slot promoted back to memory
+        end
+    end
+```
+
+### Hot Window Concept
+
+```mermaid
+graph LR
+    subgraph "Timeline"
+        direction LR
+        PAST[Old Slots] --> HOT_THRESHOLD[Hot Window<br/>Threshold]
+        HOT_THRESHOLD --> NOW[Now]
+        NOW --> FUTURE[Future Slots]
+    end
+
+    subgraph "Storage"
+        HOT_MEM[Hot Memory<br/>FSM in-memory map]
+        COLD_DB[Cold Storage<br/>cold_slots.db]
+    end
+
+    PAST -->|Evicted| COLD_DB
+    HOT_THRESHOLD -->|Kept in memory| HOT_MEM
+    FUTURE -->|Kept in memory| HOT_MEM
+
+    COLD_DB -.->|Promoted when<br/>approaching window| HOT_MEM
+
+    style HOT_THRESHOLD fill:#FFD700
+    style HOT_MEM fill:#90EE90
+    style COLD_DB fill:#87CEEB
+```
+
+The hot window defines how far back in time slots are kept in FSM memory. Slots with `MaxTime` older than `now - hotWindow` are evicted. Slots approaching the window boundary (within `2 * hotWindow` of `now`) are promoted back.
+
+### Configuration
+
+| Variable | CLI Flag | Default | Description |
+|----------|----------|---------|-------------|
+| `ENABLE_COLD_SPILLING` | `--enable-cold-spilling` | `false` | Enable cold spilling |
+| `COLD_SPILLING_HOT_WINDOW` | `--cold-spilling-hot-window` | `48h` | Time window for hot slots |
+| `COLD_SPILLING_CHECK_INTERVAL` | `--cold-spilling-check-interval` | `5m` | Eviction check interval |
+
+### Snapshot and Restore
+
+Cold slot metadata (`coldSlotMeta`) is included in Raft snapshots for recovery. On restore:
+
+1. Hot slots are restored from snapshot data into the FSM map
+2. Cold slot metadata is restored into `coldSlotMeta`
+3. The `BoltColdSlotStore` database persists across restarts independently
+4. If a cold slot is referenced in metadata but not in BoltDB, the FSM treats it as missing
+
+### PersistentSlotQueue Integration
+
+The `PersistentSlotQueue` works with both hot and cold slots:
+
+- **Reverse index** (`jobToSlot`): Maps job ID → slot key, works for both hot and cold slots
+- **Cached min key**: Tracks the minimum slot key for O(1) next-slot lookup
+- **Cold slot queries**: When a job's slot is cold, the queue can query the FSM which reads from the cold store on demand
+
+### Performance Considerations
+
+**Memory Savings:**
+- Each `SlotData` in FSM memory consumes ~100-200 bytes (key, min/max time, job ID slice)
+- For 1M historical slots: ~100-200MB saved by eviction
+- Cold store uses BoltDB with memory-mapped I/O, no full-database load
+
+**I/O Impact:**
+- Eviction/promotion operations go through Raft consensus (1 log entry per slot)
+- BoltDB reads for cold slots are disk-based; avoid querying cold slots in hot paths
+- Eviction runs only on leader; followers apply archive/unarchive via Raft log replication
+
+**Recommendations:**
+- Set `COLD_SPILLING_HOT_WINDOW` based on how far back you need fast queries
+- Use a longer `COLD_SPILLING_CHECK_INTERVAL` (e.g., 10-15m) for large slot counts
+- Monitor hot/cold slot counts via the `/health` endpoint
+- Place `cold_slots.db` on fast storage (SSD) for best promotion performance
+
+## Split-Brain Detection and Prevention
+
+### Overview
+
+Scheduled-DB implements RabbitMQ RA-style split-brain prevention. When a network partition occurs, nodes in the minority partition voluntarily shut down to prevent divergent cluster state. This mechanism is coordinated between the DiscoveryManager and the Raft consensus layer.
+
+### Detection Mechanism
+
+The DiscoveryManager performs split-brain checks during each discovery cycle:
+
+1. **Compare cluster views**: Count nodes in the local Raft configuration vs. total discovered healthy nodes
+2. **Identify partitions**: If nodes exist outside our cluster configuration AND our partition is below the expected cluster size, a split-brain is detected
+3. **Expected cluster size**: Determined by `CLUSTER_SIZE` env var, or the maximum of discovered nodes and Raft configuration size
+
+```mermaid
+sequenceDiagram
+    participant DM as DiscoveryManager
+    participant Store
+    participant K8S as Discovery Strategy
+
+    Note over DM: Discovery cycle tick
+
+    K8S->>DM: Discovered nodes [A, B, C, D, E]
+    DM->>Store: GetClusterConfiguration()
+    Store-->>DM: Servers [A, B, C]
+
+    DM->>DM: nodesInMyCluster=3 (A,B,C)
+    DM->>DM: totalHealthy=5 (A,B,C,D,E)
+    DM->>DM: nodesOutsideMyCluster=2
+
+    alt nodesInMyCluster + 1 < expectedClusterSize
+        DM->>DM: Split-brain detected!
+        DM->>DM: handleSplitBrain()
+    else Majority held
+        DM->>DM: No split-brain, continue
+    end
+```
+
+### RA-Style Resolution
+
+When split-brain is detected, the system determines which partition holds the majority:
+
+1. Count alive nodes in our partition (from Raft configuration + liveness checks)
+2. Calculate majority threshold: `expectedClusterSize / 2 + 1`
+3. **Majority partition**: Continue normal operation
+4. **Minority partition**: Initiate emergency shutdown
+
+**Minority Shutdown Sequence:**
+
+```mermaid
+sequenceDiagram
+    participant Node as Minority Node
+    participant DM as DiscoveryManager
+    participant App
+
+    DM->>DM: I am in minority (2 < 3)
+    DM->>DM: Wait 30s grace period
+
+    DM->>DM: Re-check after grace
+
+    alt Still minority
+        DM->>App: shutdownCallback()
+        App->>App: Log split-brain shutdown
+        App->>App: os.Exit(42)
+        Note over App: Exit code 42 = split-brain prevention
+    else Partition healed
+        DM->>DM: Continue operation
+    end
+```
+
+- **Grace period**: 30 seconds for the network partition to heal
+- **Exit code 42**: Special exit code indicating split-brain prevention shutdown
+- **Shutdown callback**: Wired from `App` to `DiscoveryManager`, performs best-effort graceful shutdown before exit
+- **Kubernetes integration**: Pods exiting with code 42 will be restarted by the StatefulSet controller, rejoining the majority partition
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLUSTER_SIZE` | Auto-detected | Expected cluster size for split-brain detection |
+
+When `CLUSTER_SIZE` is not set, the system uses the maximum of discovered nodes and current Raft configuration size.
+
+### Kubernetes Quorum Checks
+
+The Kubernetes discovery strategy (`internal/discovery/kubernetes.go`) performs additional quorum validation:
+
+- Healthy nodes > `expectedClusterSize / 2`: Quorum achieved, cluster stable
+- Healthy nodes <= `expectedClusterSize / 2`: Warning logged, quorum error returned
+- On first quorum achievement after instability, logs "CLUSTER STABILIZED" message
+
+## Graceful Shutdown and Leader Resignation
+
+### Overview
+
+Scheduled-DB implements graceful leader resignation on SIGTERM to minimize job execution disruption during rolling updates and planned maintenance. The 5-step process ensures leadership is transferred to a follower before the leader exits.
+
+### Shutdown Sequence
+
+```mermaid
+sequenceDiagram
+    participant OS
+    participant App
+    participant Worker
+    participant Store
+    participant Raft
+
+    OS->>App: SIGTERM
+    App->>App: Signal received
+
+    alt Is Leader
+        Note over App: Step 1: Stop accepting new work
+        App->>Worker: Stop()
+        Note over Worker: No new jobs processed
+
+        Note over App: Step 2: Remove self from cluster
+        App->>Store: RemovePeer(self)
+        Store->>Raft: RemoveServer(localID)
+        Raft-->>Store: Configuration updated
+
+        Note over App: Step 3: Wait for followers to notice
+        App->>App: Sleep 2s
+
+        Note over App: Step 4: Transfer leadership
+        App->>Raft: LeadershipTransfer()
+        Raft->>Raft: StepDown()
+        Note over Raft: Election starts on followers
+
+        Note over App: Step 5: Wait for transition
+        App->>App: Sleep 1s
+    else Is Follower
+        Note over App: Follower: normal shutdown
+    end
+
+    App->>App: Stop() - teardown all components
+    App->>App: os.Exit(0)
+```
+
+### Component Teardown Order
+
+When `Stop()` is called, components are shut down with timeouts:
+
+1. **Discovery Manager** (10s timeout)
+2. **Execution History Pruning**
+3. **Worker** (stops accepting/processing jobs)
+4. **HTTP Server** (force close, no graceful drain)
+5. **Metrics Server** (force close)
+6. **Raft Store** (10s timeout for shutdown)
+
+Total shutdown timeout: 30 seconds. If components don't stop within this time, the process is force-exited.
+
+### Double Ctrl+C Force Quit
+
+The signal channel has a buffer size of 1. A second SIGTERM/SIGINT before shutdown completes will override the graceful process and trigger a faster exit. This allows operators to force-quit a stuck node.
+
+### Auto-Bootstrap for Orphaned Nodes
+
+### Overview
+
+Nodes that lose contact with the cluster (no leader for 60 seconds with empty cluster configuration) can automatically bootstrap themselves as a single-node cluster. This recovery mechanism prevents nodes from being permanently orphaned after a full cluster restart.
+
+### Mechanism
+
+The `monitorLeadership()` goroutine runs every second and tracks the no-leader duration:
+
+1. If no leader is detected, increment `noLeaderCount`
+2. After 60 seconds without leader, check cluster configuration
+3. If cluster configuration is empty (no servers), attempt auto-bootstrap
+4. On success, reset counter; on failure, log error and continue monitoring
+
+```mermaid
+stateDiagram-v2
+    [*] --> Monitoring
+    Monitoring --> NoLeader: Leader lost
+    NoLeader --> Counting: noLeaderCount++
+    Counting --> Counting: Still no leader (< 60s)
+    Counting --> AutoBootstrap: 60s elapsed + empty config
+    AutoBootstrap --> Monitoring: Bootstrap succeeded
+    AutoBootstrap --> Counting: Bootstrap failed
+    Counting --> Monitoring: Leader found
+    NoLeader --> Monitoring: Leader found
+```
+
+### Force Bootstrap
+
+`ForceBootstrap(nodeID)` manually bootstraps a node as a single-node cluster:
+
+- Only works if the node is not already a leader
+- Creates a single-server Raft configuration
+- Useful for disaster recovery when all nodes have lost their state
+
+### Force Cluster Recovery
+
+`ForceRecoverCluster(aliveNodeIDs)` rebuilds the cluster excluding dead nodes:
+
+- Requires a majority of alive nodes: `aliveCount > totalNodes / 2`
+- Removes dead nodes from Raft configuration
+- Re-bootstraps with only alive servers
+- Use only as a last resort when the cluster cannot achieve quorum naturally
+
+### Staggered Startup for StatefulSets
+
+Non-bootstrap nodes use staggered startup delays to avoid thundering herd:
+
+| Node ID Suffix | Delay | Example |
+|----------------|-------|---------|
+| `-1` | 15 seconds | `scheduled-db-1` |
+| `-2` | 25 seconds | `scheduled-db-2` |
+| Others | 10 seconds | `scheduled-db-3` |
+
+Only `scheduled-db-0` bootstraps the cluster; all other nodes wait and join via discovery.
+
+## DNS Address Provider
+
+### Overview
+
+The `DNSAddressProvider` maps Kubernetes StatefulSet pod IDs to DNS names for Raft cluster communication. This is critical for Kubernetes deployments where pods are identified by their ordinal index but communicate via DNS.
+
+### Implementation
+
+**Location:** `internal/store/address_provider.go`
+
+The provider implements HashiCorp Raft's `ServerAddressProvider` interface:
+
+- **Input**: Server ID (e.g., `scheduled-db-0`)
+- **Output**: DNS name (e.g., `scheduled-db-0.scheduled-db.default.svc.cluster.local:7000`)
+- **Fallback**: Non-`scheduled-db-` prefixed IDs are returned as-is
+
+### Mapping Pattern
+
+```
+scheduled-db-0 → scheduled-db-0.scheduled-db.default.svc.cluster.local:7000
+scheduled-db-1 → scheduled-db-1.scheduled-db.default.svc.cluster.local:7000
+scheduled-db-2 → scheduled-db-2.scheduled-db.default.svc.cluster.local:7000
+```
+
+This mapping is used by Raft when resolving server addresses after leadership changes or configuration updates, ensuring that pods can always reach each other via stable DNS names.
+
+### POD_IP Override
+
+When `DISCOVERY_STRATEGY=kubernetes`, the `POD_IP` environment variable overrides the Raft advertise address. This ensures the node advertises its pod IP instead of `localhost`, which is necessary for cross-node communication in Kubernetes.
+
+## Health Endpoint Architecture
+
+### Three-Tier Health Status
+
+The `/health` endpoint returns a composite health status based on multiple signals:
+
+| Status | Condition | Description |
+|--------|-----------|-------------|
+| `ok` | Default | All systems normal |
+| `degraded` | Memory utilization >= 90% OR failure rate > `HEALTH_FAILURE_THRESHOLD` | System under pressure |
+| `unhealthy` | Failure rate > 50% (while already degraded) | System in critical state |
+
+**Evaluation Order:**
+
+1. Start with status `"ok"`
+2. If memory utilization >= 90%, set to `"degraded"`
+3. If execution failure rate > `HEALTH_FAILURE_THRESHOLD` (default 10%) with >= 10 finished jobs:
+   - If current status is `"ok"`, set to `"degraded"`
+   - If current status is `"degraded"` and failure rate > 50%, set to `"unhealthy"`
+
+### Configuration
+
+| Variable | CLI Flag | Default | Description |
+|----------|----------|---------|-------------|
+| `HEALTH_FAILURE_THRESHOLD` | `--health-failure-threshold` | `0.1` | Failure ratio threshold for degraded status |
+
+### Response Structure
+
+```json
+{
+  "status": "ok",
+  "role": "leader",
+  "leader": "",
+  "node_id": "scheduled-db-0",
+  "memory": {
+    "current_bytes": 500000000,
+    "limit_bytes": 1000000000,
+    "available_bytes": 500000000,
+    "utilization_percent": 50.0
+  },
+  "jobs": {
+    "current_count": 42000,
+    "limit": 100000,
+    "available": 58000
+  },
+  "execution": {
+    "pending": 150,
+    "in_progress": 5,
+    "completed": 8000,
+    "failed": 200,
+    "cancelled": 50,
+    "timeout": 30,
+    "failure_rate": 0.025,
+    "last_executed_at": 1704067200
+  }
+}
+```
+
 ## References
 
 - [Raft Consensus Algorithm](https://raft.github.io/)
 - [HashiCorp Raft Implementation](https://github.com/hashicorp/raft)
 - [Kubernetes StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/)
+- [RabbitMQ RA Split-Brain Prevention](https://www.rabbitmq.com/ra.html)

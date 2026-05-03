@@ -17,12 +17,13 @@
 - **Entrypoint**: `cmd/scheduled-db/main.go` — CLI flags + env vars → `internal.NewApp()`
 - **Module**: `scheduled-db` (not `github.com/...` — import paths use `scheduled-db/internal/...`)
 - **Core packages** in `internal/`:
-  - `store/` — Raft consensus + FSM + status tracker (the distributed state layer)
-  - `slots/` — time-slotted job queue, worker, execution manager, capacity limits (memory/job)
+  - `store/` — Raft consensus + FSM + status tracker + cold slot store + DNS address provider (the distributed state layer)
+  - `slots/` — time-slotted job queue, worker, execution manager, capacity limits (memory/job), slot evictor
   - `api/` — HTTP handlers + gorilla/mux router
-  - `discovery/` — service discovery strategies (kubernetes, dns, gossip, static)
+  - `discovery/` — service discovery strategies (kubernetes, dns, gossip, static) + split-brain detection
   - `logger/` — custom structured logger (`logger.Info/Error/Debug/Warn/ClusterInfo`)
   - `metrics/` — Prometheus + OpenTelemetry
+  - `e2e/` — end-to-end cluster tests (5 tests, require running cluster)
 - **`internal/app.go`** wires everything together: Store → SlotQueue → Worker → HTTP server. Modification flow: Raft log → FSM → EventHandler → SlotQueue
 
 ## Key Conventions
@@ -33,8 +34,9 @@
 - **Go toolchain**: Requires Go 1.23+ with toolchain 1.24.2 (per go.mod). `CGO_ENABLED=0` for builds.
 
 ## Testing Quirks
-- `internal/store/store_test.go` does NOT exist despite being listed in docs — Store tests require a live Raft cluster and aren't unit-testable. Tests target `fsm_test.go`, `fsm_property_test.go`, `fsm_capacity_test.go`, `status_tracker_test.go` instead.
+- `internal/store/store_test.go` does NOT exist despite being listed in docs — Store tests require a live Raft cluster and aren't unit-testable. Tests target `fsm_test.go`, `fsm_property_test.go`, `fsm_capacity_test.go`, `cold_store_test.go`, `status_tracker_test.go` instead.
 - Integration/cluster tests require `make dev-up` (Docker Compose 3-node cluster) then `make create-jobs`, `make test-proxy`, `make test-failover`.
+- E2E Go tests: `E2E_API_BASE=http://localhost:80 go test -v ./internal/e2e` (5 tests: ClusterHasLeader, AllNodesHealthy, ClusterConfigurationHasThreeNodes, RaftReplication, WriteForwardingFromFollower).
 - `make test` enables `-race`; if tests fail with race detector, the actual code has a data race — don't suppress it.
 
 ## Dev Environment
@@ -49,3 +51,13 @@
 - `make create-jobs` — auto-detects environment, creates 5 unico + 3 recurrente test jobs
 - `make mod` — tidies and downloads modules
 - `make security-scan` — runs gosec + nancy (needs both installed)
+
+## Key Configuration Flags
+- **Execution**: `--execution-timeout` / `JOB_EXECUTION_TIMEOUT` (5m), `--inprogress-timeout` / `JOB_INPROGRESS_TIMEOUT` (5m), `--max-attempts` / `MAX_EXECUTION_ATTEMPTS` (3)
+- **Cold Spilling**: `--enable-cold-spilling` / `ENABLE_COLD_SPILLING` (false), `--cold-spilling-hot-window` / `COLD_SPILLING_HOT_WINDOW` (48h), `--cold-spilling-check-interval` / `COLD_SPILLING_CHECK_INTERVAL` (5m)
+- **Health**: `--health-failure-threshold` / `HEALTH_FAILURE_THRESHOLD` (0.1)
+- **History**: `--history-retention` / `EXECUTION_HISTORY_RETENTION` (720h)
+- **Raft**: `--raft-advertise-host` / `RAFT_ADVERTISE_HOST`, `--raft-host` / `RAFT_HOST`, `--http-host` / `HTTP_HOST`
+- **Observability**: `OTEL_EXPORTER_OTLP_ENDPOINT` (set to `disabled` to skip OTLP)
+- **K8s**: `POD_IP` (overrides Raft advertise), `CLUSTER_SIZE` (for split-brain detection)
+- **Split-brain**: Minority partition nodes exit with code 42 after 30s grace period (RA-style)

@@ -124,9 +124,46 @@ internal/store/
 ├── store_test.go      # Store tests (excluded: requires Raft)
 ├── fsm.go
 ├── fsm_test.go        # FSM unit tests ✓
+├── cold_store.go
+├── cold_store_test.go # Cold slot store tests ✓
 ├── types.go
 └── types_test.go      # Types unit tests ✓
+
+internal/slots/
+├── slot_eviction.go
+├── slot_eviction_test.go  # Slot evictor tests ✓
+
+internal/e2e/
+└── cluster_test.go   # E2E cluster tests ✓
 ```
+
+### E2E Cluster Tests
+
+End-to-end tests validate cluster behavior against a running instance:
+
+```bash
+# Run E2E tests against local Docker Compose cluster
+E2E_API_BASE=http://localhost:80 go test -v ./internal/e2e
+
+# Run against specific node
+E2E_API_BASE=http://localhost:8080 go test -v ./internal/e2e
+
+# Run specific E2E test
+E2E_API_BASE=http://localhost:80 go test -v ./internal/e2e -run TestClusterHasLeader
+```
+
+**Available E2E tests:**
+
+| Test | Description |
+|------|-------------|
+| `TestClusterHasLeader` | Verifies cluster has elected a leader |
+| `TestAllNodesHealthy` | Checks all nodes report healthy status |
+| `TestClusterConfigurationHasThreeNodes` | Verifies 3-node cluster configuration |
+| `TestRaftReplication` | Tests that writes are replicated across nodes |
+| `TestWriteForwardingFromFollower` | Verifies followers proxy writes to leader |
+| `TestNodeJoinTiming` | Checks node join timing is within bounds |
+
+**Kubernetes E2E:** Tests auto-detect in-cluster vs. local via `KUBERNETES_SERVICE_HOST`.
 
 ### Writing Tests
 
@@ -248,12 +285,29 @@ curl -X DELETE http://localhost:8080/jobs/{job-id}
 |----------|---------|-------------|
 | `NODE_ID` | `node-1` | Unique node identifier |
 | `HTTP_PORT` | `8080` | HTTP API port |
+| `HTTP_HOST` | `` | HTTP bind host (all interfaces) |
 | `RAFT_PORT` | `7000` | Raft communication port |
+| `RAFT_HOST` | `localhost` | Raft bind host |
+| `RAFT_ADVERTISE_HOST` | `` | Advertised Raft host (defaults to RAFT_HOST) |
 | `DATA_DIR` | `./data` | Data directory for persistence |
 | `SLOT_GAP` | `10s` | Time gap for slot intervals |
 | `LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARN, ERROR) |
 | `DISCOVERY_STRATEGY` | `` | Discovery strategy (static, kubernetes, dns, gossip) |
 | `PEERS` | `` | Comma-separated peer addresses |
+| `QUEUE_MEMORY_LIMIT` | `` | Memory limit (e.g., 2GB) |
+| `QUEUE_MEMORY_PERCENT` | `50.0` | Memory % limit (default 50%) |
+| `QUEUE_JOB_LIMIT` | `100000` | Job count limit |
+| `JOB_EXECUTION_TIMEOUT` | `5m` | Job webhook execution timeout |
+| `JOB_INPROGRESS_TIMEOUT` | `5m` | In-progress job timeout before retry |
+| `MAX_EXECUTION_ATTEMPTS` | `3` | Max execution attempts per job |
+| `EXECUTION_HISTORY_RETENTION` | `720h` | Execution history retention (30 days) |
+| `HEALTH_FAILURE_THRESHOLD` | `0.1` | Failure ratio threshold for degraded health |
+| `ENABLE_COLD_SPILLING` | `false` | Enable slot cold spilling |
+| `COLD_SPILLING_HOT_WINDOW` | `48h` | Hot slot time window for cold spilling |
+| `COLD_SPILLING_CHECK_INTERVAL` | `5m` | Eviction check interval |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `` | OTLP collector address (or `disabled`) |
+| `POD_IP` | `` | Kubernetes pod IP (overrides Raft advertise) |
+| `CLUSTER_SIZE` | `` | Expected cluster size for split-brain detection |
 
 ### Logging Configuration
 
@@ -289,6 +343,16 @@ POD_NAMESPACE=default \
 ```bash
 DISCOVERY_STRATEGY=dns \
 DNS_DOMAIN=cluster.local \
+./scheduled-db
+```
+
+#### Gossip
+
+```bash
+DISCOVERY_STRATEGY=gossip \
+GOSSIP_SEEDS=node-1:7946,node-2:7946 \
+GOSSIP_PORT=7946 \
+GOSSIP_BIND_ADDR=0.0.0.0 \
 ./scheduled-db
 ```
 
@@ -472,6 +536,29 @@ Adjust in `internal/slots/worker.go`:
 ```go
 ticker := time.NewTicker(1 * time.Second)  // Polling interval
 ```
+
+### Cold Spilling
+
+Enable cold spilling to reduce memory usage for clusters with many historical slots:
+
+```bash
+# Enable with default 48h hot window
+./scheduled-db --enable-cold-spilling
+
+# Custom hot window for shorter retention
+./scheduled-db --enable-cold-spilling --cold-spilling-hot-window=24h
+
+# Less frequent eviction checks for large slot counts
+./scheduled-db --enable-cold-spilling --cold-spilling-check-interval=15m
+```
+
+**Tuning guidelines:**
+
+| Workload | Hot Window | Check Interval | Notes |
+|----------|------------|----------------|-------|
+| High-frequency (1000+ jobs/min) | 24h | 5m | More aggressive eviction |
+| Normal (< 100 jobs/min) | 48h | 10m | Default, balanced |
+| Long history queries needed | 168h (7d) | 15m | Keep more in memory |
 
 ## Contributing
 
