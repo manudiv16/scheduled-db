@@ -219,6 +219,14 @@ func (psq *PersistentSlotQueue) recomputeMinKey() {
 			psq.cachedMinKey = key
 		}
 	}
+	if psq.store.IsColdSpillingEnabled() {
+		coldKeys := psq.store.GetColdSlotKeys()
+		for _, key := range coldKeys {
+			if key < psq.cachedMinKey {
+				psq.cachedMinKey = key
+			}
+		}
+	}
 }
 
 func (psq *PersistentSlotQueue) RemoveSlot(key SlotKey) {
@@ -244,12 +252,10 @@ func (psq *PersistentSlotQueue) RemoveSlot(key SlotKey) {
 	}
 }
 
-// LoadJobs ya no es necesario - los slots se cargan automáticamente del store
 func (psq *PersistentSlotQueue) LoadJobs(jobs map[string]*store.Job) {
 	psq.mu.Lock()
 	defer psq.mu.Unlock()
 
-	// Rebuild reverse index from store
 	psq.jobToSlot = make(map[string]int64)
 	slots := psq.store.GetAllSlots()
 	for key, slotData := range slots {
@@ -257,6 +263,20 @@ func (psq *PersistentSlotQueue) LoadJobs(jobs map[string]*store.Job) {
 			psq.jobToSlot[jobID] = key
 		}
 	}
+
+	if psq.store.IsColdSpillingEnabled() {
+		coldKeys := psq.store.GetColdSlotKeys()
+		for _, key := range coldKeys {
+			slotData, err := psq.store.GetColdSlotData(key)
+			if err != nil || slotData == nil {
+				continue
+			}
+			for _, jobID := range slotData.JobIDs {
+				psq.jobToSlot[jobID] = key
+			}
+		}
+	}
+
 	psq.recomputeMinKey()
 
 	logger.Debug("PersistentSlotQueue: slots loaded from persistent store, indexed %d jobs", len(psq.jobToSlot))
