@@ -10,7 +10,9 @@ A distributed job scheduling system built on Raft consensus. Provides reliable, 
   - **Recurrente**: Recurring execution with cron expressions
 - **Time-Slotted Scheduling** - Efficient job organization and execution
 - **Queue Size Limits** - Configurable memory and job count limits to prevent OOM
+- **Cold Spilling** - Archive old slots to BoltDB to reduce memory usage
 - **High Availability** - Automatic failover and graceful leader resignation
+- **Split-Brain Prevention** - RA-style minority partition shutdown
 - **Service Discovery** - Multiple strategies (Kubernetes, DNS, Gossip, Static)
 - **Observability** - Prometheus metrics and OpenTelemetry integration
 - **RESTful API** - Simple HTTP interface for job management
@@ -87,6 +89,12 @@ make build
   --raft-port=7000 \
   --data-dir=./data \
   --slot-gap=10s
+
+# Run with cold spilling enabled
+./scheduled-db \
+  --node-id=node-1 \
+  --enable-cold-spilling \
+  --cold-spilling-hot-window=24h
 ```
 
 ## 📖 Documentation
@@ -271,8 +279,9 @@ curl http://localhost:9090/metrics
 - Job rejections by reason
 - Raft cluster health
 - Leader election events
-- Slot queue size
+- Slot queue size (hot and cold)
 - Worker processing time
+- Cold slot eviction/promotion rates
 
 ### Logging
 
@@ -297,14 +306,29 @@ LOG_LEVEL=ERROR ./scheduled-db
 |----------|---------|-------------|
 | `NODE_ID` | `node-1` | Unique node identifier |
 | `HTTP_PORT` | `8080` | HTTP API port |
+| `HTTP_HOST` | `` | HTTP bind host (all interfaces) |
 | `RAFT_PORT` | `7000` | Raft communication port |
+| `RAFT_HOST` | `localhost` | Raft bind host |
+| `RAFT_ADVERTISE_HOST` | `` | Advertised Raft host (defaults to RAFT_HOST) |
 | `DATA_DIR` | `./data` | Data directory |
 | `SLOT_GAP` | `10s` | Slot interval |
-| `LOG_LEVEL` | `INFO` | Log level |
-| `DISCOVERY_STRATEGY` | `` | Discovery method |
+| `LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARN, ERROR) |
+| `DISCOVERY_STRATEGY` | `` | Discovery method (static, kubernetes, dns, gossip) |
+| `PEERS` | `` | Comma-separated peer addresses |
 | `QUEUE_MEMORY_LIMIT` | `` | Memory limit (e.g., 2GB) |
 | `QUEUE_MEMORY_PERCENT` | `50.0` | Memory % limit (default 50%) |
 | `QUEUE_JOB_LIMIT` | `100000` | Job count limit |
+| `JOB_EXECUTION_TIMEOUT` | `5m` | Job webhook execution timeout |
+| `JOB_INPROGRESS_TIMEOUT` | `5m` | In-progress job timeout before retry |
+| `MAX_EXECUTION_ATTEMPTS` | `3` | Max execution attempts per job |
+| `EXECUTION_HISTORY_RETENTION` | `720h` | Execution history retention (30 days) |
+| `HEALTH_FAILURE_THRESHOLD` | `0.1` | Failure ratio threshold for degraded health |
+| `ENABLE_COLD_SPILLING` | `false` | Enable slot cold spilling |
+| `COLD_SPILLING_HOT_WINDOW` | `48h` | Hot slot time window for cold spilling |
+| `COLD_SPILLING_CHECK_INTERVAL` | `5m` | Eviction check interval |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `` | OTLP collector address (or `disabled`) |
+| `POD_IP` | `` | Kubernetes pod IP (overrides Raft advertise) |
+| `CLUSTER_SIZE` | `` | Expected cluster size for split-brain detection |
 
 ### Command-Line Flags
 
@@ -315,7 +339,12 @@ LOG_LEVEL=ERROR ./scheduled-db
   --raft-port=7000 \
   --data-dir=./data \
   --slot-gap=10s \
-  --discovery-strategy=kubernetes
+  --discovery-strategy=kubernetes \
+  --execution-timeout=5m \
+  --inprogress-timeout=5m \
+  --max-attempts=3 \
+  --enable-cold-spilling \
+  --cold-spilling-hot-window=48h
 ```
 
 ## 🐳 Deployment
@@ -374,7 +403,7 @@ make cluster-info
 | GET | `/jobs/{id}/executions` | Get execution history |
 | GET | `/jobs?status={status}` | List jobs by status |
 | POST | `/jobs/{id}/cancel` | Cancel job |
-| GET | `/health` | Health check |
+| GET | `/health` | Health check (ok/degraded/unhealthy) |
 | GET | `/debug/cluster` | Cluster info |
 | POST | `/join` | Join cluster |
 
@@ -489,9 +518,15 @@ export QUEUE_MEMORY_LIMIT=4GB
 
 **Split-brain detected**
 ```bash
-# Check all nodes can communicate
-# Restart affected nodes
-# Verify cluster configuration
+# RA-style minority partition shutdown (exit code 42)
+# Check which nodes are still running
+kubectl get pods -l app=scheduled-db
+
+# Verify cluster has quorum
+curl http://localhost:8080/debug/cluster | jq
+
+# Check expected vs actual cluster size
+# Set CLUSTER_SIZE if auto-detection is wrong
 ```
 
 See [Debugging Guide](./docs/development-guide.md#debugging) for more solutions.

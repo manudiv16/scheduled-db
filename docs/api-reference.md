@@ -103,13 +103,21 @@ curl -X POST http://localhost:8080/jobs \
   "error": "No leader available"
 }
 
-// 507 Insufficient Storage - Queue full
+// 507 Insufficient Storage - Queue capacity exceeded
 {
-  "error": "insufficient memory: current=1000, limit=1000",
+  "error": "insufficient memory: current=950000000 bytes, limit=1000000000 bytes, requested=100000000 bytes",
   "type": "memory",
-  "current": 1000,
-  "limit": 1000,
-  "requested": 100
+  "current": 950000000,
+  "limit": 1000000000,
+  "requested": 100000000
+}
+
+// 507 Insufficient Storage - Job count limit exceeded
+{
+  "error": "maximum jobs reached: current=100000, limit=100000",
+  "type": "job_count",
+  "current": 100000,
+  "limit": 100000
 }
 ```
 
@@ -406,7 +414,7 @@ curl -X POST http://localhost:8080/jobs/550e8400-e29b-41d4-a716-446655440000/can
 
 #### Health Check
 
-Get node health and cluster role.
+Get node health, cluster role, and capacity information.
 
 **Endpoint:** `GET /health`
 
@@ -414,21 +422,31 @@ Get node health and cluster role.
 
 ```json
 {
-  "status": "healthy",
+  "status": "ok",
   "role": "leader",
-  "node_id": "node-1",
   "leader": "",
-  "jobs_by_status": {
-    "pending": 10,
-    "in_progress": 2,
-    "completed": 100,
-    "failed": 5,
-    "cancelled": 1,
-    "timeout": 0
+  "node_id": "scheduled-db-0",
+  "memory": {
+    "current_bytes": 500000000,
+    "limit_bytes": 1000000000,
+    "available_bytes": 500000000,
+    "utilization_percent": 50.0
   },
-  "jobs_executing": 2,
-  "last_execution_at": 1704067200,
-  "timed_out_jobs": 0
+  "jobs": {
+    "current_count": 42000,
+    "limit": 100000,
+    "available": 58000
+  },
+  "execution": {
+    "pending": 150,
+    "in_progress": 5,
+    "completed": 8000,
+    "failed": 200,
+    "cancelled": 50,
+    "timeout": 30,
+    "failure_rate": 0.025,
+    "last_executed_at": 1704067200
+  }
 }
 ```
 
@@ -436,37 +454,50 @@ For follower nodes:
 
 ```json
 {
-  "status": "healthy",
+  "status": "ok",
   "role": "follower",
-  "node_id": "node-2",
-  "leader": "node-1:7000",
-  "jobs_by_status": {
-    "pending": 10,
-    "in_progress": 2,
-    "completed": 100,
-    "failed": 5,
-    "cancelled": 1,
-    "timeout": 0
+  "leader": "scheduled-db-0.scheduled-db.default.svc.cluster.local:7000",
+  "node_id": "scheduled-db-1",
+  "memory": {
+    "current_bytes": 500000000,
+    "limit_bytes": 1000000000,
+    "available_bytes": 500000000,
+    "utilization_percent": 50.0
   },
-  "jobs_executing": 2,
-  "last_execution_at": 1704067200,
-  "timed_out_jobs": 0
+  "jobs": {
+    "current_count": 42000,
+    "limit": 100000,
+    "available": 58000
+  },
+  "execution": {
+    "pending": 150,
+    "in_progress": 5,
+    "completed": 8000,
+    "failed": 200,
+    "cancelled": 50,
+    "timeout": 30,
+    "failure_rate": 0.025,
+    "last_executed_at": 1704067200
+  }
 }
 ```
 
 **Health Status Values:**
-- `healthy` - System operating normally
-- `degraded` - Some failures but still operational (or memory utilization > 90%)
-- `unhealthy` - High failure rate or critical issues
 
-**Response with Capacity Information:**
+| Status | Condition | Description |
+|--------|-----------|-------------|
+| `ok` | Memory utilization < 90% AND failure rate < `HEALTH_FAILURE_THRESHOLD` | All systems normal |
+| `degraded` | Memory utilization >= 90% OR failure rate > `HEALTH_FAILURE_THRESHOLD` (with >= 10 finished jobs) | System under pressure |
+| `unhealthy` | Failure rate > 50% (escalated from degraded) | Critical state |
+
+**Degraded example:**
 
 ```json
 {
   "status": "degraded",
   "role": "leader",
-  "node_id": "node-1",
   "leader": "",
+  "node_id": "scheduled-db-0",
   "memory": {
     "current_bytes": 920000000,
     "limit_bytes": 1000000000,
@@ -478,17 +509,16 @@ For follower nodes:
     "limit": 100000,
     "available": 5000
   },
-  "jobs_by_status": {
+  "execution": {
     "pending": 10,
     "in_progress": 2,
     "completed": 100,
-    "failed": 5,
+    "failed": 50,
     "cancelled": 1,
-    "timeout": 0
-  },
-  "jobs_executing": 2,
-  "last_execution_at": 1704067200,
-  "timed_out_jobs": 0
+    "timeout": 30,
+    "failure_rate": 0.27,
+    "last_executed_at": 1704067200
+  }
 }
 ```
 
