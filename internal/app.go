@@ -56,6 +56,7 @@ type Config struct {
 	EnableColdSpilling        bool
 	ColdSpillingHotWindow     time.Duration
 	ColdSpillingCheckInterval time.Duration
+	TimingWheelConfigs        []slots.WheelLevelConfig
 }
 
 func NewApp(config *Config) (*App, error) {
@@ -118,7 +119,12 @@ func NewApp(config *Config) (*App, error) {
 	}
 
 	// Create slot queue
-	slotQueue := slots.NewPersistentSlotQueue(config.SlotGap, jobStore)
+	var slotQueue *slots.PersistentSlotQueue
+	if len(config.TimingWheelConfigs) > 0 {
+		slotQueue = slots.NewPersistentSlotQueueWithConfig(config.SlotGap, jobStore, config.TimingWheelConfigs)
+	} else {
+		slotQueue = slots.NewPersistentSlotQueue(config.SlotGap, jobStore)
+	}
 
 	// Create status tracker
 	statusTracker := store.NewStatusTracker(jobStore)
@@ -140,11 +146,11 @@ func NewApp(config *Config) (*App, error) {
 
 	var slotEvictor *slots.SlotEvictor
 	if config.EnableColdSpilling {
-		slotEvictor = slots.NewSlotEvictor(jobStore, slots.SlotEvictionConfig{
+		slotEvictor = slots.NewSlotEvictorWithWheel(jobStore, slots.SlotEvictionConfig{
 			Enabled:       true,
 			HotWindow:     config.ColdSpillingHotWindow,
 			CheckInterval: config.ColdSpillingCheckInterval,
-		})
+		}, slotQueue.GetWheel())
 	}
 
 	// Pass HTTP bind info to store

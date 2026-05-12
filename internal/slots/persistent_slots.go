@@ -1,23 +1,19 @@
 package slots
 
 import (
-	"math"
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/store"
 	"sync"
 	"time"
 )
 
-// PersistentSlotQueue usa el store para persistir slots.
-// It maintains a local reverse index (jobID -> slotKey) to avoid O(n*m)
-// scans during RemoveJob, and caches the minimum slot key to avoid
-// O(n) full scans during GetNextSlot.
 type PersistentSlotQueue struct {
-	mu           sync.RWMutex
-	store        *store.Store
-	slotGap      time.Duration
-	jobToSlot    map[string]int64 // jobID -> slotKey reverse index
-	cachedMinKey int64            // cached minimum slot key, math.MaxInt64 when empty
+	mu          sync.RWMutex
+	store       *store.Store
+	slotGap     time.Duration
+	jobToSlot   map[string]int64
+	wheel       *HierarchicalTimingWheel
+	lastAdvance int64
 }
 
 func NewPersistentSlotQueue(slotGap time.Duration, store *store.Store) *PersistentSlotQueue {
@@ -25,11 +21,29 @@ func NewPersistentSlotQueue(slotGap time.Duration, store *store.Store) *Persiste
 		slotGap = DefaultSlotGap
 	}
 
+	configs := DefaultWheelConfigs(slotGap)
+	wheel := NewHierarchicalTimingWheel(slotGap, configs)
+
 	return &PersistentSlotQueue{
-		store:        store,
-		slotGap:      slotGap,
-		jobToSlot:    make(map[string]int64),
-		cachedMinKey: math.MaxInt64,
+		store:     store,
+		slotGap:   slotGap,
+		jobToSlot: make(map[string]int64),
+		wheel:     wheel,
+	}
+}
+
+func NewPersistentSlotQueueWithConfig(slotGap time.Duration, store *store.Store, wheelConfigs []WheelLevelConfig) *PersistentSlotQueue {
+	if slotGap == 0 {
+		slotGap = DefaultSlotGap
+	}
+
+	wheel := NewHierarchicalTimingWheel(slotGap, wheelConfigs)
+
+	return &PersistentSlotQueue{
+		store:     store,
+		slotGap:   slotGap,
+		jobToSlot: make(map[string]int64),
+		wheel:     wheel,
 	}
 }
 
@@ -48,12 +62,16 @@ func (psq *PersistentSlotQueue) AddJob(job *store.Job) {
 	} else if job.Type == store.JobRecurrente {
 		timestamp = job.CreatedAt
 	} else {
+		logger.Debug("Cannot add job %s: invalid type or missing timestamp", job.ID)
 		return
 	}
 
 	key := psq.getSlotKey(timestamp)
 
-	// Get existing slot or create new one
+	if !psq.wheel.initialized {
+		psq.wheel.Init(time.Now().Unix())
+	}
+
 	slotData, exists := psq.store.GetSlot(key)
 	if !exists {
 		slotGapSeconds := int64(psq.slotGap.Seconds())
@@ -64,32 +82,25 @@ func (psq *PersistentSlotQueue) AddJob(job *store.Job) {
 			JobIDs:  []string{job.ID},
 		}
 	} else {
-		// Add job to existing slot
 		slotData.JobIDs = append(slotData.JobIDs, job.ID)
 	}
 
-	// Persist slot
 	if psq.store.IsLeader() {
 		if err := psq.store.CreateSlot(slotData); err != nil {
 			logger.Debug("Failed to persist slot %d: %v", key, err)
 		}
 	}
 
-	// Update reverse index and cached min key
 	psq.jobToSlot[job.ID] = key
-	if key < psq.cachedMinKey {
-		psq.cachedMinKey = key
-	}
+	psq.wheel.Add(key)
 }
 
 func (psq *PersistentSlotQueue) RemoveJob(jobID string) {
 	psq.mu.Lock()
 	defer psq.mu.Unlock()
 
-	// Use reverse index to find the slot directly - O(1) instead of O(n*m)
 	key, exists := psq.jobToSlot[jobID]
 	if !exists {
-		// Fallback: scan the store (handles jobs added before index was populated)
 		psq.removeJobFallback(jobID)
 		return
 	}
@@ -100,7 +111,6 @@ func (psq *PersistentSlotQueue) RemoveJob(jobID string) {
 		return
 	}
 
-	// Remove job from slot
 	for i, id := range slotData.JobIDs {
 		if id == jobID {
 			slotData.JobIDs = append(slotData.JobIDs[:i], slotData.JobIDs[i+1:]...)
@@ -109,18 +119,13 @@ func (psq *PersistentSlotQueue) RemoveJob(jobID string) {
 	}
 
 	if len(slotData.JobIDs) == 0 {
-		// Delete empty slot
 		if psq.store.IsLeader() {
 			if err := psq.store.DeleteSlot(key); err != nil {
 				logger.Debug("Failed to delete slot %d: %v", key, err)
 			}
 		}
-		// Invalidate min key cache if we removed the minimum
-		if key == psq.cachedMinKey {
-			psq.recomputeMinKey()
-		}
+		psq.wheel.Remove(key)
 	} else {
-		// Update slot
 		if psq.store.IsLeader() {
 			if err := psq.store.CreateSlot(slotData); err != nil {
 				logger.Debug("Failed to update slot %d: %v", key, err)
@@ -129,30 +134,74 @@ func (psq *PersistentSlotQueue) RemoveJob(jobID string) {
 	}
 }
 
-// removeJobFallback scans all slots when the reverse index misses.
 func (psq *PersistentSlotQueue) removeJobFallback(jobID string) {
+	if psq.store.IsColdSpillingEnabled() {
+		slots := psq.store.GetAllSlots()
+		coldKeys := psq.store.GetColdSlotKeys()
+		for _, key := range coldKeys {
+			slotData, err := psq.store.GetColdSlotData(key)
+			if err != nil || slotData == nil {
+				continue
+			}
+			for i, id := range slotData.JobIDs {
+				if id == jobID {
+					slotData.JobIDs = append(slotData.JobIDs[:i], slotData.JobIDs[i+1:]...)
+					if len(slotData.JobIDs) == 0 {
+						if psq.store.IsLeader() {
+							psq.store.DeleteSlot(key)
+						}
+						psq.wheel.Remove(key)
+					} else {
+						if psq.store.IsLeader() {
+							psq.store.CreateSlot(slotData)
+						}
+					}
+					psq.jobToSlot[jobID] = key
+					delete(psq.jobToSlot, jobID)
+					return
+				}
+			}
+		}
+		for key, slotData := range slots {
+			for i, id := range slotData.JobIDs {
+				if id == jobID {
+					slotData.JobIDs = append(slotData.JobIDs[:i], slotData.JobIDs[i+1:]...)
+					if len(slotData.JobIDs) == 0 {
+						if psq.store.IsLeader() {
+							psq.store.DeleteSlot(key)
+						}
+						psq.wheel.Remove(key)
+					} else {
+						if psq.store.IsLeader() {
+							psq.store.CreateSlot(slotData)
+						}
+					}
+					psq.jobToSlot[jobID] = key
+					delete(psq.jobToSlot, jobID)
+					return
+				}
+			}
+		}
+		return
+	}
+
 	slots := psq.store.GetAllSlots()
 	for key, slotData := range slots {
 		for i, id := range slotData.JobIDs {
 			if id == jobID {
 				slotData.JobIDs = append(slotData.JobIDs[:i], slotData.JobIDs[i+1:]...)
-
 				if len(slotData.JobIDs) == 0 {
 					if psq.store.IsLeader() {
-						if err := psq.store.DeleteSlot(key); err != nil {
-							logger.Debug("Failed to delete slot %d: %v", key, err)
-						}
+						psq.store.DeleteSlot(key)
 					}
-					if key == psq.cachedMinKey {
-						psq.recomputeMinKey()
-					}
+					psq.wheel.Remove(key)
 				} else {
 					if psq.store.IsLeader() {
-						if err := psq.store.CreateSlot(slotData); err != nil {
-							logger.Debug("Failed to update slot %d: %v", key, err)
-						}
+						psq.store.CreateSlot(slotData)
 					}
 				}
+				psq.jobToSlot[jobID] = key
+				delete(psq.jobToSlot, jobID)
 				return
 			}
 		}
@@ -160,41 +209,44 @@ func (psq *PersistentSlotQueue) removeJobFallback(jobID string) {
 }
 
 func (psq *PersistentSlotQueue) GetNextSlot() *Slot {
-	psq.mu.RLock()
-	defer psq.mu.RUnlock()
+	psq.mu.Lock()
+	defer psq.mu.Unlock()
 
-	// Fast path: use cached min key to avoid scanning all slots
-	if psq.cachedMinKey == math.MaxInt64 {
-		// Try refreshing from store in case slots were added externally
-		psq.mu.RUnlock()
-		psq.mu.Lock()
-		psq.recomputeMinKey()
-		psq.mu.Unlock()
-		psq.mu.RLock()
-		if psq.cachedMinKey == math.MaxInt64 {
-			return nil
-		}
+	if !psq.wheel.initialized {
+		psq.wheel.Init(time.Now().Unix())
 	}
 
-	slotData, exists := psq.store.GetSlot(psq.cachedMinKey)
-	if !exists {
-		// Cache is stale, refresh under write lock
-		psq.mu.RUnlock()
-		psq.mu.Lock()
-		psq.recomputeMinKey()
-		psq.mu.Unlock()
-		psq.mu.RLock()
-		if psq.cachedMinKey == math.MaxInt64 {
-			return nil
-		}
-		slotData, exists = psq.store.GetSlot(psq.cachedMinKey)
+	now := time.Now().Unix()
+	slotGapSeconds := int64(psq.slotGap.Seconds())
+
+	readyKeys := psq.wheel.Advance(now)
+	for _, key := range readyKeys {
+		slotData, exists := psq.store.GetSlot(key)
 		if !exists {
-			return nil
+			psq.wheel.Remove(key)
+			continue
+		}
+		if len(slotData.JobIDs) == 0 {
+			psq.wheel.Remove(key)
+			if psq.store.IsLeader() {
+				psq.store.DeleteSlot(key)
+			}
+			continue
 		}
 	}
 
-	// Convert to Slot with actual Job objects
-	// Only fetch the jobs we need instead of GetAllJobs()
+	minTime := psq.wheel.PeekMin()
+	if minTime == -1 {
+		return nil
+	}
+
+	minKey := minTime / slotGapSeconds
+
+	slotData, exists := psq.store.GetSlot(minKey)
+	if !exists {
+		return nil
+	}
+
 	jobs := make([]*store.Job, 0, len(slotData.JobIDs))
 	for _, jobID := range slotData.JobIDs {
 		if job, jobExists := psq.store.GetJob(jobID); jobExists {
@@ -202,30 +254,15 @@ func (psq *PersistentSlotQueue) GetNextSlot() *Slot {
 		}
 	}
 
+	if len(jobs) == 0 {
+		return nil
+	}
+
 	return &Slot{
-		Key:     SlotKey(slotData.Key),
+		Key:     SlotKey(minKey),
 		MinTime: slotData.MinTime,
 		MaxTime: slotData.MaxTime,
 		Jobs:    jobs,
-	}
-}
-
-// recomputeMinKey scans current slots to find the new minimum. Must be called under write lock.
-func (psq *PersistentSlotQueue) recomputeMinKey() {
-	slots := psq.store.GetAllSlots()
-	psq.cachedMinKey = math.MaxInt64
-	for key := range slots {
-		if key < psq.cachedMinKey {
-			psq.cachedMinKey = key
-		}
-	}
-	if psq.store.IsColdSpillingEnabled() {
-		coldKeys := psq.store.GetColdSlotKeys()
-		for _, key := range coldKeys {
-			if key < psq.cachedMinKey {
-				psq.cachedMinKey = key
-			}
-		}
 	}
 }
 
@@ -233,7 +270,6 @@ func (psq *PersistentSlotQueue) RemoveSlot(key SlotKey) {
 	psq.mu.Lock()
 	defer psq.mu.Unlock()
 
-	// Clean reverse index entries for this slot
 	slotData, exists := psq.store.GetSlot(int64(key))
 	if exists {
 		for _, jobID := range slotData.JobIDs {
@@ -241,14 +277,12 @@ func (psq *PersistentSlotQueue) RemoveSlot(key SlotKey) {
 		}
 	}
 
+	psq.wheel.Remove(int64(key))
+
 	if psq.store.IsLeader() {
 		if err := psq.store.DeleteSlot(int64(key)); err != nil {
 			logger.Debug("Failed to delete slot %d: %v", key, err)
 		}
-	}
-
-	if int64(key) == psq.cachedMinKey {
-		psq.recomputeMinKey()
 	}
 }
 
@@ -257,11 +291,15 @@ func (psq *PersistentSlotQueue) LoadJobs(jobs map[string]*store.Job) {
 	defer psq.mu.Unlock()
 
 	psq.jobToSlot = make(map[string]int64)
+	psq.wheel.Reset()
+	psq.wheel.Init(time.Now().Unix())
+
 	slots := psq.store.GetAllSlots()
 	for key, slotData := range slots {
 		for _, jobID := range slotData.JobIDs {
 			psq.jobToSlot[jobID] = key
 		}
+		psq.wheel.Add(key)
 	}
 
 	if psq.store.IsColdSpillingEnabled() {
@@ -274,10 +312,26 @@ func (psq *PersistentSlotQueue) LoadJobs(jobs map[string]*store.Job) {
 			for _, jobID := range slotData.JobIDs {
 				psq.jobToSlot[jobID] = key
 			}
+			psq.wheel.Add(key)
 		}
 	}
 
-	psq.recomputeMinKey()
+	psq.lastAdvance = time.Now().Unix()
+	logger.Debug("PersistentSlotQueue: loaded %d jobs into HTW, wheel size=%d", len(psq.jobToSlot), psq.wheel.Size())
+}
 
-	logger.Debug("PersistentSlotQueue: slots loaded from persistent store, indexed %d jobs", len(psq.jobToSlot))
+func (psq *PersistentSlotQueue) Size() int {
+	psq.mu.RLock()
+	defer psq.mu.RUnlock()
+	return psq.wheel.Size()
+}
+
+func (psq *PersistentSlotQueue) JobCount() int {
+	psq.mu.RLock()
+	defer psq.mu.RUnlock()
+	return len(psq.jobToSlot)
+}
+
+func (psq *PersistentSlotQueue) GetWheel() *HierarchicalTimingWheel {
+	return psq.wheel
 }

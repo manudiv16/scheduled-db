@@ -31,11 +31,16 @@ type SlotEvictor struct {
 	mu      sync.Mutex
 	config  SlotEvictionConfig
 	store   *store.Store
+	wheel   *HierarchicalTimingWheel
 	stopCh  chan struct{}
 	running bool
 }
 
 func NewSlotEvictor(store *store.Store, config SlotEvictionConfig) *SlotEvictor {
+	return NewSlotEvictorWithWheel(store, config, nil)
+}
+
+func NewSlotEvictorWithWheel(store *store.Store, config SlotEvictionConfig, wheel *HierarchicalTimingWheel) *SlotEvictor {
 	if config.HotWindow == 0 {
 		config.HotWindow = DefaultHotWindow
 	}
@@ -45,6 +50,7 @@ func NewSlotEvictor(store *store.Store, config SlotEvictionConfig) *SlotEvictor 
 	return &SlotEvictor{
 		config: config,
 		store:  store,
+		wheel:  wheel,
 		stopCh: make(chan struct{}),
 	}
 }
@@ -104,6 +110,9 @@ func (se *SlotEvictor) evict() {
 				logger.Debug("failed to archive slot %d: %v", key, err)
 				continue
 			}
+			if se.wheel != nil {
+				se.wheel.Remove(key)
+			}
 			evicted++
 		}
 	}
@@ -119,6 +128,9 @@ func (se *SlotEvictor) evict() {
 			if err := se.store.UnarchiveSlot(key); err != nil {
 				logger.Debug("failed to unarchive slot %d: %v", key, err)
 				continue
+			}
+			if se.wheel != nil {
+				se.wheel.Add(key)
 			}
 			promoted++
 		}
