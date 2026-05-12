@@ -14,7 +14,7 @@
   --neon-amber: #ffb627;
   --phosphor: #7cff5f;
 
-  --grid-line: rgba(0, 224, 255, 0.06);
+  --grid-line: rgba(0, 224, 255, 0.025);
   --border-hud: rgba(0, 224, 255, 0.22);
   
   /* Typography */

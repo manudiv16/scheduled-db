@@ -9,12 +9,17 @@ html {
   color: var(--ink-primary);
   background-color: var(--bg-void);
   scroll-behavior: smooth;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
 }
 
 body {
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
 }
 
 /* Perspective Grid */
@@ -27,7 +32,7 @@ body::before {
   background-image: 
     linear-gradient(var(--grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 80px 80px;
+  background-size: 120px 120px;
   transform: perspective(600px) rotateX(35deg);
   transform-origin: center top;
   pointer-events: none;

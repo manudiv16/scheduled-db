@@ -158,7 +158,7 @@
     border: none;
     cursor: pointer;
     padding: var(--spacing-xs);
-    z-index: 101;
+    z-index: 102;
   }
 
   .hamburger:focus-visible {
@@ -196,13 +196,15 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(4, 6, 12, 0.98);
+      background: var(--bg-void);
       border-left: 2px solid var(--neon-cyan);
       flex-direction: column;
       justify-content: center;
       align-items: flex-start;
       padding: var(--spacing-xl);
       gap: 0;
+      z-index: 99;
+      isolation: isolate;
       transform: translateY(-20px);
       opacity: 0;
       pointer-events: none;

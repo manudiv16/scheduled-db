@@ -61,11 +61,11 @@ function getMethodClass(method: string) {
       <tbody>
         {endpoints.map((ep) => (
           <tr class="api-row">
-            <td class="method-cell">
+            <td class="method-cell" data-label="METHOD">
               <span class={`method-badge ${getMethodClass(ep.method)}`}>{ep.method}</span>
             </td>
-            <td class="path-cell font-mono text-[var(--ink-primary)]">{ep.path}</td>
-            <td class="desc-cell text-[var(--ink-secondary)]">
+            <td class="path-cell font-mono text-[var(--ink-primary)]" data-label="ENDPOINT">{ep.path}</td>
+            <td class="desc-cell text-[var(--ink-secondary)]" data-label="DESCRIPTION">
               {ep.desc}
               <details class="example-details">
                 <summary class="hud-text text-[var(--neon-cyan)] text-xs cursor-pointer hover:underline mt-2">VIEW EXAMPLE</summary>
@@ -86,7 +86,6 @@ function getMethodClass(method: string) {
 
   .api-table-wrapper {
     width: 100%;
-    overflow-x: auto;
   }
 
   .api-table {
@@ -135,5 +134,66 @@ function getMethodClass(method: string) {
 
   .example-details summary::-webkit-details-marker {
     display: none;
+  }
+
+  @media (max-width: 768px) {
+    .api-table-wrapper {
+      overflow-x: visible;
+    }
+
+    .api-table thead {
+      display: none;
+    }
+
+    .api-table, .api-table tbody, .api-row {
+      display: block;
+      width: 100%;
+    }
+
+    .api-row {
+      border: 1px solid var(--border-hud);
+      margin-bottom: var(--spacing-md);
+      clip-path: var(--hud-clip-sm);
+      background: var(--bg-panel);
+      padding: 0;
+    }
+
+    .api-row td {
+      display: block;
+      padding: var(--spacing-xs) var(--spacing-md);
+    }
+
+    .api-row td::before {
+      content: attr(data-label);
+      display: block;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--ink-mute);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 2px;
+    }
+
+    .method-cell {
+      padding-top: var(--spacing-md) !important;
+    }
+
+    .method-badge {
+      font-size: 0.8rem;
+    }
+
+    .path-cell {
+      font-size: 0.85rem !important;
+      word-break: break-all;
+    }
+
+    .desc-cell {
+      font-size: 0.8rem !important;
+      padding-bottom: var(--spacing-md) !important;
+    }
+
+    .example-details pre {
+      font-size: 0.7rem;
+    }
   }
 </style>
