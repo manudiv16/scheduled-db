@@ -1,38 +1,33 @@
 export interface RoadmapItem {
   id: string;
-  status: 'past' | 'active' | 'future';
+  status: 'done' | 'active' | 'planned';
   title: string;
-  quarter: string;
   features: string[];
 }
 
 export const roadmap: RoadmapItem[] = [
   {
     id: 'core',
-    status: 'past',
+    status: 'done',
     title: 'Core Engine',
-    quarter: 'Q1',
-    features: ['Raft Consensus', 'Timing Wheels', 'BoltDB Storage']
+    features: ['Raft Consensus', 'Hierarchical Timing Wheels', 'BoltDB Storage', 'Job Types (unico & recurrente)']
   },
   {
     id: 'dx',
     status: 'active',
     title: 'Developer Experience',
-    quarter: 'NOW',
-    features: ['REST API', 'Pre-built Binaries', 'Docker Compose']
+    features: ['REST API', 'Pre-built Binaries', 'Docker Compose Setup', 'CLI Flags & Env Vars']
   },
   {
     id: 'k8s',
-    status: 'future',
+    status: 'planned',
     title: 'Kubernetes Native',
-    quarter: 'Q3',
-    features: ['K8s Operator', 'StatefulSet Auto-join', 'Metrics Auto-scaling']
+    features: ['K8s Operator (CRD)', 'StatefulSet Auto-join', 'Raft State Backup/Restore', 'Prometheus Auto-scaling']
   },
   {
     id: 'ecosystem',
-    status: 'future',
+    status: 'planned',
     title: 'Ecosystem',
-    quarter: 'Q4',
-    features: ['Go Client', 'Python Client', 'Dashboard UI']
+    features: ['Go Client Library', 'Python Client Library', 'Admin Dashboard UI']
   }
 ];

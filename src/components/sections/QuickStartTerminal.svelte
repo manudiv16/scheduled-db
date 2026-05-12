@@ -94,6 +94,7 @@
   .tab-controls {
     display: flex;
     gap: var(--spacing-sm);
+    flex-wrap: wrap;
   }
 
   .cmd-line {

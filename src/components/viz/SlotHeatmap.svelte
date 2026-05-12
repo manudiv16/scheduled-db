@@ -1,40 +1,90 @@
 <script lang="ts">
-  // A simple visual for cold storage
+  interface Props {
+    hotPercent?: number;
+  }
+  let { hotPercent = 25 }: Props = $props();
 </script>
 
-<div class="slot-heatmap">
-  {#each Array(48) as _, i}
-    <div class="slot-cell" class:hot={i < 12} class:warm={i >= 12 && i < 24} class:cold={i >= 24}></div>
-  {/each}
+<div class="hotcold-bar">
+  <div class="hot-zone" style="width: {hotPercent}%;">
+    <span class="zone-label hud-text">HOT / MEMORY</span>
+  </div>
+  <div class="cold-zone">
+    <span class="zone-label hud-text">COLD / DISK</span>
+  </div>
+  <div class="spill-marker" style="left: {hotPercent}%;">
+    <div class="marker-line"></div>
+    <span class="marker-label hud-text">SPILL</span>
+  </div>
 </div>
 
 <style>
-  .slot-heatmap {
-    display: grid;
-    grid-template-columns: repeat(12, 1fr);
-    gap: 4px;
+  .hotcold-bar {
+    position: relative;
+    display: flex;
     width: 100%;
+    height: 48px;
+    border: 1px solid var(--border-hud);
+    clip-path: var(--hud-clip-sm);
+    overflow: hidden;
     margin-top: var(--spacing-md);
   }
 
-  .slot-cell {
-    aspect-ratio: 1;
-    border-radius: 2px;
+  .hot-zone {
+    background: rgba(0, 224, 255, 0.15);
+    border-right: 1px solid var(--neon-cyan);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
+  }
+
+  .cold-zone {
+    flex: 1;
     background: var(--bg-void);
-    border: 1px solid var(--border-hud);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
   }
 
-  .slot-cell.hot {
-    background: rgba(0, 224, 255, 0.4);
-    border-color: var(--neon-cyan);
-    box-shadow: 0 0 8px rgba(0, 224, 255, 0.2);
+  .zone-label {
+    font-size: 10px;
+    color: var(--ink-mute);
+    letter-spacing: 0.1em;
   }
 
-  .slot-cell.warm {
-    background: rgba(0, 224, 255, 0.1);
+  .hot-zone .zone-label {
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-cyan-sm);
   }
 
-  .slot-cell.cold {
+  .spill-marker {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    transform: translateX(-50%);
+  }
+
+  .marker-line {
+    width: 2px;
+    flex: 1;
+    background: var(--neon-amber);
+    box-shadow: 0 0 8px rgba(255, 182, 39, 0.6);
+  }
+
+  .marker-label {
+    font-size: 9px;
+    color: var(--neon-amber);
     background: var(--bg-void);
+    padding: 0 4px;
+    white-space: nowrap;
+    text-shadow: var(--glow-amber-sm);
   }
 </style>

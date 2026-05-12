@@ -79,4 +79,14 @@
     border-color: var(--ink-primary);
     color: var(--ink-primary);
   }
+
+  @media (max-width: 768px) {
+    .hud-btn {
+      font-size: 0.8rem;
+    }
+
+    .btn-inner {
+      padding: var(--spacing-xs) var(--spacing-md);
+    }
+  }
 </style>

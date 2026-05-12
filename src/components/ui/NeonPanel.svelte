@@ -71,4 +71,11 @@
     display: flex;
     flex-direction: column;
   }
+
+  @media (max-width: 768px) {
+    .neon-panel {
+      clip-path: var(--hud-clip-sm);
+      padding: var(--spacing-md);
+    }
+  }
 </style>

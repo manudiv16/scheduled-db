@@ -3,7 +3,29 @@
   import NeonPanel from '../ui/NeonPanel.svelte';
   import { roadmap } from '../../data/roadmap';
   
-  let hoverItem: any = $state(null);
+  let openItem: string | null = $state(null);
+
+  function toggle(id: string) {
+    openItem = openItem === id ? null : id;
+  }
+
+  function getColor(status: string) {
+    if (status === 'done') return 'var(--neon-cyan)';
+    if (status === 'active') return 'var(--neon-magenta)';
+    return 'var(--ink-mute)';
+  }
+
+  function getTone(status: string): 'cyan' | 'magenta' | 'amber' {
+    if (status === 'done') return 'cyan';
+    if (status === 'active') return 'magenta';
+    return 'amber';
+  }
+
+  function getLabel(status: string) {
+    if (status === 'done') return 'DONE';
+    if (status === 'active') return 'IN PROGRESS';
+    return 'PLANNED';
+  }
 </script>
 
 <section id="roadmap" class="container roadmap-section">
@@ -14,34 +36,33 @@
   />
   
   <div class="track-container">
-    <!-- PCB Trace Line -->
     <div class="pcb-trace"></div>
     
     <div class="stations">
       {#each roadmap as item}
-        {@const isActive = item.status === 'active'}
-        {@const isPast = item.status === 'past'}
-        {@const nodeColor = isActive ? 'var(--neon-magenta)' : isPast ? 'var(--neon-cyan)' : 'var(--ink-mute)'}
+        {@const color = getColor(item.status)}
+        {@const isOpen = openItem === item.id}
         
-        <div 
-          class="station {item.status}"
-          onmouseenter={() => hoverItem = item}
-          onmouseleave={() => hoverItem = null}
-          role="button"
-          tabindex="0"
-        >
-          <div class="station-node" style="border-color: {nodeColor}; box-shadow: {isActive ? 'var(--glow-magenta-sm)' : 'none'};">
-            {#if isActive || isPast}
-              <div class="station-core" style="background: {nodeColor};"></div>
-            {/if}
-          </div>
-          <div class="station-label hud-text" style="color: {nodeColor};">
-            {item.quarter}
-          </div>
+        <div class="station {item.status}">
+          <button
+            class="station-trigger"
+            onclick={() => toggle(item.id)}
+            aria-expanded={isOpen}
+          >
+            <div class="station-node" style="border-color: {color}; box-shadow: {item.status === 'active' ? 'var(--glow-magenta-sm)' : 'none'};">
+              {#if item.status !== 'planned'}
+                <div class="station-core" style="background: {color};"></div>
+              {/if}
+            </div>
+            <div class="station-info">
+              <span class="station-title" style="color: {color};">{item.title}</span>
+              <span class="station-status hud-text" style="color: {color};">{getLabel(item.status)}</span>
+            </div>
+          </button>
           
-          {#if hoverItem === item}
-            <div class="station-tooltip">
-              <NeonPanel tone={isActive ? 'magenta' : isPast ? 'cyan' : 'amber'} label={item.title}>
+          {#if isOpen}
+            <div class="station-detail">
+              <NeonPanel tone={getTone(item.status)} label={item.title}>
                 <ul class="feature-list">
                   {#each item.features as f}
                     <li class="text-[var(--ink-primary)] text-sm">> {f}</li>
@@ -63,7 +84,7 @@
 
   .track-container {
     position: relative;
-    padding: 100px 0;
+    padding: var(--spacing-xl) 0;
     margin: 0 auto;
     max-width: 900px;
   }
@@ -90,9 +111,30 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--spacing-md);
     position: relative;
+    flex: 1;
+  }
+
+  .station-trigger {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
     cursor: pointer;
+    background: none;
+    border: none;
+    padding: var(--spacing-sm);
+    transition: transform 0.2s var(--ease-out);
+  }
+
+  .station-trigger:hover {
+    transform: scale(1.05);
+  }
+
+  .station-trigger:focus-visible {
+    outline: 2px solid var(--neon-cyan);
+    outline-offset: 4px;
+    border-radius: 4px;
   }
 
   .station-node {
@@ -104,11 +146,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.2s var(--ease-out);
-  }
-
-  .station:hover .station-node {
-    transform: scale(1.2);
+    flex-shrink: 0;
   }
 
   .station-core {
@@ -117,20 +155,28 @@
     border-radius: 50%;
   }
 
-  .station-tooltip {
-    position: absolute;
-    top: 100%;
-    margin-top: var(--spacing-lg);
-    width: 240px;
-    z-index: 10;
+  .station-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
   }
 
-  /* Offset every other tooltip up for better spacing */
-  .station:nth-child(even) .station-tooltip {
-    top: auto;
-    bottom: 100%;
-    margin-top: 0;
-    margin-bottom: var(--spacing-lg);
+  .station-title {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .station-status {
+    font-size: 10px;
+  }
+
+  .station-detail {
+    margin-top: var(--spacing-md);
+    width: 220px;
   }
 
   .feature-list {
@@ -139,37 +185,52 @@
     flex-direction: column;
     gap: var(--spacing-xs);
   }
-  
+
+  /* Responsive: vertical timeline */
   @media (max-width: 768px) {
     .track-container {
-      padding: 20px 0;
+      padding: var(--spacing-md) 0;
     }
+
     .pcb-trace {
       top: 0;
       bottom: 0;
-      left: 50%;
+      left: 20px;
       right: auto;
       width: 2px;
       height: 100%;
-      transform: translateX(-50%);
+      transform: none;
     }
+
     .stations {
       flex-direction: column;
-      gap: 100px;
+      gap: var(--spacing-lg);
+      align-items: flex-start;
+      padding-left: 8px;
+    }
+
+    .station {
+      flex-direction: row;
+      align-items: flex-start;
+      gap: var(--spacing-md);
+      width: 100%;
+    }
+
+    .station-trigger {
+      flex-direction: row;
       align-items: center;
+      gap: var(--spacing-md);
     }
-    .station-tooltip {
-      position: relative;
-      top: 0;
-      bottom: auto;
-      left: 50%;
-      transform: translateX(-50%);
-      margin-top: var(--spacing-md);
+
+    .station-info {
+      align-items: flex-start;
     }
-    .station:nth-child(even) .station-tooltip {
-      bottom: auto;
-      margin-bottom: 0;
-      margin-top: var(--spacing-md);
+
+    .station-detail {
+      margin-top: 0;
+      flex: 1;
+      width: auto;
+      min-width: 0;
     }
   }
 </style>
