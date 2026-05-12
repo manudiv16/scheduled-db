@@ -73,6 +73,7 @@
     transform: translateY(-50%);
     z-index: -1;
     pointer-events: none;
+    max-width: none;
   }
 
   .hero-inner {

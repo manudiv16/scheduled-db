@@ -24,6 +24,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-sm);
+    padding-left: var(--spacing-md);
+    border-left: 2px solid var(--border-hud);
   }
 
   .sh-top {
@@ -41,10 +43,25 @@
   .sh-title {
     font-size: 2.5rem;
     margin: 0;
+    line-height: 1.1;
   }
 
   .sh-subtitle {
     font-family: var(--font-mono);
     font-size: 0.9rem;
+  }
+
+  @media (max-width: 768px) {
+    .section-header {
+      padding-left: var(--spacing-sm);
+    }
+
+    .sh-title {
+      font-size: 1.75rem;
+    }
+
+    .sh-subtitle {
+      font-size: 0.8rem;
+    }
   }
 </style>

@@ -6,8 +6,8 @@
   }
 </script>
 
-<nav class="hud-nav">
-  <div class="container nav-inner">
+<nav class="hud-nav" class:menu-open={open}>
+  <div class="nav-inner">
     <a href="/scheduled-db/" class="logo" onclick={close}>
       <div class="logo-icon">
         <svg width="24" height="24" viewBox="0 0 32 32" fill="none" stroke="var(--neon-cyan)">
@@ -29,15 +29,31 @@
     <div class="nav-links" class:open>
       <div class="nav-status">
         <span class="status-dot anim-blink"></span>
-        <span class="hud-text">ONLINE</span>
+        <span class="hud-text">SYSTEM ONLINE</span>
       </div>
-      <a href="#features" class="nav-link hud-text" onclick={close}>FEATURES</a>
-      <a href="#architecture" class="nav-link hud-text" onclick={close}>ARCHITECTURE</a>
-      <a href="#roadmap" class="nav-link hud-text" onclick={close}>ROADMAP</a>
-      <a href="#quickstart" class="nav-link hud-text" onclick={close}>QUICK START</a>
-      <a href="#api" class="nav-link hud-text" onclick={close}>API</a>
-      <a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener" class="nav-github" onclick={close}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+      <a href="#features" class="nav-link" onclick={close}>
+        <span class="link-prefix">01 //</span>
+        <span class="link-text hud-text">FEATURES</span>
+      </a>
+      <a href="#architecture" class="nav-link" onclick={close}>
+        <span class="link-prefix">02 //</span>
+        <span class="link-text hud-text">ARCHITECTURE</span>
+      </a>
+      <a href="#roadmap" class="nav-link" onclick={close}>
+        <span class="link-prefix">03 //</span>
+        <span class="link-text hud-text">ROADMAP</span>
+      </a>
+      <a href="#quickstart" class="nav-link" onclick={close}>
+        <span class="link-prefix">04 //</span>
+        <span class="link-text hud-text">QUICK START</span>
+      </a>
+      <a href="#api" class="nav-link" onclick={close}>
+        <span class="link-prefix">05 //</span>
+        <span class="link-text hud-text">API</span>
+      </a>
+      <a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener" class="nav-link nav-github" onclick={close}>
+        <span class="link-prefix">GH //</span>
+        <span class="link-text hud-text">GITHUB</span>
       </a>
     </div>
   </div>
@@ -63,7 +79,7 @@
     height: 100%;
     max-width: 1200px;
     margin: 0 auto;
-    padding: 0 var(--spacing-lg);
+    padding: 0 var(--spacing-xl);
   }
 
   .logo {
@@ -80,6 +96,7 @@
     font-size: 0.95rem;
   }
 
+  /* Desktop nav */
   .nav-links {
     display: flex;
     align-items: center;
@@ -91,6 +108,7 @@
     align-items: center;
     gap: var(--spacing-xs);
     color: var(--phosphor);
+    margin-right: var(--spacing-sm);
   }
 
   .status-dot {
@@ -102,9 +120,18 @@
     flex-shrink: 0;
   }
 
+  /* Desktop link style */
   .nav-link {
     color: var(--ink-secondary);
     font-size: 0.8rem;
+    transition: all 0.2s var(--ease-out);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+  }
+
+  .link-prefix {
+    display: none;
   }
 
   .nav-link:hover {
@@ -157,6 +184,7 @@
     transform: rotate(-45deg) translate(5px, -5px);
   }
 
+  /* Mobile */
   @media (max-width: 768px) {
     .hamburger {
       display: flex;
@@ -169,28 +197,66 @@
       right: 0;
       bottom: 0;
       background: rgba(4, 6, 12, 0.98);
+      border-left: 2px solid var(--neon-cyan);
       flex-direction: column;
+      justify-content: center;
       align-items: flex-start;
-      padding: var(--spacing-xl) var(--spacing-lg);
-      gap: var(--spacing-lg);
-      transform: translateX(100%);
-      transition: transform 0.3s var(--ease-out);
+      padding: var(--spacing-xl);
+      gap: 0;
+      transform: translateY(-20px);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.3s var(--ease-out), opacity 0.3s var(--ease-out);
     }
 
     .nav-links.open {
-      transform: translateX(0);
+      transform: translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .nav-status {
+      margin-bottom: var(--spacing-xl);
+      margin-right: 0;
     }
 
     .nav-link {
-      font-size: 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-md);
+      padding: var(--spacing-md) 0;
+      width: 100%;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: var(--ink-secondary);
     }
 
-    .nav-status .hud-text {
-      font-size: 0.8rem;
+    .link-prefix {
+      display: inline;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--ink-mute);
+      min-width: 40px;
+    }
+
+    .link-text {
+      font-size: 1.1rem;
+      letter-spacing: 0.12em;
+    }
+
+    .nav-link:hover {
+      color: var(--neon-cyan);
+    }
+
+    .nav-link:hover .link-prefix {
+      color: var(--neon-cyan);
     }
 
     .logo-text {
       font-size: 0.85rem;
+    }
+
+    .nav-inner {
+      padding: 0 var(--spacing-md);
     }
   }
 </style>

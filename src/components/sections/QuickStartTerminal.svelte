@@ -89,6 +89,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-md);
+    overflow-x: hidden;
   }
 
   .tab-controls {
