@@ -1,13 +1,22 @@
+<!--
+  CodeTabs.svelte — Tabs con ejemplos de código para Quick Start
+  - Tres tabs: Docker Compose, Kubernetes, Local Binary
+  - Usa $state de Svelte 5 para reactive state del tab activo
+  - Animación fade-in al cambiar de tab con anime.js
+  - IntersectionObserver para animación de entrada al hacer scroll
+-->
 <script lang="ts">
   import { onMount } from 'svelte';
   import anime from 'animejs';
 
+  // Definición de tabs y sus labels
   const tabs = [
     { id: 'docker', label: 'Docker Compose' },
     { id: 'k8s', label: 'Kubernetes' },
     { id: 'binary', label: 'Local Binary' },
   ];
 
+  // Ejemplos de código para cada tab
   const codeExamples: Record<string, string> = {
     docker: `# Start 3-node cluster with load balancer
 make dev-up
@@ -60,9 +69,11 @@ make build
   --slot-gap=10s`,
   };
 
+  // Estado reactivo del tab activo (Svelte 5 $state)
   let activeTab = $state('docker');
   let codeRef: HTMLElement;
 
+  // Cambia el tab activo y anima la transición del bloque de código
   function switchTab(id: string) {
     if (id === activeTab) return;
     activeTab = id;
@@ -79,6 +90,7 @@ make build
   }
 
   onMount(() => {
+    // Animación de entrada al hacer scroll visible
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -103,6 +115,7 @@ make build
 </script>
 
 <div class="quickstart-wrapper" style="opacity: 0;">
+  <!-- Tabs de navegación -->
   <div class="tabs">
     {#each tabs as tab}
       <button
@@ -114,6 +127,7 @@ make build
       </button>
     {/each}
   </div>
+  <!-- Bloque de código con animación de transición -->
   <div class="code-block" bind:this={codeRef}>
     <pre><code>{codeExamples[activeTab]}</code></pre>
   </div>

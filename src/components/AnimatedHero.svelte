@@ -1,3 +1,10 @@
+<!--
+  AnimatedHero.svelte — Hero section principal con animaciones
+  - Título animado letra por letra con anime.js stagger
+  - Partículas de fondo generadas dinámicamente (estilo pixel cuadrado)
+  - Botones CTA con animación de entrada secuencial
+  - IntersectionObserver no necesario (siempre visible al cargar)
+-->
 <script lang="ts">
   import { onMount } from 'svelte';
   import anime from 'animejs';
@@ -10,6 +17,7 @@
   onMount(() => {
     if (!titleRef) return;
 
+    // Animación letra por letra del título con stagger de 50ms
     anime({
       targets: titleRef.querySelectorAll('.letter'),
       opacity: [0, 1],
@@ -19,6 +27,7 @@
       easing: 'easeOutExpo',
     });
 
+    // Fade-in del subtítulo con delay de 1.2s
     anime({
       targets: subtitleRef,
       opacity: [0, 1],
@@ -28,6 +37,7 @@
       easing: 'easeOutExpo',
     });
 
+    // Animación secuencial de los botones CTA
     anime({
       targets: buttonsRef.querySelectorAll('.btn'),
       opacity: [0, 1],
@@ -37,16 +47,17 @@
       easing: 'easeOutExpo',
     });
 
+    // Generar 30 partículas cuadradas (estilo pixel) con posiciones y tamaños aleatorios
     const particles = Array.from({ length: 30 }, () => {
       const el = document.createElement('div');
       el.className = 'particle';
-      const size = Math.random() * 3 + 1;
+      const size = Math.random() * 4 + 2;
       el.style.cssText = `
         position: absolute;
         width: ${size}px;
         height: ${size}px;
         background: ${Math.random() > 0.5 ? '#22d3ee' : '#a78bfa'};
-        border-radius: 50%;
+        border-radius: 1px;
         opacity: 0;
         left: ${Math.random() * 100}%;
         top: ${Math.random() * 100}%;
@@ -56,6 +67,7 @@
 
     particles.forEach((p) => particlesRef?.appendChild(p));
 
+    // Animación continua de partículas: movimiento aleatorio con loop
     anime({
       targets: particlesRef?.querySelectorAll('.particle'),
       opacity: [0, () => Math.random() * 0.5 + 0.1],
@@ -77,6 +89,12 @@
   <div class="hero-bg"></div>
   <div bind:this={particlesRef} class="particles"></div>
   <div class="hero-content">
+    <!-- Badges de características principales -->
+    <div class="hero-badges">
+      <span class="badge">Open Source</span>
+      <span class="badge">Distributed</span>
+      <span class="badge">Fault-Tolerant</span>
+    </div>
     <h1 bind:this={titleRef}>
       {#each letters as letter, i}
         <span class="letter" style="opacity: 0; display: inline-block;">
@@ -90,7 +108,7 @@
       <span class="letter gradient" style="opacity: 0; display: inline-block;">DB</span>
     </h1>
     <p bind:this={subtitleRef} style="opacity: 0;">
-      A distributed job scheduling system built on Raft consensus. Reliable, fault-tolerant job execution with automatic leader election and failover.
+      A distributed job scheduling system built on Raft consensus. Reliable, fault-tolerant job execution with automatic leader election, failover, and hierarchical timing wheels.
     </p>
     <div bind:this={buttonsRef} class="hero-buttons">
       <a href="#quickstart" class="btn btn-primary" style="opacity: 0;">
@@ -136,6 +154,26 @@
   .hero-content {
     position: relative;
     z-index: 1;
+  }
+
+  /* Badges de características sobre el título */
+  .hero-badges {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+  }
+
+  .badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.3rem 0.75rem;
+    border-radius: 999px;
+    background: rgba(34, 211, 238, 0.1);
+    color: #22d3ee;
+    border: 1px solid rgba(34, 211, 238, 0.2);
+    letter-spacing: 0.03em;
   }
 
   h1 {

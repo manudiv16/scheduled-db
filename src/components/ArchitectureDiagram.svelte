@@ -1,3 +1,11 @@
+<!--
+  ArchitectureDiagram.svelte — Diagrama visual del cluster Raft
+  - Layout flex con filas: Client → Cluster (Leader + Followers) → Worker/Webhooks/Metrics
+  - Animaciones staggered al entrar en viewport via IntersectionObserver
+  - Leader pulse animado continuamente (scale + opacity loop)
+  - Flow dots animados en conexiones verticales (simulan datos fluyendo)
+  - Cluster box con borde dashed cyan para agrupar nodos Raft
+-->
 <script lang="ts">
   import { onMount } from 'svelte';
   import anime from 'animejs';
@@ -9,7 +17,7 @@
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            // Animate node cards
+            // Animación escalonada de las cards de nodos
             anime({
               targets: containerRef.querySelectorAll('.arch-node'),
               opacity: [0, 1],
@@ -20,7 +28,7 @@
               easing: 'easeOutCubic',
             });
 
-            // Animate connections
+            // Animación de las conexiones horizontales entre nodos
             anime({
               targets: containerRef.querySelectorAll('.arch-connection'),
               opacity: [0, 1],
@@ -30,7 +38,7 @@
               easing: 'easeOutCubic',
             });
 
-            // Pulse the leader indicator
+            // Pulso continuo del indicador de leader (cada 2s)
             anime({
               targets: containerRef.querySelector('.leader-pulse'),
               scale: [1, 1.6],
@@ -40,7 +48,7 @@
               easing: 'easeOutSine',
             });
 
-            // Animate data flow dots
+            // Dots de flujo de datos en conexiones verticales
             anime({
               targets: containerRef.querySelectorAll('.flow-dot'),
               translateX: [0, 60],
@@ -63,7 +71,7 @@
 </script>
 
 <div bind:this={containerRef} class="arch-wrapper">
-  <!-- Client -->
+  <!-- Fila superior: clientes que hacen requests HTTP -->
   <div class="arch-row arch-row-top">
     <div class="arch-node client-node" style="opacity: 0;">
       <div class="node-icon">
@@ -78,19 +86,19 @@
     </div>
   </div>
 
-  <!-- Connection: Client -> Cluster -->
+  <!-- Conexión vertical: Client → Cluster -->
   <div class="arch-connection-vertical" style="opacity: 0;">
     <div class="connection-line"></div>
     <div class="flow-dot"></div>
     <div class="flow-dot"></div>
   </div>
 
-  <!-- Cluster Box -->
+  <!-- Caja del cluster Raft: agrupa Leader + Followers -->
   <div class="arch-cluster">
     <div class="cluster-label">Raft Cluster</div>
 
     <div class="arch-row arch-row-nodes">
-      <!-- Leader -->
+      <!-- Nodo Leader: escribe y ejecuta jobs -->
       <div class="arch-node leader-node" style="opacity: 0;">
         <div class="leader-indicator">
           <div class="leader-pulse"></div>
@@ -108,7 +116,7 @@
         <span class="node-detail">Writes + Execution</span>
       </div>
 
-      <!-- Follower 1 -->
+      <!-- Follower 1: solo replicación -->
       <div class="arch-node follower-node" style="opacity: 0;">
         <div class="node-icon follower-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -122,7 +130,7 @@
         <span class="node-detail">Replication</span>
       </div>
 
-      <!-- Follower 2 -->
+      <!-- Follower 2: solo replicación -->
       <div class="arch-node follower-node" style="opacity: 0;">
         <div class="node-icon follower-icon">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -137,7 +145,7 @@
       </div>
     </div>
 
-    <!-- Connections between nodes -->
+    <!-- Conexión horizontal entre nodos: Raft Log Replication -->
     <div class="arch-connections-inner">
       <div class="arch-connection horizontal-conn" style="opacity: 0;">
         <span class="conn-label">Raft Log Replication</span>
@@ -145,13 +153,13 @@
     </div>
   </div>
 
-  <!-- Connection: Cluster -> Worker -->
+  <!-- Conexión vertical: Cluster → Worker/Webhooks/Metrics -->
   <div class="arch-connection-vertical" style="opacity: 0;">
     <div class="connection-line"></div>
     <div class="flow-dot"></div>
   </div>
 
-  <!-- Bottom row -->
+  <!-- Fila inferior: Worker, Webhooks y Metrics -->
   <div class="arch-row arch-row-bottom">
     <div class="arch-node worker-node" style="opacity: 0;">
       <div class="node-icon worker-icon">
@@ -207,7 +215,8 @@
 
   .arch-node {
     position: relative;
-    background: #1e293b;
+    background: rgba(30, 41, 59, 0.5);
+    backdrop-filter: blur(10px);
     border: 1px solid #334155;
     border-radius: 12px;
     padding: 1.25rem 1.5rem;

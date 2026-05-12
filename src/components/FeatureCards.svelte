@@ -1,7 +1,16 @@
+<!--
+  FeatureCards.svelte — Grid de cards con las features del proyecto
+  - Usa IntersectionObserver para activar animación al hacer scroll
+  - Cada card tiene un color accent personalizado via CSS variable
+  - Efecto glow radial en hover con mix-blend-mode: overlay
+  - Animación staggered con anime.js (100ms entre cada card)
+-->
 <script lang="ts">
   import { onMount } from 'svelte';
   import anime from 'animejs';
 
+  // Features actualizadas con las capacidades de main:
+  // cold spilling, split-brain prevention, health tiers, timing wheel
   const features = [
     {
       icon: '⚡',
@@ -16,10 +25,22 @@
       color: '#a78bfa',
     },
     {
+      icon: '🎡',
+      title: 'Hierarchical Timing Wheel',
+      description: 'High-performance slot queue using hierarchical timing wheels instead of heap-based structures. Optimized for millions of scheduled jobs.',
+      color: '#3b82f6',
+    },
+    {
       icon: '⏱',
       title: 'Time-Slotted Scheduling',
       description: 'Efficient job organization with configurable slot intervals. Optimized for high-throughput scheduling.',
-      color: '#3b82f6',
+      color: '#06b6d4',
+    },
+    {
+      icon: '💾',
+      title: 'Cold Spilling to Disk',
+      description: 'Archive old slots to BoltDB to reduce memory footprint. Configurable hot window keeps recent slots in memory for fast access.',
+      color: '#8b5cf6',
     },
     {
       icon: '🛡',
@@ -34,6 +55,18 @@
       color: '#34d399',
     },
     {
+      icon: '🧠',
+      title: 'Split-Brain Prevention',
+      description: 'RA-style minority partition shutdown. Nodes detect quorum loss and shut down gracefully to prevent data inconsistency.',
+      color: '#f87171',
+    },
+    {
+      icon: '📊',
+      title: 'Tiered Health Checks',
+      description: 'Three-tier health status: OK, Degraded, Unhealthy. Real-time monitoring of cluster state, memory usage, and failure rates.',
+      color: '#38bdf8',
+    },
+    {
       icon: '🌐',
       title: 'Service Discovery',
       description: 'Multiple strategies: Kubernetes, DNS, Gossip, Static. Automatic cluster formation and node joining.',
@@ -44,6 +77,7 @@
   let gridRef: HTMLElement;
 
   onMount(() => {
+    // IntersectionObserver: solo anima cuando el grid entra en viewport
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -82,13 +116,14 @@
 <style>
   .features-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1.5rem;
   }
 
   .feature-card {
     position: relative;
-    background: #1e293b;
+    background: rgba(30, 41, 59, 0.5);
+    backdrop-filter: blur(10px);
     border: 1px solid #334155;
     border-radius: 12px;
     padding: 1.75rem;

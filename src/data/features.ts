@@ -12,10 +12,22 @@ export const features = [
     color: '#a78bfa',
   },
   {
+    icon: 'timing-wheel',
+    title: 'Hierarchical Timing Wheel',
+    description: 'High-performance slot queue using hierarchical timing wheels instead of heap-based structures. Optimized for millions of scheduled jobs.',
+    color: '#3b82f6',
+  },
+  {
     icon: 'slots',
     title: 'Time-Slotted Scheduling',
     description: 'Efficient job organization with configurable slot intervals. Optimized for high-throughput scheduling.',
-    color: '#3b82f6',
+    color: '#06b6d4',
+  },
+  {
+    icon: 'cold-spilling',
+    title: 'Cold Spilling to Disk',
+    description: 'Archive old slots to BoltDB to reduce memory footprint. Configurable hot window keeps recent slots in memory for fast access.',
+    color: '#8b5cf6',
   },
   {
     icon: 'capacity',
@@ -28,6 +40,18 @@ export const features = [
     title: 'High Availability',
     description: 'Automatic failover and graceful leader resignation. Zero-downtime cluster reconfiguration.',
     color: '#34d399',
+  },
+  {
+    icon: 'split-brain',
+    title: 'Split-Brain Prevention',
+    description: 'RA-style minority partition shutdown. Nodes detect quorum loss and shut down gracefully to prevent data inconsistency.',
+    color: '#f87171',
+  },
+  {
+    icon: 'health',
+    title: 'Tiered Health Checks',
+    description: 'Three-tier health status: OK, Degraded, Unhealthy. Real-time monitoring of cluster state, memory usage, and failure rates.',
+    color: '#38bdf8',
   },
   {
     icon: 'discovery',

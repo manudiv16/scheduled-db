@@ -1,3 +1,21 @@
+/* ============================================================
+   global.css — Estilos globales del sitio Scheduled-DB
+   ============================================================
+   Secciones:
+   1. Variables CSS (colores, fuentes, dimensiones)
+   2. Reset y base
+   3. Tipografía y utilidades
+   4. Layout (container, sections)
+   5. Navbar (glassmorphism, links)
+   6. Hero (background, contenido, botones)
+   7. Feature cards (grid, hover, glow)
+   8. API table (badges, hover)
+   9. Tabs y código
+   10. Footer
+   11. Responsive
+   ============================================================ */
+
+/* 1. Variables CSS — Paleta de colores y configuración */
 :root {
   --bg-primary: #0a0e1a;
   --bg-secondary: #111827;
@@ -17,6 +35,7 @@
   --max-width: 1200px;
 }
 
+/* 2. Reset y estilos base */
 * {
   margin: 0;
   padding: 0;
@@ -35,6 +54,7 @@ body {
   overflow-x: hidden;
 }
 
+/* 3. Tipografía y elementos inline */
 a {
   color: var(--accent-cyan);
   text-decoration: none;
@@ -69,6 +89,7 @@ pre code {
   padding: 0;
 }
 
+/* 4. Layout — Container y secciones */
 .container {
   max-width: var(--max-width);
   margin: 0 auto;
@@ -100,6 +121,7 @@ section {
   margin-right: auto;
 }
 
+/* 5. Navbar — Glassmorphism fijo en la parte superior */
 nav {
   position: fixed;
   top: 0;
@@ -192,6 +214,7 @@ nav .nav-github:hover {
   border-color: var(--border-color);
 }
 
+/* 6. Hero — Sección principal con gradientes y partículas */
 .hero {
   min-height: 100vh;
   display: flex;
@@ -280,12 +303,14 @@ nav .nav-github:hover {
   background: rgba(34, 211, 238, 0.05);
 }
 
+/* 7. Feature cards — Grid con hover y glow effect */
 .features-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 1.5rem;
 }
 
+/* 8. API table — Tabla con badges de método HTTP */
 .api-table {
   width: 100%;
   border-collapse: collapse;
@@ -315,6 +340,7 @@ nav .nav-github:hover {
   color: var(--accent-green);
 }
 
+/* 9. Tabs y bloques de código */
 .tabs {
   display: flex;
   gap: 0;
@@ -349,6 +375,7 @@ nav .nav-github:hover {
   display: block;
 }
 
+/* 10. Footer — Links y copyright */
 footer {
   border-top: 1px solid var(--border-color);
   padding: 3rem 0;
@@ -368,6 +395,7 @@ footer a {
   margin-bottom: 1rem;
 }
 
+/* 11. Responsive — Adaptaciones para móvil */
 @media (max-width: 768px) {
   nav .nav-links {
     display: none;
