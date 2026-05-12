@@ -14,6 +14,7 @@ import (
 	"scheduled-db/internal"
 	"scheduled-db/internal/discovery"
 	"scheduled-db/internal/logger"
+	"scheduled-db/internal/slots"
 )
 
 func main() {
@@ -39,6 +40,12 @@ func main() {
 		enableColdSpilling        = flag.Bool("enable-cold-spilling", getEnvBoolOrDefault("ENABLE_COLD_SPILLING", false), "Enable cold spilling for slots (archive old slots to disk)")
 		coldSpillingHotWindow     = flag.Duration("cold-spilling-hot-window", getEnvDurationOrDefault("COLD_SPILLING_HOT_WINDOW", 48*time.Hour), "Time window for hot slots in memory (default 48h)")
 		coldSpillingCheckInterval = flag.Duration("cold-spilling-check-interval", getEnvDurationOrDefault("COLD_SPILLING_CHECK_INTERVAL", 5*time.Minute), "Interval for eviction checks (default 5m)")
+		wheelLevel0Granularity    = flag.Duration("htw-level0-granularity", getEnvDurationOrDefault("HTW_LEVEL0_GRANULARITY", 0), "Timing wheel level 0 granularity (default: slot-gap * 1)")
+		wheelLevel0Buckets        = flag.Int("htw-level0-buckets", getEnvIntOrDefault("HTW_LEVEL0_BUCKETS", 360), "Timing wheel level 0 buckets (default: 360)")
+		wheelLevel1Granularity    = flag.Duration("htw-level1-granularity", getEnvDurationOrDefault("HTW_LEVEL1_GRANULARITY", 0), "Timing wheel level 1 granularity (default: slot-gap * 360)")
+		wheelLevel1Buckets        = flag.Int("htw-level1-buckets", getEnvIntOrDefault("HTW_LEVEL1_BUCKETS", 24), "Timing wheel level 1 buckets (default: 24)")
+		wheelLevel2Granularity    = flag.Duration("htw-level2-granularity", getEnvDurationOrDefault("HTW_LEVEL2_GRANULARITY", 0), "Timing wheel level 2 granularity (default: slot-gap * 360 * 24)")
+		wheelLevel2Buckets        = flag.Int("htw-level2-buckets", getEnvIntOrDefault("HTW_LEVEL2_BUCKETS", 365), "Timing wheel level 2 buckets (default: 365)")
 	)
 	flag.Parse()
 
@@ -91,7 +98,25 @@ func main() {
 	}
 	logger.Info("using job count limit: %d jobs", jobLimit)
 
-	// Create application configuration
+	var wheelConfigs []slots.WheelLevelConfig
+	l0g := *wheelLevel0Granularity
+	if l0g == 0 {
+		l0g = *slotGap
+	}
+	l1g := *wheelLevel1Granularity
+	if l1g == 0 {
+		l1g = *slotGap * 360
+	}
+	l2g := *wheelLevel2Granularity
+	if l2g == 0 {
+		l2g = *slotGap * 360 * 24
+	}
+	wheelConfigs = []slots.WheelLevelConfig{
+		{Granularity: l0g, Buckets: *wheelLevel0Buckets},
+		{Granularity: l1g, Buckets: *wheelLevel1Buckets},
+		{Granularity: l2g, Buckets: *wheelLevel2Buckets},
+	}
+
 	config := &internal.Config{
 		DataDir:                   *dataDir,
 		RaftBind:                  raftBind,
@@ -111,6 +136,7 @@ func main() {
 		EnableColdSpilling:        *enableColdSpilling,
 		ColdSpillingHotWindow:     *coldSpillingHotWindow,
 		ColdSpillingCheckInterval: *coldSpillingCheckInterval,
+		TimingWheelConfigs:        wheelConfigs,
 	}
 
 	// Create and start application
@@ -137,6 +163,8 @@ func main() {
 	} else {
 		logger.Info("cold spilling: disabled")
 	}
+	logger.Info("timing wheel: L0=%s×%d, L1=%s×%d, L2=%s×%d",
+		l0g, *wheelLevel0Buckets, l1g, *wheelLevel1Buckets, l2g, *wheelLevel2Buckets)
 	if len(peerList) > 0 {
 		logger.Info("peers: %v", peerList)
 	} else {

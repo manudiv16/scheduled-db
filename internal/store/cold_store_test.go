@@ -206,10 +206,10 @@ type testSink struct {
 	closed bool
 }
 
-func (ts *testSink) Write(p []byte) (int, error)        { return ts.writer.Write(p) }
-func (ts *testSink) Close() error                        { ts.closed = true; return nil }
-func (ts *testSink) ID() string                          { return "test" }
-func (ts *testSink) Cancel() error                       { return nil }
+func (ts *testSink) Write(p []byte) (int, error) { return ts.writer.Write(p) }
+func (ts *testSink) Close() error                { ts.closed = true; return nil }
+func (ts *testSink) ID() string                  { return "test" }
+func (ts *testSink) Cancel() error               { return nil }
 
 type testReadCloser struct {
 	data   []byte
