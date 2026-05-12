@@ -1,6 +1,6 @@
 <!--
-  index.astro — Página principal del sitio de Scheduled-DB
-  Estructura: Hero → Stats → Features → Architecture → Roadmap → Quick Start → API
+  index.astro — Main page for the Scheduled-DB site
+  Structure: Hero → Features → Architecture → Roadmap → Quick Start → API
 -->
 ---
 import Layout from '../layouts/Layout.astro';
@@ -14,10 +14,10 @@ import { apiEndpoints } from '../data/features';
 
 <Layout title="Scheduled-DB — Distributed Job Scheduling">
   <main>
-    <!-- Hero principal con animación de partículas y título letter-by-letter -->
+    <!-- Hero with particle animation and letter-by-letter title -->
     <AnimatedHero client:load />
 
-    <!-- Features: grid de cards con las capacidades del sistema -->
+    <!-- Features: card grid showcasing system capabilities -->
     <section id="features">
       <div class="container">
         <h2 class="section-title">Features</h2>
@@ -28,7 +28,7 @@ import { apiEndpoints } from '../data/features';
       </div>
     </section>
 
-    <!-- Architecture: diagrama visual del cluster Raft con nodos y conexiones -->
+    <!-- Architecture: visual Raft cluster diagram with nodes and connections -->
     <section id="architecture">
       <div class="container">
         <h2 class="section-title">Architecture</h2>
@@ -39,18 +39,18 @@ import { apiEndpoints } from '../data/features';
       </div>
     </section>
 
-    <!-- Roadmap: próximas iteraciones del proyecto (DX, Clustering, K8s Operator) -->
+    <!-- Roadmap: upcoming project iterations (DX, Clustering, K8s Operator) -->
     <section id="roadmap">
       <div class="container">
         <h2 class="section-title">Roadmap</h2>
         <p class="section-subtitle">
-          Próximas iteraciones del proyecto: mejoras en desarrollo, clustering y gestión Kubernetes.
+          Upcoming project iterations: development improvements, clustering enhancements, and Kubernetes management.
         </p>
         <RoadmapSection client:visible />
       </div>
     </section>
 
-    <!-- Quick Start: tabs con ejemplos de Docker Compose, Kubernetes y Binary -->
+    <!-- Quick Start: tabs with Docker Compose, Kubernetes, and Binary examples -->
     <section id="quickstart">
       <div class="container">
         <h2 class="section-title">Quick Start</h2>
@@ -61,7 +61,7 @@ import { apiEndpoints } from '../data/features';
       </div>
     </section>
 
-    <!-- API Reference: tabla de endpoints REST con métodos y descripciones -->
+    <!-- API Reference: REST endpoint table with methods and descriptions -->
     <section id="api">
       <div class="container">
         <h2 class="section-title">API Reference</h2>
@@ -102,7 +102,7 @@ import { apiEndpoints } from '../data/features';
     border-radius: 8px;
   }
 
-  /* Badges de color por método HTTP en la tabla de API */
+  /* Color-coded badges per HTTP method in the API table */
   .method-badge {
     display: inline-block;
     font-size: 0.7rem;

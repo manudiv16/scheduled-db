@@ -1,10 +1,10 @@
-<!-- RoadmapSection.svelte — Muestra las próximas iteraciones del proyecto -->
-<!-- Tres áreas principales: DX/Deploy, Clustering y K8s Operator -->
+<!-- RoadmapSection.svelte — Displays upcoming project iterations -->
+<!-- Three main areas: DX/Deploy, Clustering, and K8s Operator -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import anime from 'animejs';
 
-  // Cada card del roadmap con su estado, items y color
+  // Each roadmap card with its status, items, and accent color
   const roadmapItems = [
     {
       title: 'Developer Experience & Deployment',
@@ -12,22 +12,22 @@
       status: 'in-progress',
       color: '#22d3ee',
       items: [
-        'Hot-reload y ciclo de desarrollo local mejorado',
-        'Skaffold para workflow unificado de desarrollo',
-        'Entorno de desarrollo con un solo comando',
-        'Mejora de scripts de setup y bootstrap',
+        'Hot-reload and improved local development cycle',
+        'Skaffold for unified development workflow',
+        'One-command development environment setup',
+        'Improved setup and bootstrap scripts',
       ],
     },
     {
-      title: 'Clustering Mejorado',
+      title: 'Enhanced Clustering',
       icon: 'cluster',
       status: 'planned',
       color: '#a78bfa',
       items: [
-        'Cluster sharding para escalado horizontal',
-        'Topología flexible (multi-region, edge nodes)',
-        'Auto-scaling basado en carga de cola',
-        'Mejora de service discovery y gossip protocol',
+        'Cluster sharding for horizontal scaling',
+        'Flexible topology (multi-region, edge nodes)',
+        'Auto-scaling based on queue load',
+        'Improved service discovery and gossip protocol',
       ],
     },
     {
@@ -36,10 +36,10 @@
       status: 'planned',
       color: '#f472b6',
       items: [
-        'CRD ScheduledDBCluster para gestión declarativa',
-        'Auto-join de nodos al escalar el StatefulSet',
-        'Backup y restore automático de estado Raft',
-        'Scaling automático basado en métricas Prometheus',
+        'ScheduledDBCluster CRD for declarative management',
+        'Auto-join nodes when scaling the StatefulSet',
+        'Automatic Raft state backup and restore',
+        'Auto-scaling based on Prometheus metrics',
       ],
     },
   ];
@@ -47,7 +47,7 @@
   let containerRef: HTMLElement;
 
   onMount(() => {
-    // Animación de entrada al hacer scroll visible
+    // Entry animation when scrolled into view
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -74,7 +74,7 @@
 <div bind:this={containerRef} class="roadmap-container">
   {#each roadmapItems as item}
     <div class="roadmap-card" style="opacity: 0; --accent: {item.color};">
-      <!-- Cabecera de la card con icono, título y badge de estado -->
+      <!-- Card header with icon, title, and status badge -->
       <div class="roadmap-header">
         <div class="roadmap-icon" style="background: {item.color}15; color: {item.color};">
           {#if item.icon === 'tools'}
@@ -95,12 +95,12 @@
         <div class="roadmap-title-wrap">
           <h3>{item.title}</h3>
           <span class="status-badge" class:status-in-progress={item.status === 'in-progress'} class:status-planned={item.status === 'planned'}>
-            {item.status === 'in-progress' ? 'En progreso' : 'Planeado'}
+            {item.status === 'in-progress' ? 'In Progress' : 'Planned'}
           </span>
         </div>
       </div>
 
-      <!-- Lista de items del roadmap -->
+      <!-- Roadmap items list -->
       <ul class="roadmap-list">
         {#each item.items as listItem, i}
           <li style="opacity: 0;">
