@@ -1,134 +1,38 @@
-<!--
-  index.astro — Main page for the Scheduled-DB site
-  Structure: Hero → Features → Architecture → Roadmap → Quick Start → API
--->
 ---
 import Layout from '../layouts/Layout.astro';
-import AnimatedHero from '../components/AnimatedHero.svelte';
-import FeatureCards from '../components/FeatureCards.svelte';
-import ArchitectureDiagram from '../components/ArchitectureDiagram.svelte';
-import RoadmapSection from '../components/RoadmapSection.svelte';
-import CodeTabs from '../components/CodeTabs.svelte';
-import { apiEndpoints } from '../data/features';
+import HeroConsole from '../components/sections/HeroConsole.svelte';
+import FeaturesBento from '../components/sections/FeaturesBento.svelte';
+import ArchitectureLive from '../components/sections/ArchitectureLive.svelte';
+import RoadmapTrack from '../components/sections/RoadmapTrack.svelte';
+import QuickStartTerminal from '../components/sections/QuickStartTerminal.svelte';
+import ApiMonitor from '../components/sections/ApiMonitor.astro';
 ---
 
-<Layout title="Scheduled-DB — Distributed Job Scheduling">
-  <main>
-    <!-- Hero with particle animation and letter-by-letter title -->
-    <AnimatedHero client:load />
-
-    <!-- Features: card grid showcasing system capabilities -->
-    <section id="features">
-      <div class="container">
-        <h2 class="section-title">Features</h2>
-        <p class="section-subtitle">
-          Everything you need for reliable, distributed job scheduling at scale.
-        </p>
-        <FeatureCards client:visible />
-      </div>
-    </section>
-
-    <!-- Architecture: visual Raft cluster diagram with nodes and connections -->
-    <section id="architecture">
-      <div class="container">
-        <h2 class="section-title">Architecture</h2>
-        <p class="section-subtitle">
-          Built on Raft consensus for strong consistency and automatic failover.
-        </p>
-        <ArchitectureDiagram client:visible />
-      </div>
-    </section>
-
-    <!-- Roadmap: upcoming project iterations (DX, Clustering, K8s Operator) -->
-    <section id="roadmap">
-      <div class="container">
-        <h2 class="section-title">Roadmap</h2>
-        <p class="section-subtitle">
-          Upcoming project iterations: development improvements, clustering enhancements, and Kubernetes management.
-        </p>
-        <RoadmapSection client:visible />
-      </div>
-    </section>
-
-    <!-- Quick Start: tabs with Docker Compose, Kubernetes, and Binary examples -->
-    <section id="quickstart">
-      <div class="container">
-        <h2 class="section-title">Quick Start</h2>
-        <p class="section-subtitle">
-          Get a 3-node cluster running in seconds.
-        </p>
-        <CodeTabs client:visible />
-      </div>
-    </section>
-
-    <!-- API Reference: REST endpoint table with methods and descriptions -->
-    <section id="api">
-      <div class="container">
-        <h2 class="section-title">API Reference</h2>
-        <p class="section-subtitle">
-          Simple RESTful HTTP interface for job management.
-        </p>
-        <div class="api-wrapper">
-          <table class="api-table">
-            <thead>
-              <tr>
-                <th>Method</th>
-                <th>Endpoint</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {apiEndpoints.map((ep) => (
-                <tr>
-                  <td><span class="method-badge method-{ep.method.toLowerCase()}">{ep.method}</span></td>
-                  <td><code>{ep.path}</code></td>
-                  <td>{ep.description}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-  </main>
+<Layout title="Scheduled-DB - Distributed Job Scheduling">
+	<main>
+    <!-- client:load: Immediate hydration for boot sequence -->
+		<HeroConsole client:load />
+    
+    <!-- client:visible: Defer hydration until scrolled into view -->
+		<FeaturesBento client:visible />
+		
+    <!-- client:visible: Heavy SVG + animations, defer -->
+    <ArchitectureLive client:visible />
+		
+    <!-- client:visible: Interactive timeline, defer -->
+    <RoadmapTrack client:visible />
+		
+    <!-- client:idle: Interactive but not critical for initial paint -->
+    <QuickStartTerminal client:idle />
+		
+    <!-- Static Astro component (No JS) -->
+    <ApiMonitor />
+	</main>
 </Layout>
 
 <style>
-  .api-wrapper {
-    max-width: 800px;
-    margin: 0 auto;
-    overflow-x: auto;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-  }
-
-  /* Color-coded badges per HTTP method in the API table */
-  .method-badge {
-    display: inline-block;
-    font-size: 0.7rem;
-    font-weight: 700;
-    font-family: var(--font-mono);
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-
-  .method-post {
-    background: rgba(52, 211, 153, 0.15);
-    color: #34d399;
-    border: 1px solid rgba(52, 211, 153, 0.3);
-  }
-
-  .method-get {
-    background: rgba(34, 211, 238, 0.15);
-    color: #22d3ee;
-    border: 1px solid rgba(34, 211, 238, 0.3);
-  }
-
-  .method-delete {
-    background: rgba(248, 113, 113, 0.15);
-    color: #f87171;
-    border: 1px solid rgba(248, 113, 113, 0.3);
-  }
+	main {
+		width: 100%;
+    color: var(--ink-primary);
+	}
 </style>

@@ -1,0 +1,139 @@
+---
+import SectionHeader from '../ui/SectionHeader.svelte';
+
+const endpoints = [
+  {
+    method: 'POST',
+    path: '/jobs',
+    desc: 'Create a new job (unico or recurrente)',
+    example: '{"type":"unico", "action":"webhook", "target":"http://..."}'
+  },
+  {
+    method: 'GET',
+    path: '/jobs/{id}',
+    desc: 'Retrieve job details and state',
+    example: '{"id":"job-123", "status":"pending"}'
+  },
+  {
+    method: 'DELETE',
+    path: '/jobs/{id}/cancel',
+    desc: 'Cancel a pending or recurring job',
+    example: '{"status":"cancelled"}'
+  },
+  {
+    method: 'GET',
+    path: '/jobs/{id}/executions',
+    desc: 'List execution history for a job',
+    example: '[{"status":"success", "timestamp":"2026-05-13T10:00:00Z"}]'
+  },
+  {
+    method: 'GET',
+    path: '/metrics',
+    desc: 'Prometheus metrics endpoint',
+    example: '# HELP scheduled_db_jobs_total...'
+  }
+];
+
+function getMethodClass(method: string) {
+  if (method === 'POST') return 'bg-[rgba(124,255,95,0.1)] text-[var(--phosphor)] border-[var(--phosphor)] glow-phosphor';
+  if (method === 'GET') return 'bg-[rgba(0,224,255,0.1)] text-[var(--neon-cyan)] border-[var(--neon-cyan)] glow-cyan';
+  if (method === 'DELETE') return 'bg-[rgba(255,61,240,0.1)] text-[var(--neon-magenta)] border-[var(--neon-magenta)] glow-magenta';
+  return 'bg-[rgba(255,182,39,0.1)] text-[var(--neon-amber)] border-[var(--neon-amber)] glow-amber';
+}
+---
+
+<section id="api" class="container api-section">
+  <SectionHeader 
+    code="SYS-05" 
+    title="API MONITOR" 
+    subtitle="REST endpoints for cluster integration"
+  />
+
+  <div class="api-table-wrapper hud-frame clip-hud">
+    <table class="api-table">
+      <thead>
+        <tr>
+          <th class="hud-text">METHOD</th>
+          <th class="hud-text">ENDPOINT</th>
+          <th class="hud-text">DESCRIPTION</th>
+        </tr>
+      </thead>
+      <tbody>
+        {endpoints.map((ep) => (
+          <tr class="api-row">
+            <td class="method-cell">
+              <span class={`method-badge ${getMethodClass(ep.method)}`}>{ep.method}</span>
+            </td>
+            <td class="path-cell font-mono text-[var(--ink-primary)]">{ep.path}</td>
+            <td class="desc-cell text-[var(--ink-secondary)]">
+              {ep.desc}
+              <details class="example-details">
+                <summary class="hud-text text-[var(--neon-cyan)] text-xs cursor-pointer hover:underline mt-2">VIEW EXAMPLE</summary>
+                <pre class="font-mono text-xs text-[var(--ink-mute)] mt-2 p-2 bg-[var(--bg-void)] border border-[var(--ink-mute)] rounded">{ep.example}</pre>
+              </details>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<style>
+  .api-section {
+    padding: var(--spacing-2xl) 0;
+  }
+
+  .api-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .api-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+  }
+
+  .api-table th {
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid var(--border-hud);
+    color: var(--neon-cyan);
+    background: rgba(0,224,255,0.05);
+  }
+
+  .api-row {
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.05);
+    transition: background 0.2s var(--ease-out);
+  }
+
+  .api-row:hover {
+    background: rgba(0, 224, 255, 0.02);
+  }
+
+  .api-row td {
+    padding: var(--spacing-md) var(--spacing-lg);
+    vertical-align: top;
+  }
+
+  .method-badge {
+    display: inline-block;
+    padding: 4px 8px;
+    border: 1px solid;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .example-details {
+    outline: none;
+  }
+
+  .example-details summary {
+    list-style: none;
+  }
+
+  .example-details summary::-webkit-details-marker {
+    display: none;
+  }
+</style>

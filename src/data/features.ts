@@ -1,130 +1,75 @@
-export const features = [
+export type FeatureCategory = 'consensus' | 'scheduling' | 'storage' | 'ops';
+
+export interface Feature {
+  id: string;
+  title: string;
+  description: string;
+  category: FeatureCategory;
+  size: 'sm' | 'md' | 'lg';
+}
+
+export const features: Feature[] = [
   {
-    icon: 'consensus',
+    id: 'raft',
     title: 'Distributed Consensus',
-    description: 'Built on HashiCorp Raft for strong consistency. Automatic leader election and log replication across all nodes.',
-    color: '#22d3ee',
+    description: 'HashiCorp Raft implementation for CP consistency, automated leader election, and robust log replication across the cluster.',
+    category: 'consensus',
+    size: 'lg'
   },
   {
-    icon: 'jobs',
-    title: 'Two Job Types',
-    description: 'Unico: one-time execution at a specific timestamp. Recurrente: recurring execution with cron expressions.',
-    color: '#a78bfa',
-  },
-  {
-    icon: 'timing-wheel',
-    title: 'Hierarchical Timing Wheel',
-    description: 'High-performance slot queue using hierarchical timing wheels instead of heap-based structures. Optimized for millions of scheduled jobs.',
-    color: '#3b82f6',
-  },
-  {
-    icon: 'slots',
-    title: 'Time-Slotted Scheduling',
-    description: 'Efficient job organization with configurable slot intervals. Optimized for high-throughput scheduling.',
-    color: '#06b6d4',
-  },
-  {
-    icon: 'cold-spilling',
-    title: 'Cold Spilling to Disk',
-    description: 'Archive old slots to BoltDB to reduce memory footprint. Configurable hot window keeps recent slots in memory for fast access.',
-    color: '#8b5cf6',
-  },
-  {
-    icon: 'capacity',
-    title: 'Queue Size Limits',
-    description: 'Configurable memory and job count limits to prevent OOM. Smart rejection with 507 Insufficient Storage.',
-    color: '#fbbf24',
-  },
-  {
-    icon: 'ha',
-    title: 'High Availability',
-    description: 'Automatic failover and graceful leader resignation. Zero-downtime cluster reconfiguration.',
-    color: '#34d399',
-  },
-  {
-    icon: 'split-brain',
+    id: 'split-brain',
     title: 'Split-Brain Prevention',
-    description: 'RA-style minority partition shutdown. Nodes detect quorum loss and shut down gracefully to prevent data inconsistency.',
-    color: '#f87171',
+    description: 'RA-style quorum requirements prevent minority partitions from accepting writes.',
+    category: 'consensus',
+    size: 'sm'
   },
   {
-    icon: 'health',
-    title: 'Tiered Health Checks',
-    description: 'Three-tier health status: OK, Degraded, Unhealthy. Real-time monitoring of cluster state, memory usage, and failure rates.',
-    color: '#38bdf8',
+    id: 'timing-wheel',
+    title: 'Hierarchical Timing Wheel',
+    description: 'O(1) scheduling via bounded hierarchical wheels. Zero heap allocations during execution.',
+    category: 'scheduling',
+    size: 'lg'
   },
   {
-    icon: 'discovery',
+    id: 'job-types',
+    title: 'Dual Job Types',
+    description: 'Support for immediate execution (unico) and cron-expression based recurring (recurrente) jobs.',
+    category: 'scheduling',
+    size: 'sm'
+  },
+  {
+    id: 'cold-spilling',
+    title: 'Cold Storage Spilling',
+    description: 'Automatically spills distant future slots to BoltDB to conserve memory, reloading them as they approach.',
+    category: 'storage',
+    size: 'md'
+  },
+  {
+    id: 'persistence',
+    title: 'Disk Persistence',
+    description: 'All Raft logs, snapshots, and cold storage are backed by BoltDB.',
+    category: 'storage',
+    size: 'sm'
+  },
+  {
+    id: 'rest-api',
+    title: 'REST API',
+    description: 'JSON API for cluster management, job scheduling, and status tracking.',
+    category: 'ops',
+    size: 'sm'
+  },
+  {
+    id: 'service-discovery',
     title: 'Service Discovery',
-    description: 'Multiple strategies: Kubernetes, DNS, Gossip, Static. Automatic cluster formation and node joining.',
-    color: '#f472b6',
+    description: 'Multi-strategy peer discovery: Kubernetes, DNS, Gossip, or static configuration.',
+    category: 'ops',
+    size: 'sm'
   },
+  {
+    id: 'health-checks',
+    title: 'Tiered Health Checks',
+    description: 'Deep health endpoints verify Raft status, disk I/O, and queue latency.',
+    category: 'ops',
+    size: 'sm'
+  }
 ];
-
-export const apiEndpoints = [
-  { method: 'POST', path: '/jobs', description: 'Create job' },
-  { method: 'GET', path: '/jobs/{id}', description: 'Get job details' },
-  { method: 'DELETE', path: '/jobs/{id}', description: 'Delete job' },
-  { method: 'GET', path: '/jobs/{id}/status', description: 'Get job execution status' },
-  { method: 'GET', path: '/jobs/{id}/executions', description: 'Get execution history' },
-  { method: 'GET', path: '/jobs?status={status}', description: 'List jobs by status' },
-  { method: 'POST', path: '/jobs/{id}/cancel', description: 'Cancel job' },
-  { method: 'GET', path: '/health', description: 'Health check' },
-  { method: 'GET', path: '/debug/cluster', description: 'Cluster info' },
-  { method: 'POST', path: '/join', description: 'Join cluster' },
-];
-
-export const codeExamples = {
-  docker: `# Start 3-node cluster with load balancer
-make dev-up
-
-# Create a test job
-curl -X POST http://localhost:80/jobs \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "type": "unico",
-    "timestamp": "2024-12-25T10:00:00Z",
-    "webhook_url": "https://webhook.site/your-id"
-  }'
-
-# Check cluster status
-curl http://localhost:80/health | jq
-
-# View logs
-make dev-logs
-
-# Stop cluster
-make dev-down`,
-
-  k8s: `# Deploy to Kubernetes
-make k8s-deploy
-
-# Check status
-kubectl get pods -l app=scheduled-db
-
-# Port forward for local access
-kubectl port-forward svc/scheduled-db-api 8080:8080
-
-# Create a recurring job
-curl -X POST http://localhost:8080/jobs \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "type": "recurrente",
-    "cron_expression": "0 0 * * *",
-    "webhook_url": "https://example.com/daily-report"
-  }'`,
-
-  binary: `# Build
-make build
-
-# Run single node
-./scheduled-db --node-id=node-1
-
-# Run with custom config
-./scheduled-db \\
-  --node-id=node-1 \\
-  --http-port=8080 \\
-  --raft-port=7000 \\
-  --data-dir=./data \\
-  --slot-gap=10s`,
-};
