@@ -147,11 +147,100 @@
       font-weight: 600;
     }
 
-    /* Method badges */
+/* Method badges */
     .method-post { background: rgba(108,99,255,0.15); color: #6C63FF; }
     .method-get { background: rgba(56,178,172,0.15); color: #38B2AC; }
     .method-delete { background: rgba(107,114,128,0.15); color: #6B7280; }
-  </style>
+
+    /* Timing Wheel */
+    .timing-wheel {
+      position: relative;
+      width: 320px;
+      height: 320px;
+    }
+    @media (min-width: 768px) {
+      .timing-wheel {
+        width: 400px;
+        height: 400px;
+      }
+    }
+    .tw-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 2px solid rgba(163,177,198,0.3);
+    }
+    .tw-ring-outer {
+      inset: 0;
+      animation: spin-cw 30s linear infinite;
+    }
+    .tw-ring-mid {
+      inset: 15%;
+      animation: spin-cw 15s linear infinite;
+    }
+    .tw-ring-inner {
+      inset: 30%;
+      animation: spin-ccw 8s linear infinite;
+    }
+    @keyframes spin-cw {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes spin-ccw {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(-360deg); }
+    }
+    .tw-tick {
+      position: absolute;
+      width: 2px;
+      height: 10px;
+      background: rgba(108,99,255,0.35);
+      border-radius: 1px;
+      top: 0;
+      left: 50%;
+      transform-origin: 0 0;
+    }
+    .tw-tick-accent {
+      background: #6C63FF;
+      height: 14px;
+      width: 3px;
+    }
+    .tw-dot {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      background: #6C63FF;
+      border-radius: 50%;
+      box-shadow: 0 0 8px rgba(108,99,255,0.4);
+    }
+    .tw-dot-teal {
+      background: #38B2AC;
+      box-shadow: 0 0 8px rgba(56,178,172,0.4);
+    }
+    .tw-label {
+      position: absolute;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 9px;
+      color: #6B7280;
+      white-space: nowrap;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .tw-center {
+      position: absolute;
+      inset: 42%;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    @keyframes checkmark-pop {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+   </style>
 </head>
 <body class="min-h-screen antialiased">
 
@@ -219,19 +308,47 @@
           </div>
         </div>
         <div class="relative flex items-center justify-center">
-          <div class="relative w-64 h-64 md:w-80 md:h-80">
-            <div class="absolute inset-0 rounded-full neu-extruded animate-float-slow"></div>
-            <div class="absolute inset-8 md:inset-10 rounded-full neu-inset animate-float-delayed"></div>
-            <div class="absolute inset-16 md:inset-20 rounded-full neu-extruded-sm animate-float flex items-center justify-center">
-              <div class="w-16 h-16 md:w-20 md:h-20 rounded-full neu-inset flex items-center justify-center">
-                <i data-lucide="activity" class="w-8 h-8 md:w-10 md:h-10 text-accent"></i>
-              </div>
+          <div class="timing-wheel">
+            <div class="tw-ring tw-ring-outer neu-extruded">
+              <div class="tw-tick" style="transform: rotate(0deg) translateX(-1px) translateY(8px);"></div>
+              <div class="tw-tick" style="transform: rotate(30deg) translateX(-1px) translateY(8px);"></div>
+              <div class="tw-tick" style="transform: rotate(60deg) translateX(-1px) translateY(8px);"></div>
+              <div class="tw-tick tw-tick-accent" style="transform: rotate(90deg) translateX(-1.5px) translateY(8px);"></div>
+              <div class="tw-tick" style="transform: rotate(120deg) translateX(-1px) translateY(8px);"></div>
+              <div class="tw-tick" style="transform: rotate(150deg) translateX(-1px) translateY(8px);"></div>
+              <div class="tw-tick" style="transform: rotate(180deg) translateX(-1px) translateY(8px);"></div>
+              <div class="tw-tick tw-tick-accent" style="transform: rotate(210deg) translateX(-1.5px) translateY(8px);"></div>
+              <div class="tw-tick" style="transform: rotate(240deg) translateX(-1px) translateY(8px);"></div>
+              <div class="tw-tick" style="transform: rotate(270deg) translateX(-1px) translateY(8px);"></div>
+              <div class="tw-tick tw-tick-accent" style="transform: rotate(300deg) translateX(-1.5px) translateY(8px);"></div>
+              <div class="tw-tick" style="transform: rotate(330deg) translateX(-1px) translateY(8px);"></div>
+              <div class="tw-dot" style="top: 18%; right: 12%;"></div>
+              <div class="tw-label" style="bottom: 10%; left: 50%; transform: translateX(-50%) rotate(0deg);">Days</div>
             </div>
-            <div class="absolute -top-2 -right-2 w-12 h-12 rounded-full neu-extruded-sm animate-float-delayed flex items-center justify-center">
-              <i data-lucide="zap" class="w-5 h-5 text-teal"></i>
+            <div class="tw-ring tw-ring-mid neu-inset">
+              <div class="tw-tick" style="transform: rotate(0deg) translateX(-1px) translateY(6px);"></div>
+              <div class="tw-tick tw-tick-accent" style="transform: rotate(45deg) translateX(-1.5px) translateY(6px);"></div>
+              <div class="tw-tick" style="transform: rotate(90deg) translateX(-1px) translateY(6px);"></div>
+              <div class="tw-tick" style="transform: rotate(135deg) translateX(-1px) translateY(6px);"></div>
+              <div class="tw-tick tw-tick-accent" style="transform: rotate(180deg) translateX(-1.5px) translateY(6px);"></div>
+              <div class="tw-tick" style="transform: rotate(225deg) translateX(-1px) translateY(6px);"></div>
+              <div class="tw-tick" style="transform: rotate(270deg) translateX(-1px) translateY(6px);"></div>
+              <div class="tw-tick tw-tick-accent" style="transform: rotate(315deg) translateX(-1.5px) translateY(6px);"></div>
+              <div class="tw-dot tw-dot-teal" style="top: 12%; right: 8%;"></div>
+              <div class="tw-label" style="bottom: 8%; left: 50%; transform: translateX(-50%);">Hours</div>
             </div>
-            <div class="absolute -bottom-1 -left-1 w-10 h-10 rounded-full neu-extruded-sm animate-float flex items-center justify-center">
-              <i data-lucide="shield-check" class="w-4 h-4 text-accent"></i>
+            <div class="tw-ring tw-ring-inner neu-extruded-sm">
+              <div class="tw-tick" style="transform: rotate(0deg) translateX(-1px) translateY(5px);"></div>
+              <div class="tw-tick tw-tick-accent" style="transform: rotate(60deg) translateX(-1.5px) translateY(5px);"></div>
+              <div class="tw-tick" style="transform: rotate(120deg) translateX(-1px) translateY(5px);"></div>
+              <div class="tw-tick tw-tick-accent" style="transform: rotate(180deg) translateX(-1.5px) translateY(5px);"></div>
+              <div class="tw-tick" style="transform: rotate(240deg) translateX(-1px) translateY(5px);"></div>
+              <div class="tw-tick tw-tick-accent" style="transform: rotate(300deg) translateX(-1.5px) translateY(5px);"></div>
+              <div class="tw-dot" style="top: 10%; left: 50%; transform: translateX(-50%);"></div>
+              <div class="tw-label" style="bottom: 6%; left: 50%; transform: translateX(-50%); font-size: 8px;">Seconds</div>
+            </div>
+            <div class="tw-center neu-inset animate-float">
+              <i data-lucide="clock" class="w-7 h-7 md:w-9 md:h-9 text-accent"></i>
             </div>
           </div>
         </div>
@@ -539,7 +656,11 @@
             <h3 class="font-display font-bold text-fg text-lg">Launch the Cluster</h3>
           </div>
           <div class="relative">
-            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto" data-copy="git clone https://github.com/manudiv16/scheduled-db
+cd scheduled-db
+make dev-up
+
+curl https://localhost:8080/health">
               <span class="comment"># Clone and start a 3-node cluster</span><br/>
               <span class="keyword">git</span> clone https://github.com/manudiv16/scheduled-db<br/>
               <span class="keyword">cd</span> scheduled-db<br/>
@@ -561,7 +682,23 @@
             <h3 class="font-display font-bold text-fg text-lg">Create Jobs</h3>
           </div>
           <div class="relative">
-            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto" data-copy="curl -X POST https://localhost:8080/jobs \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{
+    &quot;type&quot;: &quot;unico&quot;,
+    &quot;payload&quot;: &quot;hello-world&quot;,
+    &quot;run_at&quot;: &quot;2025-06-01T12:00:00Z&quot;,
+    &quot;webhook_url&quot;: &quot;https://example.com/hook&quot;
+  }'
+
+curl -X POST https://localhost:8080/jobs \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{
+    &quot;type&quot;: &quot;recurrente&quot;,
+    &quot;payload&quot;: &quot;cleanup&quot;,
+    &quot;cron_expr&quot;: &quot;0 3 * * *&quot;,
+    &quot;webhook_url&quot;: &quot;https://example.com/hook&quot;
+  }'">
               <span class="comment"># Create a Unico (one-time) job</span><br/>
               <span class="keyword">curl</span> <span class="string">-X POST</span> http<span class="keyword">s</span>://localhost:8080/jobs <span class="string">\</span><br/>
               &nbsp;&nbsp;-H <span class="string">"Content-Type: application/json"</span> <span class="string">\</span><br/>
@@ -595,7 +732,9 @@
             <h3 class="font-display font-bold text-fg text-lg">Check Status</h3>
           </div>
           <div class="relative">
-            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto" data-copy="curl https://localhost:8080/jobs/{id}/status
+curl https://localhost:8080/jobs/{id}/executions
+curl https://localhost:8080/debug/cluster">
               <span class="comment"># Get job status</span><br/>
               <span class="keyword">curl</span> http<span class="keyword">s</span>://localhost:8080/jobs/{id}/status<br/><br/>
               <span class="comment"># View execution history</span><br/>
@@ -685,7 +824,7 @@
           </div>
           <p class="text-muted text-sm mb-6">Spin up a local 3-node cluster with a single command. Includes Prometheus and Grafana for monitoring.</p>
           <div class="relative">
-            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto" data-copy="make dev-up">
               <span class="comment"># Start the cluster</span><br/>
               <span class="keyword">make</span> dev-up<br/><br/>
               <span class="comment"># Ports</span><br/>
@@ -717,7 +856,7 @@
           </div>
           <p class="text-muted text-sm mb-6">StatefulSet deployment with service discovery, staggered startup, and auto-bootstrap for orphaned nodes.</p>
           <div class="relative">
-            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto" data-copy="make k8s-deploy">
               <span class="comment"># Deploy to Kubernetes</span><br/>
               <span class="keyword">make</span> k8s-deploy<br/><br/>
               <span class="comment"># Service discovery</span><br/>
@@ -807,10 +946,10 @@
       });
     });
 
-    // Copy to clipboard
+    // Copy to clipboard — uses data-copy attribute if present, otherwise falls back to innerText
     function copyCode(btn) {
       const codeBlock = btn.closest('.relative').querySelector('.code-block');
-      const text = codeBlock.innerText;
+      const text = codeBlock.getAttribute('data-copy') || codeBlock.innerText;
       navigator.clipboard.writeText(text).then(() => {
         const icon = btn.querySelector('[data-lucide]');
         icon.setAttribute('data-lucide', 'check');
