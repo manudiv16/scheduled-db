@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scheduled-DB Simulator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: '#0f172a',
+            card: '#1e293b',
+            border: '#334155',
+            accent: '#6366f1',
+            'accent-light': '#818cf8',
+            success: '#10b981',
+            warning: '#f59e0b',
+            danger: '#ef4444',
+            info: '#3b82f6',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: #0f172a; }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: #1e293b; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+    .animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-slide-in { animation: slide-in 0.3s ease-out; }
+    .job-card { transition: all 0.2s ease; }
+    .job-card:hover { transform: translateX(4px); }
+    canvas { image-rendering: pixelated; }
+  </style>
+</head>
+<body class="text-gray-200 min-h-screen">
+
+<div class="max-w-[1600px] mx-auto p-4 lg:p-6">
+
+  <header class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-accent flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold text-white">Scheduled-DB Simulator</h1>
+        <p class="text-xs text-gray-400">WebAssembly job scheduling engine</p>
+      </div>
+    </div>
+    <div id="wasm-status" class="flex items-center gap-2 text-sm">
+      <span class="w-2 h-2 rounded-full bg-gray-500 animate-pulse-dot"></span>
+      <span class="text-gray-400">Loading WASM...</span>
+    </div>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+    <div class="lg:col-span-3 space-y-4">
+      <div class="bg-card rounded-2xl p-4 border border-border">
+        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+          </svg>
+          Create Job
+        </h2>
+        <form id="job-form" class="space-y-3">
+          <div>
+            <label class="text-xs text-gray-400 mb-1 block">Type</label>
+            <select id="job-type" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-accent focus:outline-none">
+              <option value="unico">unico (one-time)</option>
+              <option value="recurrente">recurrente (cron)</option>
+            </select>
+          </div>
+          <div id="timestamp-field">
+            <label class="text-xs text-gray-400 mb-1 block">Execute at</label>
+            <input id="job-timestamp" type="datetime-local" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-accent focus:outline-none" />
+          </div>
+          <div id="cron-field" class="hidden">
+            <label class="text-xs text-gray-400 mb-1 block">Cron expression</label>
+            <input id="job-cron" type="text" placeholder="*/5 * * * *" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-accent focus:outline-none font-mono" />
+            <p class="text-[10px] text-gray-500 mt-1">min hour dom month dow</p>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 mb-1 block">Webhook URL</label>
+            <input id="job-webhook" type="text" placeholder="https://example.com/webhook" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-accent focus:outline-none" />
+          </div>
+          <button type="submit" class="w-full bg-accent hover:bg-accent-light text-white font-medium py-2 px-4 rounded-lg transition-colors text-sm">
+            Schedule Job
+          </button>
+        </form>
+      </div>
+
+      <div class="bg-card rounded-2xl p-4 border border-border">
+        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+          Controls
+        </h2>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400">Speed</span>
+            <div class="flex gap-1" id="speed-controls">
+              <button data-speed="0" class="speed-btn px-2 py-1 text-xs rounded-md bg-surface border border-border hover:border-accent text-gray-300">Pause</button>
+              <button data-speed="1" class="speed-btn px-2 py-1 text-xs rounded-md bg-surface border border-border hover:border-accent text-gray-300">1x</button>
+              <button data-speed="10" class="speed-btn px-2 py-1 text-xs rounded-md bg-accent border border-accent text-white">10x</button>
+              <button data-speed="100" class="speed-btn px-2 py-1 text-xs rounded-md bg-surface border border-border hover:border-accent text-gray-300">100x</button>
+            </div>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-400">Success rate</span>
+            <div class="flex items-center gap-2">
+              <input id="success-rate" type="range" min="0" max="100" value="95" class="w-20 accent-accent" />
+              <span id="success-rate-label" class="text-xs text-white w-8">95%</span>
+            </div>
+          </div>
+          <button id="btn-tick" class="w-full bg-surface border border-border hover:border-accent text-gray-300 font-medium py-2 px-4 rounded-lg transition-colors text-sm">
+            Tick (advance 1 step)
+          </button>
+          <button id="btn-reset" class="w-full bg-surface border border-border hover:border-danger text-gray-400 hover:text-danger font-medium py-2 px-4 rounded-lg transition-colors text-sm">
+            Reset Simulator
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-card rounded-2xl p-4 border border-border">
+        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+          </svg>
+          Stats
+        </h2>
+        <div class="grid grid-cols-2 gap-2" id="stats-grid">
+          <div class="bg-surface rounded-lg p-2 text-center">
+            <div id="stat-jobs" class="text-lg font-bold text-white">0</div>
+            <div class="text-[10px] text-gray-400">Jobs</div>
+          </div>
+          <div class="bg-surface rounded-lg p-2 text-center">
+            <div id="stat-slots" class="text-lg font-bold text-white">0</div>
+            <div class="text-[10px] text-gray-400">Slots</div>
+          </div>
+          <div class="bg-surface rounded-lg p-2 text-center">
+            <div id="stat-executed" class="text-lg font-bold text-success">0</div>
+            <div class="text-[10px] text-gray-400">Executed</div>
+          </div>
+          <div class="bg-surface rounded-lg p-2 text-center">
+            <div id="stat-ticks" class="text-lg font-bold text-info">0</div>
+            <div class="text-[10px] text-gray-400">Ticks</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lg:col-span-5 space-y-4">
+      <div class="bg-card rounded-2xl p-4 border border-border">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold text-gray-300 flex items-center gap-2">
+            <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Timing Wheel
+          </h2>
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-gray-400">Time:</span>
+            <span id="sim-time" class="text-white font-mono">--:--:--</span>
+          </div>
+        </div>
+        <div class="bg-surface rounded-xl p-3 border border-border">
+          <canvas id="wheel-canvas" width="600" height="300" class="w-full"></canvas>
+        </div>
+        <div class="flex items-center gap-4 mt-2 text-[10px] text-gray-400">
+          <div class="flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-accent"></span> L0 (seconds)
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-teal-400"></span> L1 (minutes)
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span> L2 (hours)
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="w-2 h-2 rounded-full bg-white opacity-50"></span> Now
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-card rounded-2xl p-4 border border-border">
+        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+          </svg>
+          Job Timeline
+        </h2>
+        <div class="bg-surface rounded-xl p-3 border border-border">
+          <canvas id="timeline-canvas" width="600" height="200" class="w-full"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="lg:col-span-4 space-y-4">
+      <div class="bg-card rounded-2xl p-4 border border-border">
+        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+          </svg>
+          Active Jobs
+          <span id="job-count" class="ml-auto text-xs bg-surface px-2 py-0.5 rounded-full text-gray-400">0</span>
+        </h2>
+        <div id="jobs-list" class="space-y-2 max-h-[300px] overflow-y-auto scrollbar-thin">
+          <div class="text-center text-gray-500 text-sm py-8">No jobs scheduled yet</div>
+        </div>
+      </div>
+
+      <div class="bg-card rounded-2xl p-4 border border-border">
+        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          Execution Log
+        </h2>
+        <div id="exec-log" class="space-y-1 max-h-[250px] overflow-y-auto scrollbar-thin font-mono text-xs">
+          <div class="text-center text-gray-500 py-4">Waiting for activity...</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="wasm_exec.js"></script>
+<script>
+const STATE = {
+  wasmReady: false,
+  speed: 10,
+  autoTickInterval: null,
+  simTime: 0,
+  jobs: {},
+  execLog: [],
+  tickCount: 0,
+  totalExecuted: 0,
+};
+
+const $ = (id) => document.getElementById(id);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+function formatTime(epoch) {
+  if (!epoch) return '--:--:--';
+  const d = new Date(epoch * 1000);
+  return d.toLocaleTimeString('en-GB');
+}
+
+function formatDateTime(epoch) {
+  if (!epoch) return '--';
+  const d = new Date(epoch * 1000);
+  return d.toLocaleString('en-GB', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function statusColor(status) {
+  switch(status) {
+    case 'pending': return 'bg-amber-500';
+    case 'in_progress': return 'bg-blue-500 animate-pulse';
+    case 'completed': return 'bg-emerald-500';
+    case 'failed': return 'bg-red-500';
+    case 'cancelled': return 'bg-gray-500';
+    default: return 'bg-gray-500';
+  }
+}
+
+function statusText(status) {
+  switch(status) {
+    case 'pending': return 'Pending';
+    case 'in_progress': return 'Running';
+    case 'completed': return 'Done';
+    case 'failed': return 'Failed';
+    case 'cancelled': return 'Cancelled';
+    case 'timeout': return 'Timeout';
+    default: return status;
+  }
+}
+
+function addLogEntry(msg, type='info') {
+  const log = $('exec-log');
+  if (log.querySelector('.text-gray-500')) log.innerHTML = '';
+  const colors = { info:'text-blue-400', success:'text-emerald-400', error:'text-red-400', warn:'text-amber-400' };
+  const time = formatTime(STATE.simTime);
+  const entry = document.createElement('div');
+  entry.className = `${colors[type] || 'text-gray-400'} animate-slide-in`;
+  entry.textContent = `[${time}] ${msg}`;
+  log.prepend(entry);
+  while (log.children.length > 100) log.lastChild.remove();
+}
+
+function callSimulator(fn, ...args) {
+  try {
+    const result = simulator[fn](...args);
+    if (result && typeof result === 'object' && result.ok !== undefined) {
+      if (!result.ok) {
+        console.error('Simulator error:', result.error);
+        return null;
+      }
+      try { return JSON.parse(result.data); } catch { return result.data; }
+    }
+    return result;
+  } catch(e) {
+    console.error('WASM call error:', e);
+    return null;
+  }
+}
+
+function updateStats(state) {
+  if (!state) return;
+  STATE.simTime = state.now;
+  STATE.jobs = state.jobs || {};
+  STATE.tickCount = state.tick_count || 0;
+  STATE.totalExecuted = state.total_executed || 0;
+
+  $('sim-time').textContent = formatTime(state.now);
+  $('stat-jobs').textContent = Object.keys(STATE.jobs).length;
+  $('stat-slots').textContent = state.wheel_size || 0;
+  $('stat-executed').textContent = STATE.totalExecuted;
+  $('stat-ticks').textContent = STATE.tickCount;
+  $('job-count').textContent = Object.keys(STATE.jobs).length;
+}
+
+function renderJobs() {
+  const list = $('jobs-list');
+  const jobs = Object.values(STATE.jobs);
+
+  if (jobs.length === 0) {
+    list.innerHTML = '<div class="text-center text-gray-500 text-sm py-8">No jobs scheduled yet</div>';
+    return;
+  }
+
+  list.innerHTML = jobs.map(job => {
+    const state = (window._execStates || {})[job.id] || {};
+    const status = state.status || 'pending';
+    const ts = job.type === 'unico' && job.timestamp
+      ? formatDateTime(job.timestamp)
+      : job.type === 'recurrente'
+        ? `cron: ${job.cron_expression}`
+        : formatDateTime(job.created_at);
+    return `
+      <div class="job-card bg-surface rounded-lg p-3 border border-border cursor-pointer" data-job-id="${job.id}">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="w-2 h-2 rounded-full ${statusColor(status)}"></span>
+          <span class="text-xs font-medium text-white truncate flex-1">${job.id.slice(0,12)}</span>
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-card border border-border text-gray-400">${job.type}</span>
+        </div>
+        <div class="text-[10px] text-gray-400 truncate">${ts}</div>
+        <div class="text-[10px] text-gray-500">${statusText(status)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function drawTimingWheel() {
+  const canvas = $('wheel-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  const cx = W / 2;
+  const cy = H / 2;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const radii = [100, 70, 45];
+  const colors = ['#6366f1', '#2dd4bf', '#fbbf24'];
+  const labels = ['L0', 'L1', 'L2'];
+
+  radii.forEach((r, i) => {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = colors[i] + '30';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff40';
+  ctx.fill();
+
+  const now = Date.now() / 1000;
+  const jobs = Object.values(STATE.jobs);
+  jobs.forEach((job, idx) => {
+    const ts = job.timestamp || job.created_at || 0;
+    const delta = ts - now;
+    const angle = ((delta % 60) / 60) * Math.PI * 2 - Math.PI / 2;
+    const layer = delta < 10 ? 0 : delta < 60 ? 1 : 2;
+    const r = radii[layer];
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+
+    const state = (window._execStates || {})[job.id] || {};
+    const status = state.status || 'pending';
+    const dotColor = status === 'completed' ? '#10b981' : status === 'failed' ? '#ef4444' : status === 'in_progress' ? '#3b82f6' : '#f59e0b';
+
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = dotColor;
+    ctx.fill();
+
+    if (status === 'in_progress') {
+      ctx.beginPath();
+      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.strokeStyle = dotColor + '40';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  });
+
+  const nowAngle = -Math.PI / 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(nowAngle) * 110, cy + Math.sin(nowAngle) * 110);
+  ctx.strokeStyle = '#ffffff30';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawTimeline() {
+  const canvas = $('timeline-canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const jobs = Object.values(STATE.jobs);
+  if (jobs.length === 0) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No jobs to display', W/2, H/2);
+    return;
+  }
+
+  const now = STATE.simTime || Date.now()/1000;
+  const lookAhead = 120;
+  const barH = Math.min(20, (H - 20) / Math.max(jobs.length, 1));
+  const padding = 80;
+
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(padding, 10, W - padding - 10, H - 20);
+
+  const nowX = padding + (0 / lookAhead) * (W - padding - 10);
+  ctx.beginPath();
+  ctx.moveTo(nowX, 10);
+  ctx.lineTo(nowX, H - 10);
+  ctx.strokeStyle = '#ffffff30';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'center';
+  for (let s = 0; s <= lookAhead; s += 30) {
+    const x = padding + (s / lookAhead) * (W - padding - 10);
+    ctx.fillText(`+${s}s`, x, H - 2);
+  }
+
+  jobs.forEach((job, i) => {
+    const ts = job.timestamp || job.created_at || 0;
+    const delta = ts - now;
+    const x = padding + (delta / lookAhead) * (W - padding - 10);
+    const y = 15 + i * (barH + 4);
+
+    if (x < padding || x > W - 10) return;
+
+    const state = (window._execStates || {})[job.id] || {};
+    const status = state.status || 'pending';
+    const colors = { pending:'#f59e0b', in_progress:'#3b82f6', completed:'#10b981', failed:'#ef4444', cancelled:'#6b7280' };
+    const color = colors[status] || '#6b7280';
+
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(padding, y, W - padding - 10, barH);
+
+    ctx.fillStyle = color + '40';
+    ctx.fillRect(padding, y, x - padding, barH);
+
+    ctx.beginPath();
+    ctx.arc(x, y + barH/2, 5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(job.id.slice(0, 8), padding - 5, y + barH/2 + 4);
+  });
+}
+
+function render() {
+  drawTimingWheel();
+  drawTimeline();
+  renderJobs();
+}
+
+function processTick() {
+  if (!STATE.wasmReady) return;
+
+  const result = callSimulator('tick');
+  const state = callSimulator('getState');
+
+  if (state) {
+    window._execStates = state.execution_states || {};
+    updateStats(state);
+
+    if (result && result.executed_jobs) {
+      result.executed_jobs.forEach(r => {
+        const status = r.Success ? 'success' : 'error';
+        addLogEntry(`Job ${r.JobID.slice(0,8)} ${r.Success ? 'completed' : 'failed'} (${r.ResponseTime}ms)`, status);
+      });
+    }
+    if (result && result.rescheduled_ids) {
+      result.rescheduled_ids.forEach(id => {
+        addLogEntry(`Job ${id.slice(0,8)} rescheduled (recurring)`, 'info');
+      });
+    }
+  }
+
+  render();
+}
+
+function startAutoTick() {
+  if (STATE.autoTickInterval) return;
+  const speed = STATE.speed;
+  if (speed === 0) return;
+
+  const interval = Math.max(50, 1000 / speed);
+  STATE.autoTickInterval = setInterval(() => {
+    callSimulator('advanceTime', 1);
+    processTick();
+  }, interval);
+  addLogEntry(`Simulation started at ${speed}x speed`, 'info');
+}
+
+function stopAutoTick() {
+  if (STATE.autoTickInterval) {
+    clearInterval(STATE.autoTickInterval);
+    STATE.autoTickInterval = null;
+  }
+}
+
+function setSpeed(speed) {
+  STATE.speed = speed;
+  $$('.speed-btn').forEach(btn => {
+    const s = parseInt(btn.dataset.speed);
+    if (s === speed) {
+      btn.className = 'speed-btn px-2 py-1 text-xs rounded-md bg-accent border border-accent text-white';
+    } else {
+      btn.className = 'speed-btn px-2 py-1 text-xs rounded-md bg-surface border border-border hover:border-accent text-gray-300';
+    }
+  });
+
+  stopAutoTick();
+  callSimulator('setClockSpeed', speed);
+  if (speed > 0) startAutoTick();
+  else addLogEntry('Simulation paused', 'warn');
+}
+
+async function initWasm() {
+  try {
+    const go = new Go();
+    const result = await WebAssembly.instantiateStreaming(fetch('scheduled-db.wasm'), go.importObject);
+    go.run(result.instance);
+
+    STATE.wasmReady = true;
+    $('wasm-status').innerHTML = `
+      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+      <span class="text-emerald-400 text-sm">WASM Ready</span>
+    `;
+
+    callSimulator('setClockSpeed', STATE.speed);
+    callSimulator('setSuccessRate', 0.95);
+
+    const state = callSimulator('getState');
+    if (state) {
+      window._execStates = state.execution_states || {};
+      updateStats(state);
+    }
+
+    setSpeed(STATE.speed);
+    render();
+    addLogEntry('WASM simulator initialized', 'success');
+  } catch(e) {
+    console.error('WASM init failed:', e);
+    $('wasm-status').innerHTML = `
+      <span class="w-2 h-2 rounded-full bg-red-500"></span>
+      <span class="text-red-400 text-sm">WASM Error</span>
+    `;
+    addLogEntry('Failed to load WASM: ' + e.message, 'error');
+  }
+}
+
+$('job-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!STATE.wasmReady) return;
+
+  const type = $('job-type').value;
+  const webhook = $('job-webhook').value || 'https://example.com/webhook';
+
+  const req = { type, webhook_url: webhook };
+
+  if (type === 'unico') {
+    const dt = $('job-timestamp').value;
+    if (!dt) { addLogEntry('Please set a timestamp', 'warn'); return; }
+    req.timestamp = new Date(dt).toISOString();
+  } else {
+    const cron = $('job-cron').value;
+    if (!cron) { addLogEntry('Please set a cron expression', 'warn'); return; }
+    req.cron_expression = cron;
+    const now = new Date();
+    now.setSeconds(now.getSeconds() + 5);
+    req.timestamp = now.toISOString();
+  }
+
+  const result = callSimulator('createJob', JSON.stringify(req));
+  if (result) {
+    addLogEntry(`Created ${type} job: ${result.id.slice(0,8)}`, 'success');
+    const state = callSimulator('getState');
+    if (state) {
+      window._execStates = state.execution_states || {};
+      updateStats(state);
+    }
+    render();
+  } else {
+    addLogEntry('Failed to create job', 'error');
+  }
+});
+
+$('job-type').addEventListener('change', (e) => {
+  const isUnico = e.target.value === 'unico';
+  $('timestamp-field').classList.toggle('hidden', !isUnico);
+  $('cron-field').classList.toggle('hidden', isUnico);
+});
+
+$$('.speed-btn').forEach(btn => {
+  btn.addEventListener('click', () => setSpeed(parseInt(btn.dataset.speed)));
+});
+
+$('success-rate').addEventListener('input', (e) => {
+  const rate = parseInt(e.target.value);
+  $('success-rate-label').textContent = rate + '%';
+  if (STATE.wasmReady) callSimulator('setSuccessRate', rate / 100);
+});
+
+$('btn-tick').addEventListener('click', () => {
+  if (!STATE.wasmReady) return;
+  callSimulator('advanceTime', 1);
+  processTick();
+});
+
+$('btn-reset').addEventListener('click', () => {
+  if (!STATE.wasmReady) return;
+  stopAutoTick();
+  callSimulator('reset');
+  STATE.execLog = [];
+  STATE.jobs = {};
+  STATE.tickCount = 0;
+  STATE.totalExecuted = 0;
+  window._execStates = {};
+  $('exec-log').innerHTML = '<div class="text-center text-gray-500 py-4">Waiting for activity...</div>';
+  const state = callSimulator('getState');
+  if (state) updateStats(state);
+  render();
+  addLogEntry('Simulator reset', 'warn');
+});
+
+initWasm();
+setInterval(render, 1000);
+</script>
+
+</body>
+</html>
