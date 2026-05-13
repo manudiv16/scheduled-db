@@ -1,0 +1,24 @@
+# Binaries
+scheduled-db
+*.exe
+dist/
+
+# WASM build artifacts
+docs/scheduled-db.wasm
+docs/wasm_exec.js
+
+# Go
+coverage.out
+*.test
+
+# Data
+data*/
+logs*/
+*.log
+*.pid
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

@@ -1,15 +1,11 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"sync"
 	"sync/atomic"
 
 	"scheduled-db/internal/logger"
-
-	"github.com/hashicorp/raft"
 )
 
 type CommandType string
@@ -98,17 +94,16 @@ func NewFSMWithColdStore(coldStore ColdSlotStore) *FSM {
 	}
 }
 
-// Apply applies a Raft log entry to the FSM
-func (f *FSM) Apply(logEntry *raft.Log) interface{} {
-	var cmd Command
-	if err := json.Unmarshal(logEntry.Data, &cmd); err != nil {
-		logger.Debug("Failed to unmarshal command: %v", err)
-		return fmt.Errorf("failed to unmarshal command: %v", err)
-	}
-
+// ApplyCommand applies a command directly to the FSM without Raft.
+// This enables non-consensus usage (simulator, WASM).
+func (f *FSM) ApplyCommand(cmd *Command) interface{} {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	return f.applyCommandInternal(cmd)
+}
 
+// applyCommandInternal processes a command. Caller must hold f.mu.
+func (f *FSM) applyCommandInternal(cmd *Command) interface{} {
 	switch cmd.Type {
 	case CommandCreateJob:
 		if cmd.Job == nil {
@@ -216,90 +211,6 @@ func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 	default:
 		return fmt.Errorf("unknown command type: %s", cmd.Type)
 	}
-}
-
-// Snapshot creates a snapshot of the FSM state.
-// Deep-copies all data to prevent races with Apply() during Persist().
-func (f *FSM) Snapshot() (raft.FSMSnapshot, error) {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-
-	jobs := make(map[string]*Job, len(f.jobs))
-	for k, v := range f.jobs {
-		jobs[k] = v.Clone()
-	}
-
-	slots := make(map[int64]*SlotData, len(f.slots))
-	for k, v := range f.slots {
-		slots[k] = v.Clone()
-	}
-
-	coldSlotMeta := make(map[int64]bool, len(f.coldSlotMeta))
-	for k, v := range f.coldSlotMeta {
-		coldSlotMeta[k] = v
-	}
-
-	executionStates := make(map[string]*JobExecutionState, len(f.executionStates))
-	for k, v := range f.executionStates {
-		executionStates[k] = v.Clone()
-	}
-
-	return &Snapshot{
-		jobs:            jobs,
-		slots:           slots,
-		coldSlotMeta:    coldSlotMeta,
-		executionStates: executionStates,
-		memoryUsage:     f.memoryUsage.Load(),
-		jobCount:        f.jobCount.Load(),
-	}, nil
-}
-
-// Restore restores the FSM state from a snapshot
-func (f *FSM) Restore(reader io.ReadCloser) error {
-	defer reader.Close()
-
-	var snapshot struct {
-		Jobs            map[string]*Job               `json:"jobs"`
-		Slots           map[int64]*SlotData           `json:"slots"`
-		ColdSlotMeta    map[int64]bool                `json:"cold_slot_meta"`
-		ExecutionStates map[string]*JobExecutionState `json:"execution_states"`
-		MemoryUsage     int64                         `json:"memory_usage"`
-		JobCount        int64                         `json:"job_count"`
-	}
-
-	if err := json.NewDecoder(reader).Decode(&snapshot); err != nil {
-		return fmt.Errorf("failed to decode snapshot: %v", err)
-	}
-
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	f.jobs = snapshot.Jobs
-	if f.jobs == nil {
-		f.jobs = make(map[string]*Job)
-	}
-
-	f.slots = snapshot.Slots
-	if f.slots == nil {
-		f.slots = make(map[int64]*SlotData)
-	}
-
-	f.coldSlotMeta = snapshot.ColdSlotMeta
-	if f.coldSlotMeta == nil {
-		f.coldSlotMeta = make(map[int64]bool)
-	}
-
-	f.executionStates = snapshot.ExecutionStates
-	if f.executionStates == nil {
-		f.executionStates = make(map[string]*JobExecutionState)
-	}
-
-	f.memoryUsage.Store(snapshot.MemoryUsage)
-	f.jobCount.Store(snapshot.JobCount)
-
-	logger.Debug("Restored %d jobs, %d slots, %d cold slots, %d execution states, %d bytes memory, %d job count from snapshot",
-		len(f.jobs), len(f.slots), len(f.coldSlotMeta), len(f.executionStates), snapshot.MemoryUsage, snapshot.JobCount)
-	return nil
 }
 
 // GetJob returns a deep copy of a job by ID
@@ -420,6 +331,110 @@ func (f *FSM) GetJobCount() int64 {
 	return f.jobCount.Load()
 }
 
+// CreateJob creates a job in the FSM (no Raft)
+func (f *FSM) CreateJob(job *Job) error {
+	result := f.ApplyCommand(&Command{Type: CommandCreateJob, Job: job})
+	if err, ok := result.(error); ok {
+		return err
+	}
+	return nil
+}
+
+// DeleteJob deletes a job from the FSM (no Raft)
+func (f *FSM) DeleteJob(id string) error {
+	result := f.ApplyCommand(&Command{Type: CommandDeleteJob, ID: id})
+	if err, ok := result.(error); ok {
+		return err
+	}
+	return nil
+}
+
+// CreateSlot creates a slot in the FSM (no Raft)
+func (f *FSM) CreateSlot(slot *SlotData) error {
+	result := f.ApplyCommand(&Command{Type: CommandCreateSlot, Slot: slot})
+	if err, ok := result.(error); ok {
+		return err
+	}
+	return nil
+}
+
+// DeleteSlot deletes a slot from the FSM (no Raft)
+func (f *FSM) DeleteSlot(key int64) error {
+	result := f.ApplyCommand(&Command{Type: CommandDeleteSlot, ID: fmt.Sprintf("%d", key)})
+	if err, ok := result.(error); ok {
+		return err
+	}
+	return nil
+}
+
+// UpdateJobStatus updates a job's execution status in the FSM (no Raft)
+func (f *FSM) UpdateJobStatus(jobID string, status JobStatus, nodeID string, timestamp int64) error {
+	result := f.ApplyCommand(&Command{
+		Type: CommandUpdateJobStatus,
+		StatusCommand: &StatusCommand{
+			JobID:     jobID,
+			Status:    status,
+			NodeID:    nodeID,
+			Timestamp: timestamp,
+		},
+	})
+	if err, ok := result.(error); ok {
+		return err
+	}
+	return nil
+}
+
+// GetSnapshot returns a snapshot of the entire FSM state
+func (f *FSM) GetSnapshot() *Snapshot {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	jobs := make(map[string]*Job, len(f.jobs))
+	for k, v := range f.jobs {
+		jobs[k] = v.Clone()
+	}
+
+	slots := make(map[int64]*SlotData, len(f.slots))
+	for k, v := range f.slots {
+		slots[k] = v.Clone()
+	}
+
+	executionStates := make(map[string]*JobExecutionState, len(f.executionStates))
+	for k, v := range f.executionStates {
+		executionStates[k] = v.Clone()
+	}
+
+	coldSlotMeta := make(map[int64]bool, len(f.coldSlotMeta))
+	for k, v := range f.coldSlotMeta {
+		coldSlotMeta[k] = v
+	}
+
+	return &Snapshot{
+		jobs:            jobs,
+		slots:           slots,
+		coldSlotMeta:    coldSlotMeta,
+		executionStates: executionStates,
+		memoryUsage:     f.memoryUsage.Load(),
+		jobCount:        f.jobCount.Load(),
+	}
+}
+
+// Snapshot holds a point-in-time copy of FSM state
+type Snapshot struct {
+	jobs            map[string]*Job
+	slots           map[int64]*SlotData
+	coldSlotMeta    map[int64]bool
+	executionStates map[string]*JobExecutionState
+	memoryUsage     int64
+	jobCount        int64
+}
+
+func (s *Snapshot) Jobs() map[string]*Job                             { return s.jobs }
+func (s *Snapshot) Slots() map[int64]*SlotData                        { return s.slots }
+func (s *Snapshot) ExecutionStates() map[string]*JobExecutionState     { return s.executionStates }
+func (s *Snapshot) MemoryUsage() int64                                { return s.memoryUsage }
+func (s *Snapshot) JobCount() int64                                   { return s.jobCount }
+
 // applyStatusUpdate applies a status update command
 func (f *FSM) applyStatusUpdate(cmd *StatusCommand) error {
 	state, exists := f.executionStates[cmd.JobID]
@@ -532,47 +547,3 @@ func validateStateTransition(from, to JobStatus) error {
 
 	return fmt.Errorf("invalid state transition from %s to %s", from, to)
 }
-
-// Snapshot implements raft.FSMSnapshot
-type Snapshot struct {
-	jobs            map[string]*Job
-	slots           map[int64]*SlotData
-	coldSlotMeta    map[int64]bool
-	executionStates map[string]*JobExecutionState
-	memoryUsage     int64
-	jobCount        int64
-}
-
-func (s *Snapshot) Persist(sink raft.SnapshotSink) error {
-	err := func() error {
-		encoder := json.NewEncoder(sink)
-		data := struct {
-			Jobs            map[string]*Job               `json:"jobs"`
-			Slots           map[int64]*SlotData           `json:"slots"`
-			ColdSlotMeta    map[int64]bool                `json:"cold_slot_meta"`
-			ExecutionStates map[string]*JobExecutionState `json:"execution_states"`
-			MemoryUsage     int64                         `json:"memory_usage"`
-			JobCount        int64                         `json:"job_count"`
-		}{
-			Jobs:            s.jobs,
-			Slots:           s.slots,
-			ColdSlotMeta:    s.coldSlotMeta,
-			ExecutionStates: s.executionStates,
-			MemoryUsage:     s.memoryUsage,
-			JobCount:        s.jobCount,
-		}
-		return encoder.Encode(data)
-	}()
-
-	if err != nil {
-		if err := sink.Cancel(); err != nil {
-			logger.Debug("Failed to cancel sink: %v", err)
-		}
-		return err
-	}
-
-	return sink.Close()
-}
-
-// Release is called when the snapshot is no longer needed
-func (s *Snapshot) Release() {}
