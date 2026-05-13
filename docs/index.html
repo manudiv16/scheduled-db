@@ -258,14 +258,22 @@
             <!-- Base base for contrast -->
             <div class="absolute inset-0 rounded-full neu-extruded opacity-50"></div>
 
+            <!-- SVG for connecting lines -->
+            <svg id="connecting-lines" class="absolute inset-0 w-full h-full" style="z-index: 10; pointer-events: none;">
+              <polyline id="planet-polyline" points="" fill="none" stroke="rgba(163,177,198,0.6)" stroke-width="1.5" stroke-dasharray="4 4" />
+            </svg>
+
             <!-- Outer Orbit (Days) -->
             <div class="clock-orbit neu-inset" style="inset: 5%;">
               <div class="clock-marker marker-12"></div>
               <div class="clock-marker marker-3"></div>
               <div class="clock-marker marker-6"></div>
               <div class="clock-marker marker-9"></div>
+              <div class="orbit-container orbit-slow" style="animation-delay: -33.6s; opacity: 0.15;"><div class="planet planet-dark" style="transform: translateX(-50%) scale(0.4);"></div></div>
+              <div class="orbit-container orbit-slow" style="animation-delay: -34.4s; opacity: 0.35;"><div class="planet planet-dark" style="transform: translateX(-50%) scale(0.6);"></div></div>
+              <div class="orbit-container orbit-slow" style="animation-delay: -35.2s; opacity: 0.65;"><div class="planet planet-dark" style="transform: translateX(-50%) scale(0.8);"></div></div>
               <div class="orbit-container orbit-slow">
-                <div class="planet planet-dark"></div>
+                <div class="planet planet-dark planet-main"></div>
               </div>
             </div>
 
@@ -275,8 +283,11 @@
               <div class="clock-marker marker-3"></div>
               <div class="clock-marker marker-6"></div>
               <div class="clock-marker marker-9"></div>
+              <div class="orbit-container orbit-mid" style="animation-delay: -11.1s; opacity: 0.15;"><div class="planet planet-teal" style="transform: translateX(-50%) scale(0.4);"></div></div>
+              <div class="orbit-container orbit-mid" style="animation-delay: -11.4s; opacity: 0.35;"><div class="planet planet-teal" style="transform: translateX(-50%) scale(0.6);"></div></div>
+              <div class="orbit-container orbit-mid" style="animation-delay: -11.7s; opacity: 0.65;"><div class="planet planet-teal" style="transform: translateX(-50%) scale(0.8);"></div></div>
               <div class="orbit-container orbit-mid">
-                <div class="planet planet-teal"></div>
+                <div class="planet planet-teal planet-main"></div>
               </div>
             </div>
 
@@ -286,15 +297,16 @@
               <div class="clock-marker marker-3" style="background: rgba(108,99,255,0.4);"></div>
               <div class="clock-marker marker-6" style="background: rgba(108,99,255,0.4);"></div>
               <div class="clock-marker marker-9" style="background: rgba(108,99,255,0.4);"></div>
+              <div class="orbit-container orbit-fast" style="animation-delay: -3.55s; opacity: 0.15;"><div class="planet planet-accent" style="transform: translateX(-50%) scale(0.4);"></div></div>
+              <div class="orbit-container orbit-fast" style="animation-delay: -3.7s; opacity: 0.35;"><div class="planet planet-accent" style="transform: translateX(-50%) scale(0.6);"></div></div>
+              <div class="orbit-container orbit-fast" style="animation-delay: -3.85s; opacity: 0.65;"><div class="planet planet-accent" style="transform: translateX(-50%) scale(0.8);"></div></div>
               <div class="orbit-container orbit-fast">
-                <div class="planet planet-accent"></div>
+                <div class="planet planet-accent planet-main"></div>
               </div>
             </div>
 
-            <!-- Center Hub (Sun/Clock) -->
-            <div class="absolute inset-[43%] rounded-full neu-extruded flex items-center justify-center">
-              <i data-lucide="clock" class="w-6 h-6 md:w-8 md:h-8 text-fg opacity-80"></i>
-            </div>
+            <!-- Center Hub (Sun) -->
+            <div class="absolute inset-[46%] rounded-full neu-extruded"></div>
 
             <!-- Small floating Raft badge -->
             <div class="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-surface rounded-2xl neu-extruded-sm px-3 py-1.5 animate-float-delayed">
@@ -933,6 +945,31 @@ curl https://localhost:8080/debug/cluster">
 
     window.addEventListener('scroll', updateActiveLink);
     updateActiveLink();
+
+    // Planet connecting line animation
+    const planets = document.querySelectorAll('.planet-main');
+    const polyline = document.getElementById('planet-polyline');
+    const svgLayer = document.getElementById('connecting-lines');
+
+    function updateConnectingLine() {
+      if (!polyline || planets.length === 0 || !svgLayer) return;
+      const svgRect = svgLayer.getBoundingClientRect();
+      
+      let points = [];
+      planets.forEach(p => {
+        const rect = p.getBoundingClientRect();
+        // Center of the planet relative to the SVG container
+        const x = rect.left + rect.width / 2 - svgRect.left;
+        const y = rect.top + rect.height / 2 - svgRect.top;
+        points.push(`${x},${y}`);
+      });
+      
+      polyline.setAttribute('points', points.join(' '));
+      requestAnimationFrame(updateConnectingLine);
+    }
+    
+    // Start animation loop when DOM is ready
+    requestAnimationFrame(updateConnectingLine);
   </script>
 </body>
 </html>
