@@ -13,6 +13,15 @@
 - **Deps**: `make install-deps` — installs golangci-lint and goimports
 - **Order**: `make fmt` → `make lint` → `make test`
 
+## WASM Simulator
+- **Build WASM**: `make wasm` — produces `docs/scheduled-db.wasm` + `docs/wasm_exec.js`
+- **Entrypoint**: `cmd/wasm/main.go` — exports simulator API via `syscall/js`
+- **Simulator package**: `internal/simulator/` — clock, executor, worker, coordinator
+- **Build tags**: `//go:build !wasm` on all files importing Raft, BoltDB, net/http, metrics
+- **WASM-compatible files** (no build tags): `store/types.go`, `store/fsm.go`, `slots/types.go`, `slots/timing_wheel.go`, `logger/logger.go`
+- **Release**: Push a tag `v*` to trigger `.github/workflows/wasm-release.yml` → GitHub Release with WASM artifacts
+- **JS API**: `simulator.createJob()`, `.deleteJob()`, `.tick()`, `.advanceTime()`, `.getState()`, `.getStateJSON()`, `.setClockSpeed()`, `.setSuccessRate()`, `.setTime()`, `.getNow()`, `.reset()`
+
 ## Architecture
 - **Entrypoint**: `cmd/scheduled-db/main.go` — CLI flags + env vars → `internal.NewApp()`
 - **Module**: `scheduled-db` (not `github.com/...` — import paths use `scheduled-db/internal/...`)

@@ -32,6 +32,7 @@ help:
 	@echo "  lint               Run linter"
 	@echo "  fmt                Format code"
 	@echo "  clean              Clean build artifacts"
+	@echo "  wasm               Build WebAssembly module for browser simulator"
 	@echo ""
 	@echo "Docker:"
 	@echo "  docker-build       Build Docker image"
@@ -125,6 +126,14 @@ clean:
 	rm -rf logs*/
 	rm -f *.log
 	rm -f *.pid
+
+## wasm: Build WebAssembly module for browser simulator
+wasm:
+	@echo "Building WASM module..."
+	GOOS=js GOARCH=wasm go build -o docs/scheduled-db.wasm ./cmd/wasm/
+	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" docs/ 2>/dev/null || cp "$$(go env GOROOT)/misc/wasm/wasm_exec.js" docs/ 2>/dev/null || echo "wasm_exec.js not found, copy manually from Go installation"
+	@echo "WASM built: docs/scheduled-db.wasm"
+	@echo "Runtime: docs/wasm_exec.js"
 
 ## docker-build: Build Docker image
 docker-build:
