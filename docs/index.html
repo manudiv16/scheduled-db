@@ -85,20 +85,11 @@
       animation: float-delayed 4s ease-in-out infinite;
     }
     @keyframes float-slow {
-      0%, 100% { transform: translateY(0px) rotate(0deg); }
-      50% { transform: translateY(-6px) rotate(3deg); }
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-6px); }
     }
     .animate-float-slow {
       animation: float-slow 5s ease-in-out infinite;
-    }
-
-    /* Rotate animation for decorative circles */
-    @keyframes spin-slow {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    .animate-spin-slow {
-      animation: spin-slow 20s linear infinite;
     }
 
     /* Pulse glow for leader node */
@@ -152,93 +143,25 @@
     .method-get { background: rgba(56,178,172,0.15); color: #38B2AC; }
     .method-delete { background: rgba(107,114,128,0.15); color: #6B7280; }
 
-    /* Timing Wheel */
-    .timing-wheel {
-      position: relative;
-      width: 320px;
-      height: 320px;
+    /* Timing Wheel — clean clock visualization */
+    .tw-hand {
+      transform-origin: 50% 100%;
+      animation: spin-cw 10s linear infinite;
     }
-    @media (min-width: 768px) {
-      .timing-wheel {
-        width: 400px;
-        height: 400px;
-      }
+    .tw-hand-fast {
+      transform-origin: 50% 100%;
+      animation: spin-cw 4s linear infinite;
     }
-    .tw-ring {
-      position: absolute;
-      border-radius: 50%;
-      border: 2px solid rgba(163,177,198,0.3);
-    }
-    .tw-ring-outer {
-      inset: 0;
-      animation: spin-cw 30s linear infinite;
-    }
-    .tw-ring-mid {
-      inset: 15%;
-      animation: spin-cw 15s linear infinite;
-    }
-    .tw-ring-inner {
-      inset: 30%;
-      animation: spin-ccw 8s linear infinite;
+    .tw-slot-pulse {
+      animation: slot-pulse 2s ease-in-out infinite;
     }
     @keyframes spin-cw {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
-    @keyframes spin-ccw {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(-360deg); }
-    }
-    .tw-tick {
-      position: absolute;
-      width: 2px;
-      height: 10px;
-      background: rgba(108,99,255,0.35);
-      border-radius: 1px;
-      top: 0;
-      left: 50%;
-      transform-origin: 0 0;
-    }
-    .tw-tick-accent {
-      background: #6C63FF;
-      height: 14px;
-      width: 3px;
-    }
-    .tw-dot {
-      position: absolute;
-      width: 8px;
-      height: 8px;
-      background: #6C63FF;
-      border-radius: 50%;
-      box-shadow: 0 0 8px rgba(108,99,255,0.4);
-    }
-    .tw-dot-teal {
-      background: #38B2AC;
-      box-shadow: 0 0 8px rgba(56,178,172,0.4);
-    }
-    .tw-label {
-      position: absolute;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 9px;
-      color: #6B7280;
-      white-space: nowrap;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      font-weight: 600;
-    }
-    .tw-center {
-      position: absolute;
-      inset: 42%;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    @keyframes checkmark-pop {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.2); }
-      100% { transform: scale(1); }
+    @keyframes slot-pulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
     }
    </style>
 </head>
@@ -308,47 +231,82 @@
           </div>
         </div>
         <div class="relative flex items-center justify-center">
-          <div class="timing-wheel">
-            <div class="tw-ring tw-ring-outer neu-extruded">
-              <div class="tw-tick" style="transform: rotate(0deg) translateX(-1px) translateY(8px);"></div>
-              <div class="tw-tick" style="transform: rotate(30deg) translateX(-1px) translateY(8px);"></div>
-              <div class="tw-tick" style="transform: rotate(60deg) translateX(-1px) translateY(8px);"></div>
-              <div class="tw-tick tw-tick-accent" style="transform: rotate(90deg) translateX(-1.5px) translateY(8px);"></div>
-              <div class="tw-tick" style="transform: rotate(120deg) translateX(-1px) translateY(8px);"></div>
-              <div class="tw-tick" style="transform: rotate(150deg) translateX(-1px) translateY(8px);"></div>
-              <div class="tw-tick" style="transform: rotate(180deg) translateX(-1px) translateY(8px);"></div>
-              <div class="tw-tick tw-tick-accent" style="transform: rotate(210deg) translateX(-1.5px) translateY(8px);"></div>
-              <div class="tw-tick" style="transform: rotate(240deg) translateX(-1px) translateY(8px);"></div>
-              <div class="tw-tick" style="transform: rotate(270deg) translateX(-1px) translateY(8px);"></div>
-              <div class="tw-tick tw-tick-accent" style="transform: rotate(300deg) translateX(-1.5px) translateY(8px);"></div>
-              <div class="tw-tick" style="transform: rotate(330deg) translateX(-1px) translateY(8px);"></div>
-              <div class="tw-dot" style="top: 18%; right: 12%;"></div>
-              <div class="tw-label" style="bottom: 10%; left: 50%; transform: translateX(-50%) rotate(0deg);">Days</div>
+          <div class="w-72 h-72 md:w-[360px] md:h-[360px] relative">
+            <!-- Outer neumorphic ring -->
+            <div class="absolute inset-0 rounded-full neu-extruded"></div>
+            <!-- SVG Clock / Timing Wheel -->
+            <svg viewBox="0 0 200 200" class="absolute inset-3 md:inset-4" aria-label="Hierarchical Timing Wheel">
+              <!-- Outer ring: Days — static track with slot markers -->
+              <circle cx="100" cy="100" r="90" fill="none" stroke="rgb(163,177,198)" stroke-width="1" stroke-opacity="0.4"/>
+              <circle cx="100" cy="100" r="82" fill="none" stroke="rgb(163,177,198)" stroke-width="0.5" stroke-opacity="0.25"/>
+              <!-- Day slot ticks (12 slots) -->
+              <g stroke="#6C63FF" stroke-width="1.5" stroke-opacity="0.4" stroke-linecap="round">
+                <line x1="100" y1="12" x2="100" y2="20"/>
+                <line x1="145" y1="17.4" x2="141.3" y2="25"/>
+                <line x1="178.6" y1="45" x2="172.2" y2="51.3"/>
+                <line x1="188" y1="100" x2="180" y2="100"/>
+                <line x1="178.6" y1="155" x2="172.2" y2="148.7"/>
+                <line x1="145" y1="182.6" x2="141.3" y2="175"/>
+                <line x1="100" y1="188" x2="100" y2="180"/>
+                <line x1="55" y1="182.6" x2="58.7" y2="175"/>
+                <line x1="21.4" y1="155" x2="27.8" y2="148.7"/>
+                <line x1="12" y1="100" x2="20" y2="100"/>
+                <line x1="21.4" y1="45" x2="27.8" y2="51.3"/>
+                <line x1="55" y1="17.4" x2="58.7" y2="25"/>
+              </g>
+              <!-- Active slot highlight on outer ring -->
+              <circle cx="100" cy="12" r="3.5" fill="#6C63FF" class="tw-slot-pulse"/>
+
+              <!-- Middle ring: Hours -->
+              <circle cx="100" cy="100" r="65" fill="none" stroke="rgb(163,177,198)" stroke-width="1" stroke-opacity="0.35"/>
+              <!-- Hour ticks (8 slots) -->
+              <g stroke="#38B2AC" stroke-width="1.2" stroke-opacity="0.4" stroke-linecap="round">
+                <line x1="100" y1="37" x2="100" y2="43"/>
+                <line x1="146" y1="54" x2="141.8" y2="58.2"/>
+                <line x1="163" y1="100" x2="157" y2="100"/>
+                <line x1="146" y1="146" x2="141.8" y2="141.8"/>
+                <line x1="100" y1="163" x2="100" y2="157"/>
+                <line x1="54" y1="146" x2="58.2" y2="141.8"/>
+                <line x1="37" y1="100" x2="43" y2="100"/>
+                <line x1="54" y1="54" x2="58.2" y2="58.2"/>
+              </g>
+              <!-- Active slot on middle ring -->
+              <circle cx="163" cy="100" r="3" fill="#38B2AC" class="tw-slot-pulse" style="animation-delay: 0.5s;"/>
+
+              <!-- Inner ring: Seconds -->
+              <circle cx="100" cy="100" r="40" fill="none" stroke="rgb(163,177,198)" stroke-width="1" stroke-opacity="0.3"/>
+              <!-- Second ticks (6 slots) -->
+              <g stroke="#6C63FF" stroke-width="1" stroke-opacity="0.3" stroke-linecap="round">
+                <line x1="100" y1="62" x2="100" y2="66"/>
+                <line x1="133" y1="81" x2="129.5" y2="83"/>
+                <line x1="133" y1="119" x2="129.5" y2="117"/>
+                <line x1="100" y1="138" x2="100" y2="134"/>
+                <line x1="67" y1="119" x2="70.5" y2="117"/>
+                <line x1="67" y1="81" x2="70.5" y2="83"/>
+              </g>
+
+              <!-- Clock hands -->
+              <!-- Slow hand (hours/days) -->
+              <line x1="100" y1="100" x2="100" y2="42" stroke="#3D4852" stroke-width="2" stroke-linecap="round" class="tw-hand" opacity="0.6"/>
+              <!-- Fast hand (seconds) -->
+              <line x1="100" y1="100" x2="100" y2="62" stroke="#6C63FF" stroke-width="1.5" stroke-linecap="round" class="tw-hand-fast"/>
+
+              <!-- Center hub -->
+              <circle cx="100" cy="100" r="6" fill="#E0E5EC" stroke="#6C63FF" stroke-width="1.5"/>
+              <circle cx="100" cy="100" r="2.5" fill="#6C63FF"/>
+
+              <!-- Ring labels (static, outside the rings) -->
+              <text x="100" y="8" text-anchor="middle" font-family="DM Sans" font-size="5" fill="#6B7280" font-weight="600">DAYS</text>
+              <text x="100" y="33" text-anchor="middle" font-family="DM Sans" font-size="4.5" fill="#6B7280" font-weight="600">HOURS</text>
+              <text x="100" y="57" text-anchor="middle" font-family="DM Sans" font-size="4" fill="#6B7280" font-weight="600">SEC</text>
+            </svg>
+            <!-- Small floating Raft badge -->
+            <div class="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-surface rounded-2xl neu-extruded-sm px-3 py-1.5 animate-float-delayed">
+              <span class="font-display font-bold text-accent text-xs">Raft</span>
             </div>
-            <div class="tw-ring tw-ring-mid neu-inset">
-              <div class="tw-tick" style="transform: rotate(0deg) translateX(-1px) translateY(6px);"></div>
-              <div class="tw-tick tw-tick-accent" style="transform: rotate(45deg) translateX(-1.5px) translateY(6px);"></div>
-              <div class="tw-tick" style="transform: rotate(90deg) translateX(-1px) translateY(6px);"></div>
-              <div class="tw-tick" style="transform: rotate(135deg) translateX(-1px) translateY(6px);"></div>
-              <div class="tw-tick tw-tick-accent" style="transform: rotate(180deg) translateX(-1.5px) translateY(6px);"></div>
-              <div class="tw-tick" style="transform: rotate(225deg) translateX(-1px) translateY(6px);"></div>
-              <div class="tw-tick" style="transform: rotate(270deg) translateX(-1px) translateY(6px);"></div>
-              <div class="tw-tick tw-tick-accent" style="transform: rotate(315deg) translateX(-1.5px) translateY(6px);"></div>
-              <div class="tw-dot tw-dot-teal" style="top: 12%; right: 8%;"></div>
-              <div class="tw-label" style="bottom: 8%; left: 50%; transform: translateX(-50%);">Hours</div>
-            </div>
-            <div class="tw-ring tw-ring-inner neu-extruded-sm">
-              <div class="tw-tick" style="transform: rotate(0deg) translateX(-1px) translateY(5px);"></div>
-              <div class="tw-tick tw-tick-accent" style="transform: rotate(60deg) translateX(-1.5px) translateY(5px);"></div>
-              <div class="tw-tick" style="transform: rotate(120deg) translateX(-1px) translateY(5px);"></div>
-              <div class="tw-tick tw-tick-accent" style="transform: rotate(180deg) translateX(-1.5px) translateY(5px);"></div>
-              <div class="tw-tick" style="transform: rotate(240deg) translateX(-1px) translateY(5px);"></div>
-              <div class="tw-tick tw-tick-accent" style="transform: rotate(300deg) translateX(-1.5px) translateY(5px);"></div>
-              <div class="tw-dot" style="top: 10%; left: 50%; transform: translateX(-50%);"></div>
-              <div class="tw-label" style="bottom: 6%; left: 50%; transform: translateX(-50%); font-size: 8px;">Seconds</div>
-            </div>
-            <div class="tw-center neu-inset animate-float">
-              <i data-lucide="clock" class="w-7 h-7 md:w-9 md:h-9 text-accent"></i>
+            <!-- Small floating node indicator -->
+            <div class="absolute -bottom-2 -left-2 md:-bottom-3 md:-left-3 bg-surface rounded-2xl neu-extruded-sm px-3 py-1.5 animate-float">
+              <span class="font-display font-bold text-teal text-xs">3 Nodes</span>
             </div>
           </div>
         </div>
