@@ -143,26 +143,49 @@
     .method-get { background: rgba(56,178,172,0.15); color: #38B2AC; }
     .method-delete { background: rgba(107,114,128,0.15); color: #6B7280; }
 
-    /* Timing Wheel — clean clock visualization */
-    .tw-hand {
-      transform-origin: 50% 100%;
-      animation: spin-cw 10s linear infinite;
+    /* Minimalist Planetary Clock */
+    .clock-orbit {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px solid rgba(163,177,198,0.2);
     }
-    .tw-hand-fast {
-      transform-origin: 50% 100%;
-      animation: spin-cw 4s linear infinite;
+    .orbit-container {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      animation: orbit-spin linear infinite;
     }
-    .tw-slot-pulse {
-      animation: slot-pulse 2s ease-in-out infinite;
-    }
-    @keyframes spin-cw {
+    .orbit-fast { animation-duration: 4s; }
+    .orbit-mid { animation-duration: 12s; }
+    .orbit-slow { animation-duration: 36s; }
+
+    @keyframes orbit-spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
     }
-    @keyframes slot-pulse {
-      0%, 100% { opacity: 0.3; }
-      50% { opacity: 1; }
+
+    .planet {
+      position: absolute;
+      top: -4px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
     }
+    .planet-accent { background: #6C63FF; box-shadow: 0 0 10px rgba(108,99,255,0.5); }
+    .planet-teal { background: #38B2AC; box-shadow: 0 0 10px rgba(56,178,172,0.5); }
+    .planet-dark { background: #3D4852; }
+
+    .clock-marker {
+      position: absolute;
+      background: rgba(163,177,198,0.4);
+      border-radius: 1px;
+    }
+    .marker-12 { top: -2px; left: 50%; transform: translateX(-50%); width: 2px; height: 8px; }
+    .marker-3 { right: -2px; top: 50%; transform: translateY(-50%); width: 8px; height: 2px; }
+    .marker-6 { bottom: -2px; left: 50%; transform: translateX(-50%); width: 2px; height: 8px; }
+    .marker-9 { left: -2px; top: 50%; transform: translateY(-50%); width: 8px; height: 2px; }
    </style>
 </head>
 <body class="min-h-screen antialiased">
@@ -231,82 +254,51 @@
           </div>
         </div>
         <div class="relative flex items-center justify-center">
-          <div class="w-72 h-72 md:w-[360px] md:h-[360px] relative">
-            <!-- Outer neumorphic ring -->
-            <div class="absolute inset-0 rounded-full neu-extruded"></div>
-            <!-- SVG Clock / Timing Wheel -->
-            <svg viewBox="0 0 200 200" class="absolute inset-3 md:inset-4" aria-label="Hierarchical Timing Wheel">
-              <!-- Outer ring: Days — static track with slot markers -->
-              <circle cx="100" cy="100" r="90" fill="none" stroke="rgb(163,177,198)" stroke-width="1" stroke-opacity="0.4"/>
-              <circle cx="100" cy="100" r="82" fill="none" stroke="rgb(163,177,198)" stroke-width="0.5" stroke-opacity="0.25"/>
-              <!-- Day slot ticks (12 slots) -->
-              <g stroke="#6C63FF" stroke-width="1.5" stroke-opacity="0.4" stroke-linecap="round">
-                <line x1="100" y1="12" x2="100" y2="20"/>
-                <line x1="145" y1="17.4" x2="141.3" y2="25"/>
-                <line x1="178.6" y1="45" x2="172.2" y2="51.3"/>
-                <line x1="188" y1="100" x2="180" y2="100"/>
-                <line x1="178.6" y1="155" x2="172.2" y2="148.7"/>
-                <line x1="145" y1="182.6" x2="141.3" y2="175"/>
-                <line x1="100" y1="188" x2="100" y2="180"/>
-                <line x1="55" y1="182.6" x2="58.7" y2="175"/>
-                <line x1="21.4" y1="155" x2="27.8" y2="148.7"/>
-                <line x1="12" y1="100" x2="20" y2="100"/>
-                <line x1="21.4" y1="45" x2="27.8" y2="51.3"/>
-                <line x1="55" y1="17.4" x2="58.7" y2="25"/>
-              </g>
-              <!-- Active slot highlight on outer ring -->
-              <circle cx="100" cy="12" r="3.5" fill="#6C63FF" class="tw-slot-pulse"/>
+          <div class="w-64 h-64 md:w-80 md:h-80 relative">
+            <!-- Base base for contrast -->
+            <div class="absolute inset-0 rounded-full neu-extruded opacity-50"></div>
 
-              <!-- Middle ring: Hours -->
-              <circle cx="100" cy="100" r="65" fill="none" stroke="rgb(163,177,198)" stroke-width="1" stroke-opacity="0.35"/>
-              <!-- Hour ticks (8 slots) -->
-              <g stroke="#38B2AC" stroke-width="1.2" stroke-opacity="0.4" stroke-linecap="round">
-                <line x1="100" y1="37" x2="100" y2="43"/>
-                <line x1="146" y1="54" x2="141.8" y2="58.2"/>
-                <line x1="163" y1="100" x2="157" y2="100"/>
-                <line x1="146" y1="146" x2="141.8" y2="141.8"/>
-                <line x1="100" y1="163" x2="100" y2="157"/>
-                <line x1="54" y1="146" x2="58.2" y2="141.8"/>
-                <line x1="37" y1="100" x2="43" y2="100"/>
-                <line x1="54" y1="54" x2="58.2" y2="58.2"/>
-              </g>
-              <!-- Active slot on middle ring -->
-              <circle cx="163" cy="100" r="3" fill="#38B2AC" class="tw-slot-pulse" style="animation-delay: 0.5s;"/>
+            <!-- Outer Orbit (Days) -->
+            <div class="clock-orbit neu-inset" style="inset: 5%;">
+              <div class="clock-marker marker-12"></div>
+              <div class="clock-marker marker-3"></div>
+              <div class="clock-marker marker-6"></div>
+              <div class="clock-marker marker-9"></div>
+              <div class="orbit-container orbit-slow">
+                <div class="planet planet-dark"></div>
+              </div>
+            </div>
 
-              <!-- Inner ring: Seconds -->
-              <circle cx="100" cy="100" r="40" fill="none" stroke="rgb(163,177,198)" stroke-width="1" stroke-opacity="0.3"/>
-              <!-- Second ticks (6 slots) -->
-              <g stroke="#6C63FF" stroke-width="1" stroke-opacity="0.3" stroke-linecap="round">
-                <line x1="100" y1="62" x2="100" y2="66"/>
-                <line x1="133" y1="81" x2="129.5" y2="83"/>
-                <line x1="133" y1="119" x2="129.5" y2="117"/>
-                <line x1="100" y1="138" x2="100" y2="134"/>
-                <line x1="67" y1="119" x2="70.5" y2="117"/>
-                <line x1="67" y1="81" x2="70.5" y2="83"/>
-              </g>
+            <!-- Middle Orbit (Hours) -->
+            <div class="clock-orbit neu-inset-sm" style="inset: 22%;">
+              <div class="clock-marker marker-12"></div>
+              <div class="clock-marker marker-3"></div>
+              <div class="clock-marker marker-6"></div>
+              <div class="clock-marker marker-9"></div>
+              <div class="orbit-container orbit-mid">
+                <div class="planet planet-teal"></div>
+              </div>
+            </div>
 
-              <!-- Clock hands -->
-              <!-- Slow hand (hours/days) -->
-              <line x1="100" y1="100" x2="100" y2="42" stroke="#3D4852" stroke-width="2" stroke-linecap="round" class="tw-hand" opacity="0.6"/>
-              <!-- Fast hand (seconds) -->
-              <line x1="100" y1="100" x2="100" y2="62" stroke="#6C63FF" stroke-width="1.5" stroke-linecap="round" class="tw-hand-fast"/>
+            <!-- Inner Orbit (Seconds) -->
+            <div class="clock-orbit neu-inset-deep" style="inset: 39%;">
+              <div class="clock-marker marker-12" style="background: rgba(108,99,255,0.4);"></div>
+              <div class="clock-marker marker-3" style="background: rgba(108,99,255,0.4);"></div>
+              <div class="clock-marker marker-6" style="background: rgba(108,99,255,0.4);"></div>
+              <div class="clock-marker marker-9" style="background: rgba(108,99,255,0.4);"></div>
+              <div class="orbit-container orbit-fast">
+                <div class="planet planet-accent"></div>
+              </div>
+            </div>
 
-              <!-- Center hub -->
-              <circle cx="100" cy="100" r="6" fill="#E0E5EC" stroke="#6C63FF" stroke-width="1.5"/>
-              <circle cx="100" cy="100" r="2.5" fill="#6C63FF"/>
+            <!-- Center Hub (Sun/Clock) -->
+            <div class="absolute inset-[43%] rounded-full neu-extruded flex items-center justify-center animate-float">
+              <i data-lucide="clock" class="w-6 h-6 md:w-8 md:h-8 text-fg opacity-80"></i>
+            </div>
 
-              <!-- Ring labels (static, outside the rings) -->
-              <text x="100" y="8" text-anchor="middle" font-family="DM Sans" font-size="5" fill="#6B7280" font-weight="600">DAYS</text>
-              <text x="100" y="33" text-anchor="middle" font-family="DM Sans" font-size="4.5" fill="#6B7280" font-weight="600">HOURS</text>
-              <text x="100" y="57" text-anchor="middle" font-family="DM Sans" font-size="4" fill="#6B7280" font-weight="600">SEC</text>
-            </svg>
             <!-- Small floating Raft badge -->
             <div class="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-surface rounded-2xl neu-extruded-sm px-3 py-1.5 animate-float-delayed">
               <span class="font-display font-bold text-accent text-xs">Raft</span>
-            </div>
-            <!-- Small floating node indicator -->
-            <div class="absolute -bottom-2 -left-2 md:-bottom-3 md:-left-3 bg-surface rounded-2xl neu-extruded-sm px-3 py-1.5 animate-float">
-              <span class="font-display font-bold text-teal text-xs">3 Nodes</span>
             </div>
           </div>
         </div>
