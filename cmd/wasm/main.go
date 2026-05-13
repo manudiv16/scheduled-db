@@ -100,7 +100,7 @@ func advanceTime(this js.Value, args []js.Value) interface{} {
 func getState(this js.Value, args []js.Value) interface{} {
 	state := sim.GetState()
 	data, _ := json.Marshal(state)
-	return string(data)
+	return successResult(string(data))
 }
 
 func getStateJSON(this js.Value, args []js.Value) interface{} {
