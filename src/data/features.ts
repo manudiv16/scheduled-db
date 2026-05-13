@@ -1,3 +1,16 @@
+export const apiEndpoints = [
+  { method: 'POST', path: '/jobs', description: 'Create job' },
+  { method: 'GET', path: '/jobs/{id}', description: 'Get job details' },
+  { method: 'DELETE', path: '/jobs/{id}', description: 'Delete job' },
+  { method: 'GET', path: '/jobs/{id}/status', description: 'Get job execution status' },
+  { method: 'GET', path: '/jobs/{id}/executions', description: 'Get execution history' },
+  { method: 'GET', path: '/jobs?status={status}', description: 'List jobs by status' },
+  { method: 'POST', path: '/jobs/{id}/cancel', description: 'Cancel job' },
+  { method: 'GET', path: '/health', description: 'Health check' },
+  { method: 'GET', path: '/debug/cluster', description: 'Cluster info' },
+  { method: 'POST', path: '/join', description: 'Join cluster' },
+];
+
 export type FeatureCategory = 'consensus' | 'scheduling' | 'storage' | 'ops';
 
 export interface Feature {
