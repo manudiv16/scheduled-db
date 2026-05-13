@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { Tabs } from "bits-ui";
   import { onMount } from 'svelte';
-  import anime from 'animejs';
+  import { fly, fade } from 'svelte/transition';
 
   const tabs = [
     { id: 'docker', label: 'Docker Compose' },
@@ -60,119 +61,47 @@ make build
   --slot-gap=10s`,
   };
 
-  let activeTab = $state('docker');
-  let codeRef: HTMLElement;
-
-  function switchTab(id: string) {
-    if (id === activeTab) return;
-    activeTab = id;
-
-    if (codeRef) {
-      anime({
-        targets: codeRef,
-        opacity: [0, 1],
-        translateY: [10, 0],
-        duration: 350,
-        easing: 'easeOutCubic',
-      });
-    }
-  }
+  let wrapperRef: HTMLDivElement;
+  let visible = $state(false);
 
   onMount(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            anime({
-              targets: '.quickstart-wrapper',
-              opacity: [0, 1],
-              translateY: [30, 0],
-              duration: 700,
-              easing: 'easeOutCubic',
-            });
+            visible = true;
             observer.disconnect();
           }
         });
       },
       { threshold: 0.15 }
     );
-
-    const el = document.querySelector('.quickstart-wrapper');
-    if (el) observer.observe(el);
+    observer.observe(wrapperRef);
+    return () => observer.disconnect();
   });
 </script>
 
-<div class="quickstart-wrapper" style="opacity: 0;">
-  <div class="tabs">
-    {#each tabs as tab}
-      <button
-        class="tab"
-        class:active={activeTab === tab.id}
-        onclick={() => switchTab(tab.id)}
-      >
-        {tab.label}
-      </button>
-    {/each}
-  </div>
-  <div class="code-block" bind:this={codeRef}>
-    <pre><code>{codeExamples[activeTab]}</code></pre>
-  </div>
+<div bind:this={wrapperRef} class="mx-auto max-w-3xl">
+  {#if visible}
+    <div in:fly={{ y: 30, duration: 600 }}>
+      <Tabs.Root value="docker" class="w-full">
+        <Tabs.List class="flex w-full border-b border-brand-border">
+          {#each tabs as tab}
+            <Tabs.Trigger
+              value={tab.id}
+              class="flex-1 rounded-t-lg px-4 py-3 text-sm font-medium text-brand-text-muted transition-all hover:text-brand-text data-[state=active]:border-b-2 data-[state=active]:border-brand-cyan data-[state=active]:bg-brand-card data-[state=active]:text-brand-cyan"
+            >
+              {tab.label}
+            </Tabs.Trigger>
+          {/each}
+        </Tabs.List>
+
+        {#each tabs as tab}
+          <Tabs.Content value={tab.id} class="rounded-b-lg border border-t-0 border-brand-border bg-brand-card">
+            <pre class="m-0 overflow-x-auto p-5 text-sm leading-relaxed"><code class="bg-transparent p-0 text-brand-text-secondary">{codeExamples[tab.id]}</code></pre>
+          </Tabs.Content>
+        {/each}
+      </Tabs.Root>
+    </div>
+  {/if}
 </div>
-
-<style>
-  .quickstart-wrapper {
-    max-width: 750px;
-    margin: 0 auto;
-  }
-
-  .tabs {
-    display: flex;
-    gap: 0;
-    border-bottom: 1px solid #334155;
-  }
-
-  .tab {
-    padding: 0.65rem 1.25rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    font-family: inherit;
-    color: #64748b;
-    cursor: pointer;
-    border: 1px solid transparent;
-    border-bottom: none;
-    border-radius: 6px 6px 0 0;
-    background: transparent;
-    transition: all 0.2s;
-  }
-
-  .tab:hover {
-    color: #94a3b8;
-  }
-
-  .tab.active {
-    color: #22d3ee;
-    background: #1e293b;
-    border-color: #334155;
-  }
-
-  .code-block {
-    border: 1px solid #334155;
-    border-top: none;
-    border-radius: 0 0 8px 8px;
-    overflow: hidden;
-  }
-
-  pre {
-    margin: 0;
-    padding: 1.5rem;
-    background: #1e293b;
-    overflow-x: auto;
-    font-size: 0.85rem;
-    line-height: 1.7;
-  }
-
-  code {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    color: #e2e8f0;
-  }
-</style>
