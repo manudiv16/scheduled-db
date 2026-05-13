@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scheduled-DB — Distributed Job Scheduling on Raft</title>
+  <meta name="description" content="Reliable distributed job scheduling built on Raft consensus. Schedule once, schedule recurring — your cluster keeps promises even when nodes fail." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['"Plus Jakarta Sans"', 'sans-serif'],
+            body: ['"DM Sans"', 'sans-serif'],
+          },
+          colors: {
+            surface: '#E0E5EC',
+            fg: '#3D4852',
+            muted: '#6B7280',
+            accent: '#6C63FF',
+            'accent-light': '#8B84FF',
+            teal: '#38B2AC',
+            'shadow-light': 'rgba(255, 255, 255, 0.5)',
+            'shadow-dark': 'rgb(163, 177, 198)',
+          },
+          borderRadius: {
+            neu: '32px',
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    body {
+      background-color: #E0E5EC;
+      font-family: 'DM Sans', sans-serif;
+      color: #3D4852;
+    }
+
+    .font-display {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    /* Neumorphic Shadows */
+    .neu-extruded {
+      box-shadow: 9px 9px 16px rgb(163,177,198,0.6), -9px -9px 16px rgba(255,255,255,0.5);
+    }
+    .neu-extruded-hover {
+      box-shadow: 12px 12px 20px rgb(163,177,198,0.7), -12px -12px 20px rgba(255,255,255,0.6);
+    }
+    .neu-extruded-sm {
+      box-shadow: 5px 5px 10px rgb(163,177,198,0.6), -5px -5px 10px rgba(255,255,255,0.5);
+    }
+    .neu-inset {
+      box-shadow: inset 6px 6px 10px rgb(163,177,198,0.6), inset -6px -6px 10px rgba(255,255,255,0.5);
+    }
+    .neu-inset-deep {
+      box-shadow: inset 10px 10px 20px rgb(163,177,198,0.7), inset -10px -10px 20px rgba(255,255,255,0.6);
+    }
+    .neu-inset-sm {
+      box-shadow: inset 3px 3px 6px rgb(163,177,198,0.6), inset -3px -3px 6px rgba(255,255,255,0.5);
+    }
+    .neu-extruded-accent {
+      box-shadow: 6px 6px 12px rgb(80,70,180,0.4), -6px -6px 12px rgba(255,255,255,0.3);
+    }
+
+    /* Floating Animation */
+    @keyframes float {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-12px); }
+    }
+    .animate-float {
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float-delayed {
+      0%, 100% { transform: translateY(0px); }
+      50% { transform: translateY(-8px); }
+    }
+    .animate-float-delayed {
+      animation: float-delayed 4s ease-in-out infinite;
+    }
+    @keyframes float-slow {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-6px) rotate(3deg); }
+    }
+    .animate-float-slow {
+      animation: float-slow 5s ease-in-out infinite;
+    }
+
+    /* Rotate animation for decorative circles */
+    @keyframes spin-slow {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .animate-spin-slow {
+      animation: spin-slow 20s linear infinite;
+    }
+
+    /* Pulse glow for leader node */
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 6px 6px 12px rgb(163,177,198,0.6), -6px -6px 12px rgba(255,255,255,0.5), 0 0 0 0 rgba(108,99,255,0); }
+      50% { box-shadow: 6px 6px 12px rgb(163,177,198,0.6), -6px -6px 12px rgba(255,255,255,0.5), 0 0 16px 4px rgba(108,99,255,0.25); }
+    }
+    .animate-pulse-glow {
+      animation: pulse-glow 2.5s ease-in-out infinite;
+    }
+
+    /* Transition base for all neumorphic interactive elements */
+    .neu-transition {
+      transition: all 0.3s ease-out;
+    }
+
+    /* Code block styling */
+    .code-block {
+      background: #E0E5EC;
+      font-family: 'Fira Code', 'SF Mono', 'Cascadia Code', 'Menlo', monospace;
+    }
+    .code-block .keyword { color: #6C63FF; }
+    .code-block .string { color: #38B2AC; }
+    .code-block .comment { color: #6B7280; }
+    .code-block .command { color: #3D4852; font-weight: 500; }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #E0E5EC; }
+    ::-webkit-scrollbar-thumb { background: #C4CAD4; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #A8B0BC; }
+
+    /* Arrow connectors for architecture diagram */
+    .arch-arrow {
+      position: absolute;
+      border-top: 2px dashed #A8B0BC;
+    }
+    .arch-arrow-solid {
+      border-top-style: solid;
+      border-top-color: #6C63FF;
+    }
+
+    /* Active nav link */
+    .nav-link.active {
+      color: #6C63FF;
+      font-weight: 600;
+    }
+
+    /* Method badges */
+    .method-post { background: rgba(108,99,255,0.15); color: #6C63FF; }
+    .method-get { background: rgba(56,178,172,0.15); color: #38B2AC; }
+    .method-delete { background: rgba(107,114,128,0.15); color: #6B7280; }
+  </style>
+</head>
+<body class="min-h-screen antialiased">
+
+  <!-- Navigation -->
+  <nav id="navbar" class="sticky top-0 z-50 neu-transition" style="background: rgba(224,229,236,0.85); backdrop-filter: blur(12px);">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <a href="#hero" class="font-display font-extrabold text-xl text-fg tracking-tight">
+          Scheduled<span class="text-accent">-DB</span>
+        </a>
+        <div class="hidden md:flex items-center gap-8">
+          <a href="#features" class="nav-link neu-transition text-muted hover:text-accent font-medium text-sm">Features</a>
+          <a href="#architecture" class="nav-link neu-transition text-muted hover:text-accent font-medium text-sm">Architecture</a>
+          <a href="#how-it-works" class="nav-link neu-transition text-muted hover:text-accent font-medium text-sm">How It Works</a>
+          <a href="#job-types" class="nav-link neu-transition text-muted hover:text-accent font-medium text-sm">Job Types</a>
+          <a href="#quick-start" class="nav-link neu-transition text-muted hover:text-accent font-medium text-sm">Quick Start</a>
+          <a href="#api" class="nav-link neu-transition text-muted hover:text-accent font-medium text-sm">API</a>
+          <a href="#deploy" class="nav-link neu-transition text-muted hover:text-accent font-medium text-sm">Deploy</a>
+          <a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener noreferrer" class="neu-extruded-sm neu-transition rounded-2xl px-4 py-2 text-sm font-medium text-fg hover:translate-y-[-1px] hover:neu-extruded-hover flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface">
+            <i data-lucide="github" class="w-4 h-4"></i>
+            GitHub
+          </a>
+        </div>
+        <button id="mobile-menu-btn" class="md:hidden neu-extruded-sm rounded-2xl p-3 neu-transition hover:translate-y-[-1px] hover:neu-extruded-hover focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface" aria-label="Toggle menu">
+          <i data-lucide="menu" class="w-5 h-5 text-fg" id="menu-icon"></i>
+        </button>
+      </div>
+    </div>
+    <div id="mobile-menu" class="hidden md:hidden neu-extruded mx-4 mb-4 mt-2 rounded-[32px] p-6">
+      <div class="flex flex-col gap-4">
+        <a href="#features" class="mobile-nav-link text-muted hover:text-accent font-medium neu-transition">Features</a>
+        <a href="#architecture" class="mobile-nav-link text-muted hover:text-accent font-medium neu-transition">Architecture</a>
+        <a href="#how-it-works" class="mobile-nav-link text-muted hover:text-accent font-medium neu-transition">How It Works</a>
+        <a href="#job-types" class="mobile-nav-link text-muted hover:text-accent font-medium neu-transition">Job Types</a>
+        <a href="#quick-start" class="mobile-nav-link text-muted hover:text-accent font-medium neu-transition">Quick Start</a>
+        <a href="#api" class="mobile-nav-link text-muted hover:text-accent font-medium neu-transition">API</a>
+        <a href="#deploy" class="mobile-nav-link text-muted hover:text-accent font-medium neu-transition">Deploy</a>
+        <a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener noreferrer" class="text-accent font-semibold">GitHub &rarr;</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <section id="hero" class="relative overflow-hidden py-24 md:py-32 lg:py-40">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+        <div class="relative z-10">
+          <p class="font-display font-semibold text-accent text-sm tracking-widest uppercase mb-4">Distributed Job Scheduling</p>
+          <h1 class="font-display font-extrabold tracking-tight text-fg text-4xl md:text-5xl lg:text-6xl xl:text-7xl leading-[1.1] mb-6">
+            Scheduled<span class="text-accent">-DB</span>
+          </h1>
+          <p class="text-lg md:text-xl text-muted font-medium mb-4">
+            Reliable distributed job scheduling, built on Raft.
+          </p>
+          <p class="text-base text-muted mb-10 max-w-lg">
+            Schedule once, schedule recurring &mdash; your cluster keeps promises even when nodes fail. No split-brain, no data loss, no single point of failure.
+          </p>
+          <div class="flex flex-wrap gap-4">
+            <a href="#quick-start" class="bg-accent text-white font-display font-bold rounded-2xl px-8 py-3.5 neu-extruded-accent neu-transition hover:translate-y-[-1px] hover:bg-accent-light focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface text-center min-w-[160px]">
+              Get Started
+            </a>
+            <a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener noreferrer" class="bg-surface text-fg font-display font-bold rounded-2xl px-8 py-3.5 neu-extruded neu-transition hover:translate-y-[-1px] hover:neu-extruded-hover focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface text-center min-w-[160px]">
+              View on GitHub
+            </a>
+          </div>
+        </div>
+        <div class="relative flex items-center justify-center">
+          <div class="relative w-64 h-64 md:w-80 md:h-80">
+            <div class="absolute inset-0 rounded-full neu-extruded animate-float-slow"></div>
+            <div class="absolute inset-8 md:inset-10 rounded-full neu-inset animate-float-delayed"></div>
+            <div class="absolute inset-16 md:inset-20 rounded-full neu-extruded-sm animate-float flex items-center justify-center">
+              <div class="w-16 h-16 md:w-20 md:h-20 rounded-full neu-inset flex items-center justify-center">
+                <i data-lucide="activity" class="w-8 h-8 md:w-10 md:h-10 text-accent"></i>
+              </div>
+            </div>
+            <div class="absolute -top-2 -right-2 w-12 h-12 rounded-full neu-extruded-sm animate-float-delayed flex items-center justify-center">
+              <i data-lucide="zap" class="w-5 h-5 text-teal"></i>
+            </div>
+            <div class="absolute -bottom-1 -left-1 w-10 h-10 rounded-full neu-extruded-sm animate-float flex items-center justify-center">
+              <i data-lucide="shield-check" class="w-4 h-4 text-accent"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Grid -->
+  <section id="features" class="py-20 md:py-28">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <h2 class="font-display font-extrabold tracking-tight text-fg text-3xl md:text-4xl lg:text-5xl mb-4">Built for Reliability</h2>
+        <p class="text-muted text-lg max-w-2xl mx-auto">Every component designed for distributed systems that can't afford to lose a job.</p>
+      </div>
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8 lg:gap-12">
+        <div class="bg-surface rounded-[32px] p-8 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover group">
+          <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center mb-6">
+            <i data-lucide="vote" class="w-6 h-6 text-accent"></i>
+          </div>
+          <h3 class="font-display font-bold text-fg text-lg mb-2">Distributed Consensus</h3>
+          <p class="text-muted text-sm leading-relaxed">Raft-based strong consistency with automatic leader election and log replication. No split-brain, ever.</p>
+        </div>
+        <div class="bg-surface rounded-[32px] p-8 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover group">
+          <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center mb-6">
+            <i data-lucide="calendar-clock" class="w-6 h-6 text-accent"></i>
+          </div>
+          <h3 class="font-display font-bold text-fg text-lg mb-2">Two Job Types</h3>
+          <p class="text-muted text-sm leading-relaxed"><span class="font-semibold text-fg">Unico</span> for one-time execution at a specific timestamp. <span class="font-semibold text-fg">Recurrente</span> for cron-based recurring schedules with optional end dates.</p>
+        </div>
+        <div class="bg-surface rounded-[32px] p-8 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover group">
+          <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center mb-6">
+            <i data-lucide="timer" class="w-6 h-6 text-accent"></i>
+          </div>
+          <h3 class="font-display font-bold text-fg text-lg mb-2">Time-Slotted Queue</h3>
+          <p class="text-muted text-sm leading-relaxed">O(1) slot lookup via cached min key. Hierarchical Timing Wheel (seconds, hours, days) for long-range scheduling.</p>
+        </div>
+        <div class="bg-surface rounded-[32px] p-8 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover group">
+          <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center mb-6">
+            <i data-lucide="gauge" class="w-6 h-6 text-accent"></i>
+          </div>
+          <h3 class="font-display font-bold text-fg text-lg mb-2">Capacity Management</h3>
+          <p class="text-muted text-sm leading-relaxed">Memory and job count limits prevent OOM. Cold spilling to BoltDB when capacity is constrained. Hot slots stay in memory.</p>
+        </div>
+        <div class="bg-surface rounded-[32px] p-8 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover group">
+          <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center mb-6">
+            <i data-lucide="shield-alert" class="w-6 h-6 text-accent"></i>
+          </div>
+          <h3 class="font-display font-bold text-fg text-lg mb-2">Split-Brain Prevention</h3>
+          <p class="text-muted text-sm leading-relaxed">RA-style minority partition shutdown. Graceful leader resignation on shutdown. Automatic failover when leaders die.</p>
+        </div>
+        <div class="bg-surface rounded-[32px] p-8 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover group">
+          <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center mb-6">
+            <i data-lucide="bar-chart-3" class="w-6 h-6 text-accent"></i>
+          </div>
+          <h3 class="font-display font-bold text-fg text-lg mb-2">Observability</h3>
+          <p class="text-muted text-sm leading-relaxed">Prometheus metrics, OpenTelemetry integration, three-tier health status, and structured logging. Grafana-ready out of the box.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture Section -->
+  <section id="architecture" class="py-20 md:py-28">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <h2 class="font-display font-extrabold tracking-tight text-fg text-3xl md:text-4xl lg:text-5xl mb-4">Architecture</h2>
+        <p class="text-muted text-lg max-w-2xl mx-auto">Three nodes, one leader, Raft consensus. Every state change is replicated before it's committed.</p>
+      </div>
+      <div class="bg-surface rounded-[32px] p-8 md:p-12 lg:p-16 neu-extruded">
+        <!-- Cluster Nodes -->
+        <div class="mb-10">
+          <p class="font-display font-bold text-fg text-sm uppercase tracking-widest mb-6 text-center">Cluster Topology</p>
+          <div class="flex flex-wrap justify-center items-center gap-6 md:gap-10">
+            <div class="animate-pulse-glow bg-surface rounded-2xl neu-extruded p-5 md:p-6 text-center min-w-[130px] neu-transition">
+              <div class="w-10 h-10 rounded-xl neu-inset flex items-center justify-center mx-auto mb-3">
+                <i data-lucide="crown" class="w-5 h-5 text-accent"></i>
+              </div>
+              <p class="font-display font-bold text-accent text-sm">Leader</p>
+              <p class="text-muted text-xs mt-1">Port 8080</p>
+            </div>
+            <div class="hidden md:block">
+              <i data-lucide="arrow-left-right" class="w-8 h-8 text-muted opacity-50"></i>
+            </div>
+            <div class="bg-surface rounded-2xl neu-extruded p-5 md:p-6 text-center min-w-[130px] neu-transition">
+              <div class="w-10 h-10 rounded-xl neu-inset flex items-center justify-center mx-auto mb-3">
+                <i data-lucide="server" class="w-5 h-5 text-muted"></i>
+              </div>
+              <p class="font-display font-bold text-muted text-sm">Follower</p>
+              <p class="text-muted text-xs mt-1">Port 8081</p>
+            </div>
+            <div class="hidden md:block">
+              <i data-lucide="arrow-left-right" class="w-8 h-8 text-muted opacity-50"></i>
+            </div>
+            <div class="bg-surface rounded-2xl neu-extruded p-5 md:p-6 text-center min-w-[130px] neu-transition">
+              <div class="w-10 h-10 rounded-xl neu-inset flex items-center justify-center mx-auto mb-3">
+                <i data-lucide="server" class="w-5 h-5 text-muted"></i>
+              </div>
+              <p class="font-display font-bold text-muted text-sm">Follower</p>
+              <p class="text-muted text-xs mt-1">Port 8082</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Data Flow -->
+        <div class="mt-10">
+          <p class="font-display font-bold text-fg text-sm uppercase tracking-widest mb-6 text-center">Data Flow</p>
+          <div class="flex flex-wrap justify-center items-center gap-3 md:gap-4">
+            <div class="bg-surface rounded-2xl neu-inset p-3 md:p-4 text-center">
+              <p class="font-display font-bold text-fg text-xs md:text-sm">Client</p>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 md:w-5 md:h-5 text-muted opacity-50"></i>
+            <div class="bg-surface rounded-2xl neu-inset p-3 md:p-4 text-center">
+              <p class="font-display font-bold text-fg text-xs md:text-sm">API</p>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 md:w-5 md:h-5 text-muted opacity-50"></i>
+            <div class="bg-surface rounded-2xl neu-inset p-3 md:p-4 text-center border-2 border-accent/30">
+              <p class="font-display font-bold text-accent text-xs md:text-sm">Leader</p>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 md:w-5 md:h-5 text-muted opacity-50"></i>
+            <div class="bg-surface rounded-2xl neu-inset p-3 md:p-4 text-center">
+              <p class="font-display font-bold text-fg text-xs md:text-sm">FSM</p>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 md:w-5 md:h-5 text-muted opacity-50"></i>
+            <div class="bg-surface rounded-2xl neu-inset p-3 md:p-4 text-center">
+              <p class="font-display font-bold text-fg text-xs md:text-sm">Slot Queue</p>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 md:w-5 md:h-5 text-muted opacity-50"></i>
+            <div class="bg-surface rounded-2xl neu-inset p-3 md:p-4 text-center">
+              <p class="font-display font-bold text-fg text-xs md:text-sm">Worker</p>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 md:w-5 md:h-5 text-muted opacity-50"></i>
+            <div class="bg-surface rounded-2xl neu-inset p-3 md:p-4 text-center">
+              <p class="font-display font-bold text-teal text-xs md:text-sm">Webhook</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Capacity Flow -->
+        <div class="mt-10">
+          <p class="font-display font-bold text-fg text-sm uppercase tracking-widest mb-6 text-center">Capacity &amp; Cold Spilling</p>
+          <div class="flex flex-wrap justify-center items-center gap-3 md:gap-4">
+            <div class="bg-surface rounded-2xl neu-inset p-3 md:p-4 text-center">
+              <p class="font-display font-bold text-fg text-xs md:text-sm">Limit Mgr</p>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 md:w-5 md:h-5 text-muted opacity-50"></i>
+            <div class="bg-surface rounded-2xl neu-inset p-3 md:p-4 text-center">
+              <p class="font-display font-bold text-fg text-xs md:text-sm">Memory Tracker</p>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 md:w-5 md:h-5 text-muted opacity-50"></i>
+            <div class="flex items-center gap-3">
+              <div class="bg-surface rounded-2xl neu-extruded p-3 md:p-4 text-center">
+                <p class="font-display font-bold text-accent text-xs md:text-sm">Hot Memory</p>
+              </div>
+              <i data-lucide="arrow-right-left" class="w-4 h-4 md:w-5 md:h-5 text-accent"></i>
+              <div class="bg-surface rounded-2xl neu-inset-deep p-3 md:p-4 text-center">
+                <p class="font-display font-bold text-muted text-xs md:text-sm">Cold (BoltDB)</p>
+              </div>
+            </div>
+          </div>
+          <p class="text-muted text-sm text-center mt-4 max-w-lg mx-auto">When memory is constrained, old slots spill to BoltDB cold storage. Jobs are promoted back to hot memory as they approach execution time.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section id="how-it-works" class="py-20 md:py-28">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <h2 class="font-display font-extrabold tracking-tight text-fg text-3xl md:text-4xl lg:text-5xl mb-4">How It Works</h2>
+        <p class="text-muted text-lg max-w-2xl mx-auto">Three steps from job submission to execution. Raft handles the hard parts.</p>
+      </div>
+      <div class="grid md:grid-cols-3 gap-8 lg:gap-12">
+        <div class="bg-surface rounded-[32px] p-8 md:p-10 neu-extruded neu-transition group">
+          <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center mb-6">
+            <span class="font-display font-extrabold text-2xl text-accent">1</span>
+          </div>
+          <div class="flex items-center gap-3 mb-4">
+            <i data-lucide="send" class="w-5 h-5 text-accent"></i>
+            <h3 class="font-display font-bold text-fg text-lg">Submit</h3>
+          </div>
+          <p class="text-muted text-sm mb-5">Send a job via the REST API. Define either a one-time timestamp or a cron expression.</p>
+          <div class="bg-surface rounded-2xl neu-inset-deep p-4 code-block text-sm overflow-x-auto">
+            <span class="comment"># Create a one-time job</span><br/>
+            <span class="keyword">curl</span> <span class="string">-X POST</span> http<span class="keyword">s</span>://cluster:8080/jobs <span class="string">\</span><br/>
+            &nbsp;&nbsp;-d <span class="string">'{"type":"unico","payload":"...","run_at":"2025-06-01T12:00:00Z"}'</span>
+          </div>
+        </div>
+        <div class="bg-surface rounded-[32px] p-8 md:p-10 neu-extruded neu-transition group">
+          <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center mb-6">
+            <span class="font-display font-extrabold text-2xl text-accent">2</span>
+          </div>
+          <div class="flex items-center gap-3 mb-4">
+            <i data-lucide="git-merge" class="w-5 h-5 text-accent"></i>
+            <h3 class="font-display font-bold text-fg text-lg">Consensus</h3>
+          </div>
+          <p class="text-muted text-sm mb-5">The leader replicates the job through the Raft log. A majority must acknowledge before the FSM applies the state.</p>
+          <div class="bg-surface rounded-2xl neu-inset-deep p-4 code-block text-sm overflow-x-auto">
+            <span class="comment">// Raft log replication</span><br/>
+            <span class="keyword">leader</span> -&gt; <span class="string">append_entries</span> -&gt; followers<br/>
+            <span class="keyword">majority</span> ? <span class="string">commit</span> : <span class="keyword">retry</span><br/>
+            <span class="comment">// FSM applies state</span><br/>
+            <span class="string">jobToSlot</span>[job.ID] = slot
+          </div>
+        </div>
+        <div class="bg-surface rounded-[32px] p-8 md:p-10 neu-extruded neu-transition group">
+          <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center mb-6">
+            <span class="font-display font-extrabold text-2xl text-accent">3</span>
+          </div>
+          <div class="flex items-center gap-3 mb-4">
+            <i data-lucide="play" class="w-5 h-5 text-accent"></i>
+            <h3 class="font-display font-bold text-fg text-lg">Execute</h3>
+          </div>
+          <p class="text-muted text-sm mb-5">The worker picks up the slot at the right time, dispatches the webhook, and tracks status through the full lifecycle.</p>
+          <div class="bg-surface rounded-2xl neu-inset-deep p-4 code-block text-sm overflow-x-auto">
+            <span class="keyword">pending</span> &rarr; <span class="string">in_progress</span><br/>
+            &rarr; <span class="string">completed</span> | <span class="keyword">failed</span><br/>
+            &rarr; <span class="keyword">timeout</span> | <span class="keyword">cancelled</span><br/>
+            <span class="comment">// Idempotent: checks status first</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Job Types Section -->
+  <section id="job-types" class="py-20 md:py-28">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <h2 class="font-display font-extrabold tracking-tight text-fg text-3xl md:text-4xl lg:text-5xl mb-4">Job Types</h2>
+        <p class="text-muted text-lg max-w-2xl mx-auto">Two scheduling modes designed for every scenario. Intentionally Spanish names &mdash; they stay.</p>
+      </div>
+      <div class="grid md:grid-cols-2 gap-8 lg:gap-12">
+        <!-- Unico -->
+        <div class="bg-surface rounded-[32px] p-8 md:p-12 lg:p-16 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-16 h-16 rounded-2xl neu-inset-deep flex items-center justify-center">
+              <i data-lucide="clock" class="w-7 h-7 text-accent"></i>
+            </div>
+            <div>
+              <h3 class="font-display font-extrabold text-fg text-2xl tracking-tight">Unico</h3>
+              <p class="text-muted text-sm">One-time execution</p>
+            </div>
+          </div>
+          <p class="text-muted mb-6 leading-relaxed">Fire-and-forget scheduling. Set a specific timestamp, and the cluster guarantees execution &mdash; exactly once, even on failover.</p>
+          <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm mb-6">
+            <span class="comment">// Example Unico job</span><br/>
+            {<br/>
+            &nbsp;&nbsp;<span class="string">"type"</span>: <span class="string">"unico"</span>,<br/>
+            &nbsp;&nbsp;<span class="string">"payload"</span>: <span class="string">"send-alert"</span>,<br/>
+            &nbsp;&nbsp;<span class="string">"run_at"</span>: <span class="string">"2025-06-01T12:00:00Z"</span>,<br/>
+            &nbsp;&nbsp;<span class="string">"webhook_url"</span>: <span class="string">"https://..."</span><br/>
+            }
+          </div>
+          <div class="inline-flex items-center gap-2 bg-surface neu-inset-sm rounded-full px-4 py-1.5">
+            <i data-lucide="zap" class="w-3.5 h-3.5 text-accent"></i>
+            <span class="font-display font-semibold text-fg text-xs uppercase tracking-wider">Fire &amp; Forget</span>
+          </div>
+        </div>
+        <!-- Recurrente -->
+        <div class="bg-surface rounded-[32px] p-8 md:p-12 lg:p-16 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-16 h-16 rounded-2xl neu-inset-deep flex items-center justify-center">
+              <i data-lucide="repeat" class="w-7 h-7 text-accent"></i>
+            </div>
+            <div>
+              <h3 class="font-display font-extrabold text-fg text-2xl tracking-tight">Recurrente</h3>
+              <p class="text-muted text-sm">Cron-based recurring</p>
+            </div>
+          </div>
+          <p class="text-muted mb-6 leading-relaxed">Recurring execution using standard cron expressions. Add an optional end date to gracefully terminate the schedule.</p>
+          <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm mb-6">
+            <span class="comment">// Example Recurrente job</span><br/>
+            {<br/>
+            &nbsp;&nbsp;<span class="string">"type"</span>: <span class="string">"recurrente"</span>,<br/>
+            &nbsp;&nbsp;<span class="string">"payload"</span>: <span class="string">"cleanup-db"</span>,<br/>
+            &nbsp;&nbsp;<span class="string">"cron_expr"</span>: <span class="string">"0 3 * * *"</span>,<br/>
+            &nbsp;&nbsp;<span class="string">"last_date"</span>: <span class="string">"2025-12-31T23:59:59Z"</span>,<br/>
+            &nbsp;&nbsp;<span class="string">"webhook_url"</span>: <span class="string">"https://..."</span><br/>
+            }
+          </div>
+          <div class="inline-flex items-center gap-2 bg-surface neu-inset-sm rounded-full px-4 py-1.5">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-teal"></i>
+            <span class="font-display font-semibold text-fg text-xs uppercase tracking-wider">Cron-Based</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start Section -->
+  <section id="quick-start" class="py-20 md:py-28">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <h2 class="font-display font-extrabold tracking-tight text-fg text-3xl md:text-4xl lg:text-5xl mb-4">Quick Start</h2>
+        <p class="text-muted text-lg max-w-2xl mx-auto">From zero to a running 3-node cluster in under a minute.</p>
+      </div>
+      <div class="space-y-8 max-w-3xl mx-auto">
+        <!-- Step 1 -->
+        <div class="bg-surface rounded-[32px] p-8 md:p-10 neu-extruded">
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-10 h-10 rounded-xl neu-inset flex items-center justify-center">
+              <span class="font-display font-extrabold text-accent text-lg">1</span>
+            </div>
+            <h3 class="font-display font-bold text-fg text-lg">Launch the Cluster</h3>
+          </div>
+          <div class="relative">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+              <span class="comment"># Clone and start a 3-node cluster</span><br/>
+              <span class="keyword">git</span> clone https://github.com/manudiv16/scheduled-db<br/>
+              <span class="keyword">cd</span> scheduled-db<br/>
+              <span class="keyword">make</span> dev-up<br/><br/>
+              <span class="comment"># Check cluster health</span><br/>
+              <span class="keyword">curl</span> http<span class="keyword">s</span>://localhost:8080/health
+            </div>
+            <button onclick="copyCode(this)" class="absolute top-3 right-3 bg-surface text-muted rounded-xl p-2 neu-extruded-sm neu-transition hover:text-accent hover:translate-y-[-1px] hover:neu-extruded-hover active:translate-y-[0.5px] active:neu-inset-sm focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface" aria-label="Copy code">
+              <i data-lucide="copy" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+        <!-- Step 2 -->
+        <div class="bg-surface rounded-[32px] p-8 md:p-10 neu-extruded">
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-10 h-10 rounded-xl neu-inset flex items-center justify-center">
+              <span class="font-display font-extrabold text-accent text-lg">2</span>
+            </div>
+            <h3 class="font-display font-bold text-fg text-lg">Create Jobs</h3>
+          </div>
+          <div class="relative">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+              <span class="comment"># Create a Unico (one-time) job</span><br/>
+              <span class="keyword">curl</span> <span class="string">-X POST</span> http<span class="keyword">s</span>://localhost:8080/jobs <span class="string">\</span><br/>
+              &nbsp;&nbsp;-H <span class="string">"Content-Type: application/json"</span> <span class="string">\</span><br/>
+              &nbsp;&nbsp;-d <span class="string">'{</span><br/>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="string">"type"</span>: <span class="string">"unico"</span>,<br/>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="string">"payload"</span>: <span class="string">"hello-world"</span>,<br/>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="string">"run_at"</span>: <span class="string">"2025-06-01T12:00:00Z"</span>,<br/>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="string">"webhook_url"</span>: <span class="string">"https://example.com/hook"</span><br/>
+              &nbsp;&nbsp;<span class="string">}'</span><br/><br/>
+              <span class="comment"># Create a Recurrente (recurring) job</span><br/>
+              <span class="keyword">curl</span> <span class="string">-X POST</span> http<span class="keyword">s</span>://localhost:8080/jobs <span class="string">\</span><br/>
+              &nbsp;&nbsp;-H <span class="string">"Content-Type: application/json"</span> <span class="string">\</span><br/>
+              &nbsp;&nbsp;-d <span class="string">'{</span><br/>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="string">"type"</span>: <span class="string">"recurrente"</span>,<br/>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="string">"payload"</span>: <span class="string">"cleanup"</span>,<br/>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="string">"cron_expr"</span>: <span class="string">"0 3 * * *"</span>,<br/>
+              &nbsp;&nbsp;&nbsp;&nbsp;<span class="string">"webhook_url"</span>: <span class="string">"https://example.com/hook"</span><br/>
+              &nbsp;&nbsp;<span class="string">}'</span>
+            </div>
+            <button onclick="copyCode(this)" class="absolute top-3 right-3 bg-surface text-muted rounded-xl p-2 neu-extruded-sm neu-transition hover:text-accent hover:translate-y-[-1px] hover:neu-extruded-hover active:translate-y-[0.5px] active:neu-inset-sm focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface" aria-label="Copy code">
+              <i data-lucide="copy" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+        <!-- Step 3 -->
+        <div class="bg-surface rounded-[32px] p-8 md:p-10 neu-extruded">
+          <div class="flex items-center gap-3 mb-5">
+            <div class="w-10 h-10 rounded-xl neu-inset flex items-center justify-center">
+              <span class="font-display font-extrabold text-accent text-lg">3</span>
+            </div>
+            <h3 class="font-display font-bold text-fg text-lg">Check Status</h3>
+          </div>
+          <div class="relative">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+              <span class="comment"># Get job status</span><br/>
+              <span class="keyword">curl</span> http<span class="keyword">s</span>://localhost:8080/jobs/{id}/status<br/><br/>
+              <span class="comment"># View execution history</span><br/>
+              <span class="keyword">curl</span> http<span class="keyword">s</span>://localhost:8080/jobs/{id}/executions<br/><br/>
+              <span class="comment"># Check cluster info</span><br/>
+              <span class="keyword">curl</span> http<span class="keyword">s</span>://localhost:8080/debug/cluster
+            </div>
+            <button onclick="copyCode(this)" class="absolute top-3 right-3 bg-surface text-muted rounded-xl p-2 neu-extruded-sm neu-transition hover:text-accent hover:translate-y-[-1px] hover:neu-extruded-hover active:translate-y-[0.5px] active:neu-inset-sm focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface" aria-label="Copy code">
+              <i data-lucide="copy" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- API Reference -->
+  <section id="api" class="py-20 md:py-28">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <h2 class="font-display font-extrabold tracking-tight text-fg text-3xl md:text-4xl lg:text-5xl mb-4">API Reference</h2>
+        <p class="text-muted text-lg max-w-2xl mx-auto">Clean REST endpoints for complete job lifecycle management.</p>
+      </div>
+      <div class="max-w-4xl mx-auto space-y-4">
+        <div class="bg-surface rounded-2xl neu-extruded p-5 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+          <span class="method-post font-display font-bold text-sm px-3 py-1 rounded-xl whitespace-nowrap">POST</span>
+          <span class="font-mono text-fg text-sm font-medium flex-1">/jobs</span>
+          <span class="text-muted text-sm">Create a new job</span>
+        </div>
+        <div class="bg-surface rounded-2xl neu-extruded p-5 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+          <span class="method-get font-display font-bold text-sm px-3 py-1 rounded-xl whitespace-nowrap">GET</span>
+          <span class="font-mono text-fg text-sm font-medium flex-1">/jobs/{id}</span>
+          <span class="text-muted text-sm">Get job details</span>
+        </div>
+        <div class="bg-surface rounded-2xl neu-extruded p-5 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+          <span class="method-delete font-display font-bold text-sm px-3 py-1 rounded-xl whitespace-nowrap">DELETE</span>
+          <span class="font-mono text-fg text-sm font-medium flex-1">/jobs/{id}</span>
+          <span class="text-muted text-sm">Delete a job</span>
+        </div>
+        <div class="bg-surface rounded-2xl neu-extruded p-5 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+          <span class="method-get font-display font-bold text-sm px-3 py-1 rounded-xl whitespace-nowrap">GET</span>
+          <span class="font-mono text-fg text-sm font-medium flex-1">/jobs/{id}/status</span>
+          <span class="text-muted text-sm">Get job status</span>
+        </div>
+        <div class="bg-surface rounded-2xl neu-extruded p-5 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+          <span class="method-get font-display font-bold text-sm px-3 py-1 rounded-xl whitespace-nowrap">GET</span>
+          <span class="font-mono text-fg text-sm font-medium flex-1">/jobs/{id}/executions</span>
+          <span class="text-muted text-sm">Get execution history</span>
+        </div>
+        <div class="bg-surface rounded-2xl neu-extruded p-5 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+          <span class="method-post font-display font-bold text-sm px-3 py-1 rounded-xl whitespace-nowrap">POST</span>
+          <span class="font-mono text-fg text-sm font-medium flex-1">/jobs/{id}/cancel</span>
+          <span class="text-muted text-sm">Cancel a job</span>
+        </div>
+        <div class="bg-surface rounded-2xl neu-extruded p-5 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+          <span class="method-get font-display font-bold text-sm px-3 py-1 rounded-xl whitespace-nowrap">GET</span>
+          <span class="font-mono text-fg text-sm font-medium flex-1">/health</span>
+          <span class="text-muted text-sm">Health check</span>
+        </div>
+        <div class="bg-surface rounded-2xl neu-extruded p-5 flex flex-col md:flex-row md:items-center gap-3 md:gap-6">
+          <span class="method-get font-display font-bold text-sm px-3 py-1 rounded-xl whitespace-nowrap">GET</span>
+          <span class="font-mono text-fg text-sm font-medium flex-1">/debug/cluster</span>
+          <span class="text-muted text-sm">Cluster info</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Deployment Section -->
+  <section id="deploy" class="py-20 md:py-28">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <h2 class="font-display font-extrabold tracking-tight text-fg text-3xl md:text-4xl lg:text-5xl mb-4">Deployment</h2>
+        <p class="text-muted text-lg max-w-2xl mx-auto">From local development to production Kubernetes.</p>
+      </div>
+      <div class="grid md:grid-cols-2 gap-8 lg:gap-12">
+        <!-- Docker Compose -->
+        <div class="bg-surface rounded-[32px] p-8 md:p-12 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center">
+              <i data-lucide="container" class="w-6 h-6 text-accent"></i>
+            </div>
+            <div>
+              <h3 class="font-display font-bold text-fg text-xl tracking-tight">Docker Compose</h3>
+              <p class="text-muted text-sm">Development</p>
+            </div>
+          </div>
+          <p class="text-muted text-sm mb-6">Spin up a local 3-node cluster with a single command. Includes Prometheus and Grafana for monitoring.</p>
+          <div class="relative">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+              <span class="comment"># Start the cluster</span><br/>
+              <span class="keyword">make</span> dev-up<br/><br/>
+              <span class="comment"># Ports</span><br/>
+              <span class="string">Node 1</span> (Leader): <span class="keyword">8080</span><br/>
+              <span class="string">Node 2</span> (Follower): <span class="keyword">8081</span><br/>
+              <span class="string">Node 3</span> (Follower): <span class="keyword">8082</span><br/>
+              <span class="string">Prometheus</span>: <span class="keyword">9090</span><br/>
+              <span class="string">Grafana</span>: <span class="keyword">3000</span>
+            </div>
+            <button onclick="copyCode(this)" class="absolute top-3 right-3 bg-surface text-muted rounded-xl p-2 neu-extruded-sm neu-transition hover:text-accent hover:translate-y-[-1px] hover:neu-extruded-hover active:translate-y-[0.5px] active:neu-inset-sm focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface" aria-label="Copy code">
+              <i data-lucide="copy" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <div class="inline-flex items-center gap-2 bg-surface neu-inset-sm rounded-full px-4 py-1.5 mt-5">
+            <i data-lucide="terminal" class="w-3.5 h-3.5 text-accent"></i>
+            <span class="font-display font-semibold text-fg text-xs uppercase tracking-wider">Local Dev</span>
+          </div>
+        </div>
+        <!-- Kubernetes -->
+        <div class="bg-surface rounded-[32px] p-8 md:p-12 neu-extruded neu-transition hover:translate-y-[-2px] hover:neu-extruded-hover">
+          <div class="flex items-center gap-4 mb-6">
+            <div class="w-14 h-14 rounded-2xl neu-inset-deep flex items-center justify-center">
+              <i data-lucide="network" class="w-6 h-6 text-teal"></i>
+            </div>
+            <div>
+              <h3 class="font-display font-bold text-fg text-xl tracking-tight">Kubernetes</h3>
+              <p class="text-muted text-sm">Production</p>
+            </div>
+          </div>
+          <p class="text-muted text-sm mb-6">StatefulSet deployment with service discovery, staggered startup, and auto-bootstrap for orphaned nodes.</p>
+          <div class="relative">
+            <div class="bg-surface rounded-2xl neu-inset-deep p-5 code-block text-sm overflow-x-auto">
+              <span class="comment"># Deploy to Kubernetes</span><br/>
+              <span class="keyword">make</span> k8s-deploy<br/><br/>
+              <span class="comment"># Service discovery</span><br/>
+              <span class="string">DNS</span> | <span class="string">Consul</span> | <span class="string">Gossip</span><br/><br/>
+              <span class="comment"># Features</span><br/>
+              <span class="keyword">-</span> StatefulSet with anti-affinity<br/>
+              <span class="keyword">-</span> Staggered pod startup<br/>
+              <span class="keyword">-</span> Auto-bootstrap on full restart
+            </div>
+            <button onclick="copyCode(this)" class="absolute top-3 right-3 bg-surface text-muted rounded-xl p-2 neu-extruded-sm neu-transition hover:text-accent hover:translate-y-[-1px] hover:neu-extruded-hover active:translate-y-[0.5px] active:neu-inset-sm focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface" aria-label="Copy code">
+              <i data-lucide="copy" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <div class="inline-flex items-center gap-2 bg-surface neu-inset-sm rounded-full px-4 py-1.5 mt-5">
+            <i data-lucide="cloud" class="w-3.5 h-3.5 text-teal"></i>
+            <span class="font-display font-semibold text-fg text-xs uppercase tracking-wider">Production</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="py-16 border-t border-transparent">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="grid md:grid-cols-3 gap-12 mb-12">
+        <div>
+          <h4 class="font-display font-bold text-fg text-lg mb-4">Scheduled<span class="text-accent">-DB</span></h4>
+          <p class="text-muted text-sm leading-relaxed">Distributed job scheduling built on Raft consensus. Reliable, observable, and production-ready.</p>
+        </div>
+        <div>
+          <h4 class="font-display font-bold text-fg text-sm uppercase tracking-widest mb-4">Documentation</h4>
+          <ul class="space-y-2">
+            <li><a href="#architecture" class="text-muted text-sm hover:text-accent neu-transition">Architecture</a></li>
+            <li><a href="#api" class="text-muted text-sm hover:text-accent neu-transition">API Reference</a></li>
+            <li><a href="#quick-start" class="text-muted text-sm hover:text-accent neu-transition">Quick Start</a></li>
+            <li><a href="#deploy" class="text-muted text-sm hover:text-accent neu-transition">Deployment Guide</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4 class="font-display font-bold text-fg text-sm uppercase tracking-widest mb-4">Resources</h4>
+          <ul class="space-y-2">
+            <li><a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener noreferrer" class="text-muted text-sm hover:text-accent neu-transition">GitHub Repository</a></li>
+            <li><a href="#features" class="text-muted text-sm hover:text-accent neu-transition">Features Overview</a></li>
+            <li><a href="#how-it-works" class="text-muted text-sm hover:text-accent neu-transition">How It Works</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="bg-surface rounded-[32px] neu-inset p-6 md:p-8">
+        <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+          <p class="text-muted text-sm text-center md:text-left">Built with <span class="text-fg font-medium">HashiCorp Raft</span>, <span class="text-fg font-medium">Gorilla Mux</span>, <span class="text-fg font-medium">Prometheus</span>, <span class="text-fg font-medium">OpenTelemetry</span></p>
+          <div class="flex items-center gap-4">
+            <a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener noreferrer" class="w-10 h-10 rounded-2xl neu-extruded-sm neu-transition hover:translate-y-[-1px] hover:neu-extruded-hover flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface" aria-label="GitHub">
+              <i data-lucide="github" class="w-5 h-5 text-fg"></i>
+            </a>
+          </div>
+        </div>
+        <p class="text-muted text-xs text-center mt-4">Made for distributed systems.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // Mobile menu toggle
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    const mobileMenu = document.getElementById('mobile-menu');
+    const menuIcon = document.getElementById('menu-icon');
+    let menuOpen = false;
+
+    mobileMenuBtn.addEventListener('click', () => {
+      menuOpen = !menuOpen;
+      mobileMenu.classList.toggle('hidden');
+      menuIcon.setAttribute('data-lucide', menuOpen ? 'x' : 'menu');
+      lucide.createIcons();
+    });
+
+    // Close mobile menu on link click
+    document.querySelectorAll('.mobile-nav-link').forEach(link => {
+      link.addEventListener('click', () => {
+        menuOpen = false;
+        mobileMenu.classList.add('hidden');
+        menuIcon.setAttribute('data-lucide', 'menu');
+        lucide.createIcons();
+      });
+    });
+
+    // Copy to clipboard
+    function copyCode(btn) {
+      const codeBlock = btn.closest('.relative').querySelector('.code-block');
+      const text = codeBlock.innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        const icon = btn.querySelector('[data-lucide]');
+        icon.setAttribute('data-lucide', 'check');
+        lucide.createIcons();
+        setTimeout(() => {
+          icon.setAttribute('data-lucide', 'copy');
+          lucide.createIcons();
+        }, 2000);
+      });
+    }
+
+    // Active nav link highlighting on scroll
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('.nav-link');
+
+    function updateActiveLink() {
+      let current = '';
+      sections.forEach(section => {
+        const sectionTop = section.offsetTop - 120;
+        if (window.scrollY >= sectionTop) {
+          current = section.getAttribute('id');
+        }
+      });
+      navLinks.forEach(link => {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === '#' + current) {
+          link.classList.add('active');
+        }
+      });
+    }
+
+    window.addEventListener('scroll', updateActiveLink);
+    updateActiveLink();
+  </script>
+</body>
+</html>
