@@ -1,6 +1,5 @@
 ---
-import Navbar from '../components/Navbar.svelte';
-import '../styles/global.css';
+import Navbar from '../components/ui/Navbar.svelte';
 
 interface Props {
   title: string;
@@ -16,22 +15,121 @@ const { title } = Astro.props;
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=VT323&display=swap" rel="stylesheet" />
     <title>{title}</title>
   </head>
   <body>
     <Navbar client:load />
-    <slot />
-    <footer class="border-t border-brand-border py-10 text-center text-sm text-brand-text-muted">
-      <div class="mx-auto max-w-7xl px-4 sm:px-6">
-        <div class="mb-4 flex flex-wrap items-center justify-center gap-6">
-          <a href="https://github.com/manudiv16/scheduled-db" class="text-brand-text-secondary transition-colors hover:text-brand-cyan">GitHub</a>
-          <a href="https://raft.github.io/" class="text-brand-text-secondary transition-colors hover:text-brand-cyan">Raft Consensus</a>
-          <a href="https://prometheus.io/" class="text-brand-text-secondary transition-colors hover:text-brand-cyan">Prometheus</a>
-          <a href="https://opentelemetry.io/" class="text-brand-text-secondary transition-colors hover:text-brand-cyan">OpenTelemetry</a>
+
+    <main>
+      <slot />
+    </main>
+
+    <footer class="hud-footer">
+      <div class="container footer-inner">
+        <div class="footer-ascii">
+          <pre class="hud-text">    [LEADER]
+       |
+  +----+----+
+  |         |
+[F1]      [F2]</pre>
         </div>
-        <p>Built with HashiCorp Raft, Gorilla Mux, Robfig Cron, Prometheus & OpenTelemetry</p>
+        <div class="footer-log">
+          <p class="hud-text">&gt; BOOT_SEQ: COMPLETE</p>
+          <p class="hud-text">&gt; CONSENSUS: HASHICORP_RAFT</p>
+          <p class="hud-text">&gt; METRICS: PROMETHEUS + OTEL</p>
+          <p class="hud-text">&gt; SCHEDULING: HIERARCHICAL_TIMING_WHEEL</p>
+          <div class="footer-links">
+            <a href="https://github.com/manudiv16/scheduled-db" class="hud-text">[ GITHUB ]</a>
+            <a href="https://raft.github.io/" class="hud-text">[ RAFT ]</a>
+            <a href="https://prometheus.io/" class="hud-text">[ PROMETHEUS ]</a>
+          </div>
+        </div>
       </div>
     </footer>
   </body>
 </html>
+
+<style is:global>
+  @import '../styles/global.css';
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-xl);
+  }
+
+  main {
+    padding-top: 48px;
+  }
+
+  @media (max-width: 768px) {
+    .container {
+      padding: 0 var(--spacing-md);
+    }
+
+    .hud-footer {
+      padding: var(--spacing-lg) 0;
+      margin-top: var(--spacing-xl);
+    }
+  }
+
+  .hud-footer {
+    border-top: 1px solid var(--border-hud);
+    background: var(--bg-panel);
+    padding: var(--spacing-xl) 0;
+    margin-top: var(--spacing-2xl);
+  }
+
+  .footer-inner {
+    display: flex;
+    gap: var(--spacing-2xl);
+    align-items: flex-start;
+  }
+
+  .footer-ascii pre {
+    color: var(--neon-cyan);
+    opacity: 0.6;
+    line-height: 1.2;
+    font-size: 0.8rem;
+  }
+
+  .footer-log {
+    color: var(--ink-secondary);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .footer-links {
+    margin-top: var(--spacing-md);
+    display: flex;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+  }
+
+  .footer-links a {
+    white-space: nowrap;
+    color: var(--ink-secondary);
+    font-size: 0.75rem;
+  }
+
+  .footer-links a:hover {
+    color: var(--neon-cyan);
+  }
+
+  @media (max-width: 768px) {
+    .footer-inner {
+      flex-direction: column;
+      gap: var(--spacing-lg);
+    }
+
+    .footer-ascii {
+      display: none;
+    }
+
+    .footer-links {
+      gap: var(--spacing-sm);
+    }
+  }
+</style>

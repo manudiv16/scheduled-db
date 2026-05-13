@@ -1,16 +1,3 @@
-export const apiEndpoints = [
-  { method: 'POST', path: '/jobs', description: 'Create job' },
-  { method: 'GET', path: '/jobs/{id}', description: 'Get job details' },
-  { method: 'DELETE', path: '/jobs/{id}', description: 'Delete job' },
-  { method: 'GET', path: '/jobs/{id}/status', description: 'Get job execution status' },
-  { method: 'GET', path: '/jobs/{id}/executions', description: 'Get execution history' },
-  { method: 'GET', path: '/jobs?status={status}', description: 'List jobs by status' },
-  { method: 'POST', path: '/jobs/{id}/cancel', description: 'Cancel job' },
-  { method: 'GET', path: '/health', description: 'Health check' },
-  { method: 'GET', path: '/debug/cluster', description: 'Cluster info' },
-  { method: 'POST', path: '/join', description: 'Join cluster' },
-];
-
 export type FeatureCategory = 'consensus' | 'scheduling' | 'storage' | 'ops';
 
 export interface Feature {
@@ -84,5 +71,38 @@ export const features: Feature[] = [
     description: 'Deep health endpoints verify Raft status, disk I/O, and queue latency.',
     category: 'ops',
     size: 'sm'
+  }
+];
+
+export const apiEndpoints = [
+  {
+    method: 'POST',
+    path: '/jobs',
+    desc: 'Create a new job (unico or recurrente)',
+    example: '{"type":"unico", "action":"webhook", "target":"http://..."}'
+  },
+  {
+    method: 'GET',
+    path: '/jobs/{id}',
+    desc: 'Retrieve job details and state',
+    example: '{"id":"job-123", "status":"pending"}'
+  },
+  {
+    method: 'DELETE',
+    path: '/jobs/{id}/cancel',
+    desc: 'Cancel a pending or recurring job',
+    example: '{"status":"cancelled"}'
+  },
+  {
+    method: 'GET',
+    path: '/jobs/{id}/executions',
+    desc: 'List execution history for a job',
+    example: '[{"status":"success", "timestamp":"2026-05-13T10:00:00Z"}]'
+  },
+  {
+    method: 'GET',
+    path: '/metrics',
+    desc: 'Prometheus metrics endpoint',
+    example: '# HELP scheduled_db_jobs_total...'
   }
 ];

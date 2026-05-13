@@ -1,85 +1,38 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import AnimatedHero from '../components/AnimatedHero.svelte';
-import FeatureCards from '../components/FeatureCards.svelte';
-import ArchitectureDiagram from '../components/ArchitectureDiagram.svelte';
-import Timeline from '../components/Timeline.svelte';
-import CodeTabs from '../components/CodeTabs.svelte';
-import { apiEndpoints } from '../data/features';
-import { timeline } from '../data/timeline';
+import HeroConsole from '../components/sections/HeroConsole.svelte';
+import FeaturesBento from '../components/sections/FeaturesBento.svelte';
+import ArchitectureLive from '../components/sections/ArchitectureLive.svelte';
+import RoadmapTrack from '../components/sections/RoadmapTrack.svelte';
+import QuickStartTerminal from '../components/sections/QuickStartTerminal.svelte';
+import ApiMonitor from '../components/sections/ApiMonitor.astro';
 ---
 
-<Layout title="Scheduled-DB — Distributed Job Scheduling">
-  <main>
-    <AnimatedHero client:load />
+<Layout title="Scheduled-DB - Distributed Job Scheduling">
+	<main>
+    <!-- client:load: Immediate hydration for boot sequence -->
+		<HeroConsole client:load />
 
-    <section id="features" class="py-16 md:py-24">
-      <div class="mx-auto max-w-7xl px-4 sm:px-6">
-        <h2 class="mb-2 text-center text-2xl font-bold md:text-3xl bg-gradient-to-r from-brand-cyan to-brand-purple bg-clip-text text-transparent">Features</h2>
-        <p class="mx-auto mb-12 max-w-xl text-center text-brand-text-secondary">
-          Everything you need for reliable, distributed job scheduling at scale.
-        </p>
-        <FeatureCards client:visible />
-      </div>
-    </section>
+    <!-- client:visible: Defer hydration until scrolled into view -->
+		<FeaturesBento client:visible />
 
-    <section id="architecture" class="py-16 md:py-24">
-      <div class="mx-auto max-w-7xl px-4 sm:px-6">
-        <h2 class="mb-2 text-center text-2xl font-bold md:text-3xl bg-gradient-to-r from-brand-cyan to-brand-purple bg-clip-text text-transparent">Architecture</h2>
-        <p class="mx-auto mb-12 max-w-xl text-center text-brand-text-secondary">
-          Built on Raft consensus for strong consistency and automatic failover.
-        </p>
-        <ArchitectureDiagram client:visible />
-      </div>
-    </section>
+    <!-- client:visible: Heavy SVG + animations, defer -->
+    <ArchitectureLive client:visible />
 
-    <section id="roadmap" class="py-16 md:py-24">
-      <div class="mx-auto max-w-7xl px-4 sm:px-6">
-        <h2 class="mb-2 text-center text-2xl font-bold md:text-3xl bg-gradient-to-r from-brand-cyan to-brand-purple bg-clip-text text-transparent">Roadmap</h2>
-        <p class="mx-auto mb-12 max-w-xl text-center text-brand-text-secondary">
-          Development track and upcoming features for Scheduled-DB.
-        </p>
-        <Timeline client:visible items={timeline} />
-      </div>
-    </section>
+    <!-- client:visible: Interactive timeline, defer -->
+    <RoadmapTrack client:visible />
 
-    <section id="quickstart" class="py-16 md:py-24">
-      <div class="mx-auto max-w-7xl px-4 sm:px-6">
-        <h2 class="mb-2 text-center text-2xl font-bold md:text-3xl bg-gradient-to-r from-brand-cyan to-brand-purple bg-clip-text text-transparent">Quick Start</h2>
-        <p class="mx-auto mb-12 max-w-xl text-center text-brand-text-secondary">
-          Get a 3-node cluster running in seconds.
-        </p>
-        <CodeTabs client:visible />
-      </div>
-    </section>
+    <!-- client:idle: Interactive but not critical for initial paint -->
+    <QuickStartTerminal client:idle />
 
-    <section id="api" class="py-16 md:py-24">
-      <div class="mx-auto max-w-7xl px-4 sm:px-6">
-        <h2 class="mb-2 text-center text-2xl font-bold md:text-3xl bg-gradient-to-r from-brand-cyan to-brand-purple bg-clip-text text-transparent">API Reference</h2>
-        <p class="mx-auto mb-12 max-w-xl text-center text-brand-text-secondary">
-          Simple RESTful HTTP interface for job management.
-        </p>
-        <div class="mx-auto max-w-3xl overflow-x-auto rounded-lg border border-brand-border">
-          <table class="w-full text-sm">
-            <thead>
-              <tr>
-                <th class="bg-brand-card px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-brand-cyan">Method</th>
-                <th class="bg-brand-card px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-brand-cyan">Endpoint</th>
-                <th class="bg-brand-card px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-brand-cyan">Description</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-brand-border">
-              {apiEndpoints.map((ep) => (
-                <tr class="transition-colors hover:bg-brand-cyan/[0.02]">
-                  <td class="whitespace-nowrap px-4 py-3 text-brand-green"><code>{ep.method}</code></td>
-                  <td class="whitespace-nowrap px-4 py-3 font-mono text-brand-text-secondary"><code>{ep.path}</code></td>
-                  <td class="px-4 py-3 text-brand-text-secondary">{ep.description}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-  </main>
+    <!-- Static Astro component (No JS) -->
+    <ApiMonitor />
+	</main>
 </Layout>
+
+<style>
+	main {
+		width: 100%;
+    color: var(--ink-primary);
+	}
+</style>

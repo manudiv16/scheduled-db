@@ -1,25 +1,29 @@
 @import "tailwindcss";
+@import "./tokens.css";
+@import "./base.css";
+@import "./effects.css";
+@import "./motion.css";
 
 @plugin "@tailwindcss/typography";
 
 @theme {
-  --color-brand-bg: #0a0e1a;
-  --color-brand-surface: #111827;
-  --color-brand-card: #1e293b;
-  --color-brand-card-hover: #263348;
-  --color-brand-text: #f1f5f9;
-  --color-brand-text-secondary: #94a3b8;
-  --color-brand-text-muted: #64748b;
-  --color-brand-cyan: #22d3ee;
-  --color-brand-purple: #a78bfa;
-  --color-brand-blue: #3b82f6;
-  --color-brand-green: #34d399;
-  --color-brand-amber: #fbbf24;
-  --color-brand-pink: #f472b6;
-  --color-brand-border: #334155;
+  --color-bg-void: #04060c;
+  --color-bg-panel: #0a0e1a;
+  --color-bg-panel-2: #111827;
+  --color-ink-primary: #d7e3ff;
+  --color-ink-secondary: #7a8aa8;
+  --color-ink-mute: #4a5570;
+  --color-neon-cyan: #00e0ff;
+  --color-neon-magenta: #ff3df0;
+  --color-neon-amber: #ffb627;
+  --color-phosphor: #7cff5f;
+  --color-border-hud: rgba(0, 224, 255, 0.22);
+  --color-grid-line: rgba(0, 224, 255, 0.025);
 
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-display: 'Chakra Petch', sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-terminal: 'VT323', monospace;
 }
 
 @layer base {
@@ -29,25 +33,26 @@
 
   body {
     font-family: var(--font-sans);
-    background-color: var(--color-brand-bg);
-    color: var(--color-brand-text);
+    background-color: var(--bg-void);
+    color: var(--ink-primary);
     line-height: 1.6;
     overflow-x: hidden;
   }
 
   a {
-    color: var(--color-brand-cyan);
+    color: var(--neon-cyan);
     text-decoration: none;
     transition: color 0.2s;
   }
 
   a:hover {
-    color: var(--color-brand-purple);
+    color: var(--ink-primary);
+    text-shadow: var(--glow-cyan-sm);
   }
 
   code {
     font-family: var(--font-mono);
-    background: var(--color-brand-card);
+    background: var(--bg-panel);
     padding: 0.15em 0.4em;
     border-radius: 4px;
     font-size: 0.9em;
@@ -55,9 +60,9 @@
 
   pre {
     font-family: var(--font-mono);
-    background: var(--color-brand-card);
-    border: 1px solid var(--color-brand-border);
-    border-radius: 8px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-hud);
+    border-radius: 4px;
     padding: 1.25rem;
     overflow-x: auto;
     font-size: 0.875rem;
