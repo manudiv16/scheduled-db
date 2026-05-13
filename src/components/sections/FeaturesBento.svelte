@@ -116,7 +116,7 @@
   .bento-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    grid-auto-rows: minmax(280px, auto);
+    grid-auto-rows: minmax(240px, auto);
     gap: var(--spacing-lg);
   }
 
@@ -191,9 +191,14 @@
   @media (max-width: 900px) {
     .bento-grid {
       grid-template-columns: 1fr;
+      grid-auto-rows: auto;
     }
     .consensus-cell, .scheduling-cell, .storage-cell, .ops-cell {
       grid-column: span 1;
+    }
+
+    .consensus-viz {
+      display: none;
     }
   }
 </style>

@@ -90,6 +90,7 @@
     bottom: var(--spacing-lg);
     left: var(--spacing-lg);
     width: 250px;
+    max-width: calc(100% - var(--spacing-lg) * 2);
     pointer-events: none;
   }
 

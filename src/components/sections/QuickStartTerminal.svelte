@@ -90,6 +90,7 @@
     flex-direction: column;
     gap: var(--spacing-md);
     overflow-x: hidden;
+    width: 100%;
   }
 
   .tab-controls {
@@ -102,14 +103,18 @@
     display: flex;
     gap: var(--spacing-md);
     margin-bottom: var(--spacing-md);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .prompt {
     color: var(--phosphor);
+    flex-shrink: 0;
   }
 
   .command {
     color: #fff;
+    white-space: nowrap;
   }
 
   .output-lines {
@@ -117,6 +122,8 @@
     flex-direction: column;
     gap: 4px;
     font-size: 0.95rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .cursor-line {
@@ -125,5 +132,23 @@
   
   .cursor {
     color: var(--phosphor);
+  }
+
+  @media (max-width: 768px) {
+    .tab-controls {
+      flex-direction: column;
+    }
+
+    .tab-controls .hud-btn {
+      width: 100%;
+    }
+
+    .cmd-line {
+      font-size: 0.85rem;
+    }
+
+    .output-lines {
+      font-size: 0.85rem;
+    }
   }
 </style>

@@ -123,7 +123,9 @@
     cursor: pointer;
     background: none;
     border: none;
-    padding: var(--spacing-sm);
+    padding: var(--spacing-md);
+    min-width: 44px;
+    min-height: 44px;
     transition: transform 0.2s var(--ease-out);
   }
 
@@ -177,6 +179,7 @@
   .station-detail {
     margin-top: var(--spacing-md);
     width: 220px;
+    max-width: 100%;
   }
 
   .feature-list {

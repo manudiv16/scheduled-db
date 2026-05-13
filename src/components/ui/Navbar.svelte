@@ -87,6 +87,8 @@
     align-items: center;
     gap: var(--spacing-sm);
     flex-shrink: 0;
+    min-height: 44px;
+    padding: 0 var(--spacing-xs);
   }
 
   .logo-text {
@@ -153,11 +155,15 @@
   .hamburger {
     display: none;
     flex-direction: column;
+    justify-content: center;
+    align-items: center;
     gap: 5px;
     background: none;
     border: none;
     cursor: pointer;
-    padding: var(--spacing-xs);
+    width: 44px;
+    height: 44px;
+    padding: 0;
     z-index: 102;
   }
 

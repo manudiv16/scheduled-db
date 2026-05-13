@@ -60,7 +60,7 @@
 <style>
   .hero-console {
     position: relative;
-    min-height: calc(100vh - 48px);
+    min-height: calc(100dvh - 48px);
     display: flex;
     align-items: center;
     overflow: hidden;
@@ -119,16 +119,49 @@
   }
 
   @media (max-width: 768px) {
-    .hero-title {
-      font-size: 3rem;
+    .hero-console {
+      min-height: auto;
+      padding-top: var(--spacing-xl);
+      padding-bottom: var(--spacing-xl);
     }
+
+    .hero-title {
+      font-size: 2.25rem;
+    }
+
+    .hero-subtitle {
+      font-size: 1rem;
+    }
+
     .hero-status {
       flex-direction: column;
       gap: var(--spacing-xs);
+      flex-wrap: wrap;
     }
+
+    .status-item {
+      font-size: 0.65rem;
+    }
+
+    .hero-actions {
+      flex-direction: column;
+      gap: var(--spacing-sm);
+    }
+
     .wheel-bg {
-      right: -400px;
-      opacity: 0.1 !important;
+      right: -300px;
+      opacity: 0.08 !important;
+      transform: translateY(-50%) scale(0.5);
+    }
+  }
+
+  @media (max-width: 400px) {
+    .hero-title {
+      font-size: 1.75rem;
+    }
+
+    .hero-subtitle {
+      font-size: 0.9rem;
     }
   }
 </style>
