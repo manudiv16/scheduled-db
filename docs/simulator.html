@@ -378,7 +378,6 @@ function drawTimingWheel() {
 
   const radii = [100, 70, 45];
   const colors = ['#6366f1', '#2dd4bf', '#fbbf24'];
-  const labels = ['L0', 'L1', 'L2'];
 
   radii.forEach((r, i) => {
     ctx.beginPath();
@@ -393,7 +392,7 @@ function drawTimingWheel() {
   ctx.fillStyle = '#ffffff40';
   ctx.fill();
 
-  const now = Date.now() / 1000;
+  const now = STATE.simTime || Date.now() / 1000;
   const jobs = Object.values(STATE.jobs);
   jobs.forEach((job, idx) => {
     const ts = job.timestamp || job.created_at || 0;
