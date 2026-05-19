@@ -1,244 +1,314 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Scheduled-DB Simulator</title>
+  <title>Scheduled-DB — Simulator</title>
+  <meta name="description" content="Interactive WebAssembly simulator for visualizing job scheduling with the hierarchical timing wheel engine." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
+          fontFamily: {
+            display: ['"Plus Jakarta Sans"', 'sans-serif'],
+            body: ['"DM Sans"', 'sans-serif'],
+          },
           colors: {
-            surface: '#0f172a',
-            card: '#1e293b',
-            border: '#334155',
-            accent: '#6366f1',
-            'accent-light': '#818cf8',
-            success: '#10b981',
-            warning: '#f59e0b',
-            danger: '#ef4444',
-            info: '#3b82f6',
-          }
-        }
-      }
+            surface: '#E0E5EC',
+            fg: '#3D4852',
+            muted: '#6B7280',
+            accent: '#6C63FF',
+            'accent-light': '#8B84FF',
+            teal: '#38B2AC',
+            'shadow-light': 'rgba(255, 255, 255, 0.5)',
+            'shadow-dark': 'rgb(163, 177, 198)',
+          },
+          borderRadius: {
+            neu: '32px',
+          },
+        },
+      },
     }
   </script>
   <style>
-    body { background: #0f172a; }
-    .scrollbar-thin::-webkit-scrollbar { width: 6px; }
-    .scrollbar-thin::-webkit-scrollbar-track { background: #1e293b; }
-    .scrollbar-thin::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    body {
+      background-color: #E0E5EC;
+      font-family: 'DM Sans', sans-serif;
+      color: #3D4852;
+    }
+    .font-display {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .neu-extruded {
+      box-shadow: 9px 9px 16px rgb(163,177,198,0.6), -9px -9px 16px rgba(255,255,255,0.5);
+    }
+    .neu-extruded-sm {
+      box-shadow: 5px 5px 10px rgb(163,177,198,0.6), -5px -5px 10px rgba(255,255,255,0.5);
+    }
+    .neu-inset {
+      box-shadow: inset 6px 6px 10px rgb(163,177,198,0.6), inset -6px -6px 10px rgba(255,255,255,0.5);
+    }
+    .neu-inset-sm {
+      box-shadow: inset 3px 3px 6px rgb(163,177,198,0.6), inset -3px -3px 6px rgba(255,255,255,0.5);
+    }
+    .neu-transition {
+      transition: all 0.3s ease-out;
+    }
+    .neu-btn {
+      box-shadow: 5px 5px 10px rgb(163,177,198,0.6), -5px -5px 10px rgba(255,255,255,0.5);
+      transition: all 0.2s ease-out;
+    }
+    .neu-btn:hover {
+      box-shadow: 7px 7px 14px rgb(163,177,198,0.7), -7px -7px 14px rgba(255,255,255,0.6);
+      transform: translateY(-1px);
+    }
+    .neu-btn:active, .neu-btn.active {
+      box-shadow: inset 4px 4px 8px rgb(163,177,198,0.6), inset -4px -4px 8px rgba(255,255,255,0.5);
+      transform: translateY(0);
+    }
+    .neu-input {
+      box-shadow: inset 3px 3px 6px rgb(163,177,198,0.5), inset -3px -3px 6px rgba(255,255,255,0.4);
+      background: #E0E5EC;
+      border: none;
+    }
+    .neu-input:focus {
+      box-shadow: inset 3px 3px 6px rgb(163,177,198,0.5), inset -3px -3px 6px rgba(255,255,255,0.4), 0 0 0 2px rgba(108,99,255,0.3);
+      outline: none;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #E0E5EC; }
+    ::-webkit-scrollbar-thumb { background: #C4CAD4; border-radius: 3px; }
     @keyframes pulse-dot {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.5; transform: scale(0.8); }
     }
     .animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
     @keyframes slide-in {
-      from { opacity: 0; transform: translateY(-10px); }
+      from { opacity: 0; transform: translateY(-8px); }
       to { opacity: 1; transform: translateY(0); }
     }
     .animate-slide-in { animation: slide-in 0.3s ease-out; }
     .job-card { transition: all 0.2s ease; }
     .job-card:hover { transform: translateX(4px); }
-    canvas { image-rendering: pixelated; }
+    input[type="range"] {
+      -webkit-appearance: none;
+      height: 6px;
+      border-radius: 3px;
+      background: #C4CAD4;
+      box-shadow: inset 1px 1px 2px rgba(163,177,198,0.5);
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #6C63FF;
+      box-shadow: 2px 2px 4px rgba(163,177,198,0.6), -2px -2px 4px rgba(255,255,255,0.5);
+      cursor: pointer;
+    }
   </style>
 </head>
-<body class="text-gray-200 min-h-screen">
+<body class="min-h-screen antialiased">
 
-<div class="max-w-[1600px] mx-auto p-4 lg:p-6">
-
-  <header class="flex items-center justify-between mb-6">
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-xl bg-accent flex items-center justify-center">
-        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-      </div>
-      <div>
-        <h1 class="text-xl font-bold text-white">Scheduled-DB Simulator</h1>
-        <p class="text-xs text-gray-400">WebAssembly job scheduling engine</p>
-      </div>
-    </div>
-    <div id="wasm-status" class="flex items-center gap-2 text-sm">
-      <span class="w-2 h-2 rounded-full bg-gray-500 animate-pulse-dot"></span>
-      <span class="text-gray-400">Loading WASM...</span>
-    </div>
-  </header>
-
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-
-    <div class="lg:col-span-3 space-y-4">
-      <div class="bg-card rounded-2xl p-4 border border-border">
-        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
-          </svg>
-          Create Job
-        </h2>
-        <form id="job-form" class="space-y-3">
-          <div>
-            <label class="text-xs text-gray-400 mb-1 block">Type</label>
-            <select id="job-type" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-accent focus:outline-none">
-              <option value="unico">unico (one-time)</option>
-              <option value="recurrente">recurrente (cron)</option>
-            </select>
+  <nav class="sticky top-0 z-50 neu-transition" style="background: rgba(224,229,236,0.85); backdrop-filter: blur(12px);">
+    <div class="max-w-7xl mx-auto px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <a href="index.html" class="font-display font-extrabold text-xl text-fg tracking-tight flex items-center gap-2">
+          <i data-lucide="arrow-left" class="w-4 h-4 text-muted"></i>
+          Scheduled<span class="text-accent">-DB</span>
+        </a>
+        <div class="flex items-center gap-4">
+          <div id="wasm-status" class="flex items-center gap-2 text-sm">
+            <span class="w-2 h-2 rounded-full bg-muted animate-pulse-dot"></span>
+            <span class="text-muted">Loading WASM...</span>
           </div>
-          <div id="timestamp-field">
-            <label class="text-xs text-gray-400 mb-1 block">Execute at</label>
-            <input id="job-timestamp" type="datetime-local" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-accent focus:outline-none" />
-          </div>
-          <div id="cron-field" class="hidden">
-            <label class="text-xs text-gray-400 mb-1 block">Cron expression</label>
-            <input id="job-cron" type="text" placeholder="*/5 * * * *" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-accent focus:outline-none font-mono" />
-            <p class="text-[10px] text-gray-500 mt-1">min hour dom month dow</p>
-          </div>
-          <div>
-            <label class="text-xs text-gray-400 mb-1 block">Webhook URL</label>
-            <input id="job-webhook" type="text" placeholder="https://example.com/webhook" class="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-white focus:border-accent focus:outline-none" />
-          </div>
-          <button type="submit" class="w-full bg-accent hover:bg-accent-light text-white font-medium py-2 px-4 rounded-lg transition-colors text-sm">
-            Schedule Job
-          </button>
-        </form>
-      </div>
-
-      <div class="bg-card rounded-2xl p-4 border border-border">
-        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-          </svg>
-          Controls
-        </h2>
-        <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-gray-400">Speed</span>
-            <div class="flex gap-1" id="speed-controls">
-              <button data-speed="0" class="speed-btn px-2 py-1 text-xs rounded-md bg-surface border border-border hover:border-accent text-gray-300">Pause</button>
-              <button data-speed="1" class="speed-btn px-2 py-1 text-xs rounded-md bg-surface border border-border hover:border-accent text-gray-300">1x</button>
-              <button data-speed="10" class="speed-btn px-2 py-1 text-xs rounded-md bg-accent border border-accent text-white">10x</button>
-              <button data-speed="100" class="speed-btn px-2 py-1 text-xs rounded-md bg-surface border border-border hover:border-accent text-gray-300">100x</button>
-            </div>
-          </div>
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-gray-400">Success rate</span>
-            <div class="flex items-center gap-2">
-              <input id="success-rate" type="range" min="0" max="100" value="95" class="w-20 accent-accent" />
-              <span id="success-rate-label" class="text-xs text-white w-8">95%</span>
-            </div>
-          </div>
-          <button id="btn-tick" class="w-full bg-surface border border-border hover:border-accent text-gray-300 font-medium py-2 px-4 rounded-lg transition-colors text-sm">
-            Tick (advance 1 step)
-          </button>
-          <button id="btn-reset" class="w-full bg-surface border border-border hover:border-danger text-gray-400 hover:text-danger font-medium py-2 px-4 rounded-lg transition-colors text-sm">
-            Reset Simulator
-          </button>
-        </div>
-      </div>
-
-      <div class="bg-card rounded-2xl p-4 border border-border">
-        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-          </svg>
-          Stats
-        </h2>
-        <div class="grid grid-cols-2 gap-2" id="stats-grid">
-          <div class="bg-surface rounded-lg p-2 text-center">
-            <div id="stat-jobs" class="text-lg font-bold text-white">0</div>
-            <div class="text-[10px] text-gray-400">Jobs</div>
-          </div>
-          <div class="bg-surface rounded-lg p-2 text-center">
-            <div id="stat-slots" class="text-lg font-bold text-white">0</div>
-            <div class="text-[10px] text-gray-400">Slots</div>
-          </div>
-          <div class="bg-surface rounded-lg p-2 text-center">
-            <div id="stat-executed" class="text-lg font-bold text-success">0</div>
-            <div class="text-[10px] text-gray-400">Executed</div>
-          </div>
-          <div class="bg-surface rounded-lg p-2 text-center">
-            <div id="stat-ticks" class="text-lg font-bold text-info">0</div>
-            <div class="text-[10px] text-gray-400">Ticks</div>
-          </div>
+          <a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener noreferrer" class="neu-extruded-sm neu-transition rounded-2xl px-4 py-2 text-sm font-medium text-fg hover:translate-y-[-1px] flex items-center gap-2">
+            <i data-lucide="github" class="w-4 h-4"></i>
+            GitHub
+          </a>
         </div>
       </div>
     </div>
+  </nav>
 
-    <div class="lg:col-span-5 space-y-4">
-      <div class="bg-card rounded-2xl p-4 border border-border">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-semibold text-gray-300 flex items-center gap-2">
-            <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            Timing Wheel
+  <div class="max-w-7xl mx-auto px-6 lg:px-8 py-8">
+    <div class="mb-8">
+      <h1 class="font-display font-extrabold text-3xl md:text-4xl text-fg tracking-tight mb-2">
+        Job <span class="text-accent">Simulator</span>
+      </h1>
+      <p class="text-muted text-lg">Visualize the hierarchical timing wheel engine in action.</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <div class="lg:col-span-3 space-y-6">
+        <div class="neu-extruded rounded-[32px] p-6">
+          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
+            <i data-lucide="plus-circle" class="w-5 h-5 text-accent"></i>
+            Create Job
           </h2>
-          <div class="flex items-center gap-2 text-xs">
-            <span class="text-gray-400">Time:</span>
-            <span id="sim-time" class="text-white font-mono">--:--:--</span>
+          <form id="job-form" class="space-y-4">
+            <div>
+              <label class="text-xs text-muted font-medium mb-1.5 block">Type</label>
+              <select id="job-type" class="w-full neu-input rounded-2xl px-4 py-2.5 text-sm text-fg focus:outline-none">
+                <option value="unico">unico (one-time)</option>
+                <option value="recurrente">recurrente (cron)</option>
+              </select>
+            </div>
+            <div id="timestamp-field">
+              <label class="text-xs text-muted font-medium mb-1.5 block">Execute at</label>
+              <input id="job-timestamp" type="datetime-local" class="w-full neu-input rounded-2xl px-4 py-2.5 text-sm text-fg" />
+            </div>
+            <div id="cron-field" class="hidden">
+              <label class="text-xs text-muted font-medium mb-1.5 block">Cron expression</label>
+              <input id="job-cron" type="text" placeholder="*/5 * * * *" class="w-full neu-input rounded-2xl px-4 py-2.5 text-sm text-fg font-mono" />
+              <p class="text-[10px] text-muted mt-1">min hour dom month dow</p>
+            </div>
+            <div>
+              <label class="text-xs text-muted font-medium mb-1.5 block">Webhook URL</label>
+              <input id="job-webhook" type="text" placeholder="https://example.com/webhook" class="w-full neu-input rounded-2xl px-4 py-2.5 text-sm text-fg" />
+            </div>
+            <button type="submit" class="w-full bg-accent text-white font-display font-bold rounded-2xl px-6 py-3 neu-transition hover:bg-accent-light text-sm">
+              Schedule Job
+            </button>
+          </form>
+        </div>
+
+        <div class="neu-extruded rounded-[32px] p-6">
+          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
+            <i data-lucide="sliders" class="w-5 h-5 text-accent"></i>
+            Controls
+          </h2>
+          <div class="space-y-4">
+            <div>
+              <span class="text-xs text-muted font-medium block mb-2">Speed</span>
+              <div class="flex gap-2" id="speed-controls">
+                <button data-speed="0" class="speed-btn neu-btn flex-1 px-3 py-2 text-xs rounded-2xl text-muted font-medium">Pause</button>
+                <button data-speed="1" class="speed-btn neu-btn flex-1 px-3 py-2 text-xs rounded-2xl text-muted font-medium">1x</button>
+                <button data-speed="10" class="speed-btn neu-btn flex-1 px-3 py-2 text-xs rounded-2xl bg-accent text-white font-medium active">10x</button>
+                <button data-speed="100" class="speed-btn neu-btn flex-1 px-3 py-2 text-xs rounded-2xl text-muted font-medium">100x</button>
+              </div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs text-muted font-medium">Success rate</span>
+                <span id="success-rate-label" class="text-xs text-fg font-medium">95%</span>
+              </div>
+              <input id="success-rate" type="range" min="0" max="100" value="95" class="w-full" />
+            </div>
+            <button id="btn-tick" class="w-full neu-btn rounded-2xl px-6 py-2.5 text-sm font-medium text-fg">
+              <span class="flex items-center justify-center gap-2">
+                <i data-lucide="step-forward" class="w-4 h-4"></i>
+                Tick (advance 1 step)
+              </span>
+            </button>
+            <button id="btn-reset" class="w-full neu-btn rounded-2xl px-6 py-2.5 text-sm font-medium text-muted hover:text-red-500">
+              <span class="flex items-center justify-center gap-2">
+                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                Reset Simulator
+              </span>
+            </button>
           </div>
         </div>
-        <div class="bg-surface rounded-xl p-3 border border-border">
-          <canvas id="wheel-canvas" width="600" height="300" class="w-full"></canvas>
-        </div>
-        <div class="flex items-center gap-4 mt-2 text-[10px] text-gray-400">
-          <div class="flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full bg-accent"></span> L0 (seconds)
-          </div>
-          <div class="flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full bg-teal-400"></span> L1 (minutes)
-          </div>
-          <div class="flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full bg-amber-400"></span> L2 (hours)
-          </div>
-          <div class="flex items-center gap-1">
-            <span class="w-2 h-2 rounded-full bg-white opacity-50"></span> Now
+
+        <div class="neu-extruded rounded-[32px] p-6">
+          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
+            <i data-lucide="bar-chart-3" class="w-5 h-5 text-accent"></i>
+            Stats
+          </h2>
+          <div class="grid grid-cols-2 gap-3" id="stats-grid">
+            <div class="neu-inset-sm rounded-2xl p-3 text-center">
+              <div id="stat-jobs" class="text-xl font-bold text-fg">0</div>
+              <div class="text-[10px] text-muted font-medium">Jobs</div>
+            </div>
+            <div class="neu-inset-sm rounded-2xl p-3 text-center">
+              <div id="stat-slots" class="text-xl font-bold text-fg">0</div>
+              <div class="text-[10px] text-muted font-medium">Slots</div>
+            </div>
+            <div class="neu-inset-sm rounded-2xl p-3 text-center">
+              <div id="stat-executed" class="text-xl font-bold text-teal">0</div>
+              <div class="text-[10px] text-muted font-medium">Executed</div>
+            </div>
+            <div class="neu-inset-sm rounded-2xl p-3 text-center">
+              <div id="stat-ticks" class="text-xl font-bold text-accent">0</div>
+              <div class="text-[10px] text-muted font-medium">Ticks</div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="bg-card rounded-2xl p-4 border border-border">
-        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
-          </svg>
-          Job Timeline
-        </h2>
-        <div class="bg-surface rounded-xl p-3 border border-border">
-          <canvas id="timeline-canvas" width="600" height="200" class="w-full"></canvas>
+      <div class="lg:col-span-5 space-y-6">
+        <div class="neu-extruded rounded-[32px] p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-display font-bold text-fg flex items-center gap-2">
+              <i data-lucide="clock" class="w-5 h-5 text-accent"></i>
+              Timing Wheel
+            </h2>
+            <div class="flex items-center gap-2 text-sm">
+              <span class="text-muted">Time:</span>
+              <span id="sim-time" class="text-fg font-mono font-medium">--:--:--</span>
+            </div>
+          </div>
+          <div class="neu-inset rounded-2xl p-4">
+            <canvas id="wheel-canvas" width="600" height="300" class="w-full"></canvas>
+          </div>
+          <div class="flex items-center gap-4 mt-3 text-[10px] text-muted">
+            <div class="flex items-center gap-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-accent"></span> L0 (seconds)
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-teal"></span> L1 (minutes)
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="w-2.5 h-2.5 rounded-full" style="background: #fbbf24;"></span> L2 (hours)
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-fg opacity-30"></span> Now
+            </div>
+          </div>
+        </div>
+
+        <div class="neu-extruded rounded-[32px] p-6">
+          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
+            <i data-lucide="gantt-chart" class="w-5 h-5 text-accent"></i>
+            Job Timeline
+          </h2>
+          <div class="neu-inset rounded-2xl p-4">
+            <canvas id="timeline-canvas" width="600" height="200" class="w-full"></canvas>
+          </div>
         </div>
       </div>
+
+      <div class="lg:col-span-4 space-y-6">
+        <div class="neu-extruded rounded-[32px] p-6">
+          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
+            <i data-lucide="list-checks" class="w-5 h-5 text-accent"></i>
+            Active Jobs
+            <span id="job-count" class="ml-auto text-xs neu-inset-sm px-2.5 py-1 rounded-full text-muted font-medium">0</span>
+          </h2>
+          <div id="jobs-list" class="space-y-2 max-h-[300px] overflow-y-auto">
+            <div class="text-center text-muted text-sm py-8">No jobs scheduled yet</div>
+          </div>
+        </div>
+
+        <div class="neu-extruded rounded-[32px] p-6">
+          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
+            <i data-lucide="terminal" class="w-5 h-5 text-accent"></i>
+            Execution Log
+          </h2>
+          <div id="exec-log" class="space-y-1 max-h-[250px] overflow-y-auto font-mono text-xs">
+            <div class="text-center text-muted py-4">Waiting for activity...</div>
+          </div>
+        </div>
+      </div>
+
     </div>
-
-    <div class="lg:col-span-4 space-y-4">
-      <div class="bg-card rounded-2xl p-4 border border-border">
-        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-          </svg>
-          Active Jobs
-          <span id="job-count" class="ml-auto text-xs bg-surface px-2 py-0.5 rounded-full text-gray-400">0</span>
-        </h2>
-        <div id="jobs-list" class="space-y-2 max-h-[300px] overflow-y-auto scrollbar-thin">
-          <div class="text-center text-gray-500 text-sm py-8">No jobs scheduled yet</div>
-        </div>
-      </div>
-
-      <div class="bg-card rounded-2xl p-4 border border-border">
-        <h2 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-          <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-          </svg>
-          Execution Log
-        </h2>
-        <div id="exec-log" class="space-y-1 max-h-[250px] overflow-y-auto scrollbar-thin font-mono text-xs">
-          <div class="text-center text-gray-500 py-4">Waiting for activity...</div>
-        </div>
-      </div>
-    </div>
-
   </div>
-</div>
 
 <script src="wasm_exec.js"></script>
 <script>
@@ -274,8 +344,8 @@ function statusColor(status) {
     case 'in_progress': return 'bg-blue-500 animate-pulse';
     case 'completed': return 'bg-emerald-500';
     case 'failed': return 'bg-red-500';
-    case 'cancelled': return 'bg-gray-500';
-    default: return 'bg-gray-500';
+    case 'cancelled': return 'bg-gray-400';
+    default: return 'bg-gray-400';
   }
 }
 
@@ -293,11 +363,11 @@ function statusText(status) {
 
 function addLogEntry(msg, type='info') {
   const log = $('exec-log');
-  if (log.querySelector('.text-gray-500')) log.innerHTML = '';
-  const colors = { info:'text-blue-400', success:'text-emerald-400', error:'text-red-400', warn:'text-amber-400' };
+  if (log.querySelector('.text-muted')) log.innerHTML = '';
+  const colors = { info:'text-blue-600', success:'text-emerald-600', error:'text-red-600', warn:'text-amber-600' };
   const time = formatTime(STATE.simTime);
   const entry = document.createElement('div');
-  entry.className = `${colors[type] || 'text-gray-400'} animate-slide-in`;
+  entry.className = `${colors[type] || 'text-muted'} animate-slide-in`;
   entry.textContent = `[${time}] ${msg}`;
   log.prepend(entry);
   while (log.children.length > 100) log.lastChild.remove();
@@ -340,7 +410,7 @@ function renderJobs() {
   const jobs = Object.values(STATE.jobs);
 
   if (jobs.length === 0) {
-    list.innerHTML = '<div class="text-center text-gray-500 text-sm py-8">No jobs scheduled yet</div>';
+    list.innerHTML = '<div class="text-center text-muted text-sm py-8">No jobs scheduled yet</div>';
     return;
   }
 
@@ -353,14 +423,14 @@ function renderJobs() {
         ? `cron: ${job.cron_expression}`
         : formatDateTime(job.created_at);
     return `
-      <div class="job-card bg-surface rounded-lg p-3 border border-border cursor-pointer" data-job-id="${job.id}">
+      <div class="job-card neu-inset-sm rounded-2xl p-3 cursor-pointer" data-job-id="${job.id}">
         <div class="flex items-center gap-2 mb-1">
           <span class="w-2 h-2 rounded-full ${statusColor(status)}"></span>
-          <span class="text-xs font-medium text-white truncate flex-1">${job.id.slice(0,12)}</span>
-          <span class="text-[10px] px-1.5 py-0.5 rounded bg-card border border-border text-gray-400">${job.type}</span>
+          <span class="text-xs font-medium text-fg truncate flex-1">${job.id.slice(0,12)}</span>
+          <span class="text-[10px] px-2 py-0.5 rounded-full neu-inset-sm text-muted font-medium">${job.type}</span>
         </div>
-        <div class="text-[10px] text-gray-400 truncate">${ts}</div>
-        <div class="text-[10px] text-gray-500">${statusText(status)}</div>
+        <div class="text-[10px] text-muted truncate">${ts}</div>
+        <div class="text-[10px] text-fg font-medium">${statusText(status)}</div>
       </div>
     `;
   }).join('');
@@ -377,19 +447,19 @@ function drawTimingWheel() {
   ctx.clearRect(0, 0, W, H);
 
   const radii = [100, 70, 45];
-  const colors = ['#6366f1', '#2dd4bf', '#fbbf24'];
+  const colors = ['#6C63FF', '#38B2AC', '#fbbf24'];
 
   radii.forEach((r, i) => {
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.strokeStyle = colors[i] + '30';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
   });
 
   ctx.beginPath();
   ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffffff40';
+  ctx.fillStyle = '#3D485230';
   ctx.fill();
 
   const now = STATE.simTime || Date.now() / 1000;
@@ -405,18 +475,18 @@ function drawTimingWheel() {
 
     const state = (window._execStates || {})[job.id] || {};
     const status = state.status || 'pending';
-    const dotColor = status === 'completed' ? '#10b981' : status === 'failed' ? '#ef4444' : status === 'in_progress' ? '#3b82f6' : '#f59e0b';
+    const dotColor = status === 'completed' ? '#10b981' : status === 'failed' ? '#ef4444' : status === 'in_progress' ? '#6C63FF' : '#f59e0b';
 
     ctx.beginPath();
-    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
     ctx.fillStyle = dotColor;
     ctx.fill();
 
     if (status === 'in_progress') {
       ctx.beginPath();
-      ctx.arc(x, y, 7, 0, Math.PI * 2);
+      ctx.arc(x, y, 8, 0, Math.PI * 2);
       ctx.strokeStyle = dotColor + '40';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.5;
       ctx.stroke();
     }
   });
@@ -425,7 +495,7 @@ function drawTimingWheel() {
   ctx.beginPath();
   ctx.moveTo(cx, cy);
   ctx.lineTo(cx + Math.cos(nowAngle) * 110, cy + Math.sin(nowAngle) * 110);
-  ctx.strokeStyle = '#ffffff30';
+  ctx.strokeStyle = '#3D485220';
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 4]);
   ctx.stroke();
@@ -442,8 +512,8 @@ function drawTimeline() {
 
   const jobs = Object.values(STATE.jobs);
   if (jobs.length === 0) {
-    ctx.fillStyle = '#64748b';
-    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#6B7280';
+    ctx.font = '12px DM Sans, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('No jobs to display', W/2, H/2);
     return;
@@ -454,21 +524,21 @@ function drawTimeline() {
   const barH = Math.min(20, (H - 20) / Math.max(jobs.length, 1));
   const padding = 80;
 
-  ctx.fillStyle = '#334155';
+  ctx.fillStyle = '#D1D5DB';
   ctx.fillRect(padding, 10, W - padding - 10, H - 20);
 
   const nowX = padding + (0 / lookAhead) * (W - padding - 10);
   ctx.beginPath();
   ctx.moveTo(nowX, 10);
   ctx.lineTo(nowX, H - 10);
-  ctx.strokeStyle = '#ffffff30';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#6C63FF40';
+  ctx.lineWidth = 1.5;
   ctx.setLineDash([4, 4]);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  ctx.fillStyle = '#94a3b8';
-  ctx.font = '9px sans-serif';
+  ctx.fillStyle = '#6B7280';
+  ctx.font = '9px DM Sans, sans-serif';
   ctx.textAlign = 'center';
   for (let s = 0; s <= lookAhead; s += 30) {
     const x = padding + (s / lookAhead) * (W - padding - 10);
@@ -485,13 +555,13 @@ function drawTimeline() {
 
     const state = (window._execStates || {})[job.id] || {};
     const status = state.status || 'pending';
-    const colors = { pending:'#f59e0b', in_progress:'#3b82f6', completed:'#10b981', failed:'#ef4444', cancelled:'#6b7280' };
-    const color = colors[status] || '#6b7280';
+    const colors = { pending:'#f59e0b', in_progress:'#6C63FF', completed:'#10b981', failed:'#ef4444', cancelled:'#6B7280' };
+    const color = colors[status] || '#6B7280';
 
-    ctx.fillStyle = '#1e293b';
+    ctx.fillStyle = '#C4CAD4';
     ctx.fillRect(padding, y, W - padding - 10, barH);
 
-    ctx.fillStyle = color + '40';
+    ctx.fillStyle = color + '50';
     ctx.fillRect(padding, y, x - padding, barH);
 
     ctx.beginPath();
@@ -499,7 +569,7 @@ function drawTimeline() {
     ctx.fillStyle = color;
     ctx.fill();
 
-    ctx.fillStyle = '#e2e8f0';
+    ctx.fillStyle = '#3D4852';
     ctx.font = '10px monospace';
     ctx.textAlign = 'right';
     ctx.fillText(job.id.slice(0, 8), padding - 5, y + barH/2 + 4);
@@ -563,9 +633,11 @@ function setSpeed(speed) {
   $$('.speed-btn').forEach(btn => {
     const s = parseInt(btn.dataset.speed);
     if (s === speed) {
-      btn.className = 'speed-btn px-2 py-1 text-xs rounded-md bg-accent border border-accent text-white';
+      btn.classList.add('bg-accent', 'text-white', 'active');
+      btn.classList.remove('text-muted');
     } else {
-      btn.className = 'speed-btn px-2 py-1 text-xs rounded-md bg-surface border border-border hover:border-accent text-gray-300';
+      btn.classList.remove('bg-accent', 'text-white', 'active');
+      btn.classList.add('text-muted');
     }
   });
 
@@ -584,7 +656,7 @@ async function initWasm() {
     STATE.wasmReady = true;
     $('wasm-status').innerHTML = `
       <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-      <span class="text-emerald-400 text-sm">WASM Ready</span>
+      <span class="text-emerald-600 text-sm font-medium">WASM Ready</span>
     `;
 
     callSimulator('setClockSpeed', STATE.speed);
@@ -599,11 +671,12 @@ async function initWasm() {
     setSpeed(STATE.speed);
     render();
     addLogEntry('WASM simulator initialized', 'success');
+    lucide.createIcons();
   } catch(e) {
     console.error('WASM init failed:', e);
     $('wasm-status').innerHTML = `
       <span class="w-2 h-2 rounded-full bg-red-500"></span>
-      <span class="text-red-400 text-sm">WASM Error</span>
+      <span class="text-red-600 text-sm font-medium">WASM Error</span>
     `;
     addLogEntry('Failed to load WASM: ' + e.message, 'error');
   }
@@ -676,7 +749,7 @@ $('btn-reset').addEventListener('click', () => {
   STATE.tickCount = 0;
   STATE.totalExecuted = 0;
   window._execStates = {};
-  $('exec-log').innerHTML = '<div class="text-center text-gray-500 py-4">Waiting for activity...</div>';
+  $('exec-log').innerHTML = '<div class="text-center text-muted py-4">Waiting for activity...</div>';
   const state = callSimulator('getState');
   if (state) updateStats(state);
   render();
