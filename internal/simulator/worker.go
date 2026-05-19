@@ -84,6 +84,7 @@ func (w *SimulatedWorker) ProcessTick() TickResult {
 					rescheduled.CreatedAt = nextTs
 					w.fsm.CreateJob(rescheduled)
 					w.addToWheel(rescheduled)
+					w.updateSlotInFSM(rescheduled)
 					result.Rescheduled = append(result.Rescheduled, jobID)
 				} else {
 					w.fsm.DeleteJob(jobID)
@@ -141,4 +142,35 @@ func (w *SimulatedWorker) addToWheel(job *store.Job) {
 	}
 	key := ts / slotGapSec
 	w.wheel.Add(key)
+}
+
+func (w *SimulatedWorker) updateSlotInFSM(job *store.Job) {
+	var ts int64
+	if job.Type == store.JobUnico && job.Timestamp != nil {
+		ts = *job.Timestamp
+	} else if job.Type == store.JobRecurrente {
+		ts = job.CreatedAt
+	} else {
+		return
+	}
+
+	slotGapSec := int64(w.slotGap.Seconds())
+	if slotGapSec == 0 {
+		slotGapSec = int64(slots.DefaultSlotGap.Seconds())
+	}
+	key := ts / slotGapSec
+
+	slotData, exists := w.fsm.GetSlot(key)
+	if !exists {
+		slotData = &store.SlotData{
+			Key:     key,
+			MinTime: key * slotGapSec,
+			MaxTime: (key+1)*slotGapSec - 1,
+			JobIDs:  []string{job.ID},
+		}
+	} else {
+		slotData.JobIDs = append(slotData.JobIDs, job.ID)
+	}
+
+	w.fsm.CreateSlot(slotData)
 }
