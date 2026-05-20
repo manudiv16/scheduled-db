@@ -74,10 +74,10 @@ func tick(this js.Value, args []js.Value) interface{} {
 	result := sim.Tick()
 
 	data, _ := json.Marshal(map[string]interface{}{
-		"executed":      len(result.ExecutedJobs),
-		"rescheduled":   len(result.Rescheduled),
-		"ready_slots":   result.ReadySlots,
-		"executed_jobs": result.ExecutedJobs,
+		"executed":        len(result.ExecutedJobs),
+		"rescheduled":     len(result.Rescheduled),
+		"ready_slots":     result.ReadySlots,
+		"executed_jobs":   result.ExecutedJobs,
 		"rescheduled_ids": result.Rescheduled,
 	})
 	return successResult(string(data))

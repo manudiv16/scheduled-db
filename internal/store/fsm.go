@@ -429,11 +429,11 @@ type Snapshot struct {
 	jobCount        int64
 }
 
-func (s *Snapshot) Jobs() map[string]*Job                             { return s.jobs }
-func (s *Snapshot) Slots() map[int64]*SlotData                        { return s.slots }
-func (s *Snapshot) ExecutionStates() map[string]*JobExecutionState     { return s.executionStates }
-func (s *Snapshot) MemoryUsage() int64                                { return s.memoryUsage }
-func (s *Snapshot) JobCount() int64                                   { return s.jobCount }
+func (s *Snapshot) Jobs() map[string]*Job                          { return s.jobs }
+func (s *Snapshot) Slots() map[int64]*SlotData                     { return s.slots }
+func (s *Snapshot) ExecutionStates() map[string]*JobExecutionState { return s.executionStates }
+func (s *Snapshot) MemoryUsage() int64                             { return s.memoryUsage }
+func (s *Snapshot) JobCount() int64                                { return s.jobCount }
 
 // applyStatusUpdate applies a status update command
 func (f *FSM) applyStatusUpdate(cmd *StatusCommand) error {

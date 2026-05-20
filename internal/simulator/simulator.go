@@ -138,16 +138,16 @@ func (s *Simulator) SetSuccessRate(rate float64) {
 }
 
 type SimState struct {
-	Now              int64                              `json:"now"`
-	ClockSpeed       float64                            `json:"clock_speed"`
-	Jobs             map[string]*store.Job              `json:"jobs"`
-	Slots            map[int64]*store.SlotData          `json:"slots"`
+	Now              int64                               `json:"now"`
+	ClockSpeed       float64                             `json:"clock_speed"`
+	Jobs             map[string]*store.Job               `json:"jobs"`
+	Slots            map[int64]*store.SlotData           `json:"slots"`
 	ExecutionStates  map[string]*store.JobExecutionState `json:"execution_states"`
-	WheelSize        int                                `json:"wheel_size"`
-	ExecLog          []ExecutionResult                  `json:"exec_log"`
-	TickCount        int                                `json:"tick_count"`
-	TotalExecuted    int                                `json:"total_executed"`
-	TotalRescheduled int                                `json:"total_rescheduled"`
+	WheelSize        int                                 `json:"wheel_size"`
+	ExecLog          []ExecutionResult                   `json:"exec_log"`
+	TickCount        int                                 `json:"tick_count"`
+	TotalExecuted    int                                 `json:"total_executed"`
+	TotalRescheduled int                                 `json:"total_rescheduled"`
 }
 
 func (s *Simulator) GetState() SimState {
