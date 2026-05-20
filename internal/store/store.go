@@ -557,6 +557,8 @@ func (s *Store) ForceRecoverCluster(aliveNodeIDs []string) error {
 	var newServers []raft.Server
 	for _, server := range servers {
 		if aliveNodes[string(server.ID)] {
+			newServers = append(newServers, server)
+		} else {
 			logger.Debug("Excluding dead node %s (%s) from recovery configuration", server.ID, server.Address)
 		}
 	}
