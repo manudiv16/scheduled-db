@@ -207,18 +207,21 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 
 	var req store.CreateJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid JSON: %v", err))
+		logger.Error("failed to decode job request: %v", err)
+		h.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	job, err := req.ToJob()
 	if err != nil {
-		h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid job data: %v", err))
+		logger.Error("invalid job data: %v", err)
+		h.writeError(w, http.StatusBadRequest, "Invalid job data")
 		return
 	}
 
 	if err := job.Validate(); err != nil {
-		h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Job validation failed: %v", err))
+		logger.Error("job validation failed: %v", err)
+		h.writeError(w, http.StatusBadRequest, "Job validation failed")
 		return
 	}
 
@@ -251,15 +254,16 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Other errors
-			h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Capacity check failed: %v", err))
+			logger.Error("capacity check failed: %v", err)
+			h.writeError(w, http.StatusInternalServerError, "Capacity check failed")
 			return
 		}
 	}
 
 	logger.Debug("about to create job in store: %s", job.ID)
 	if err := h.store.CreateJob(job); err != nil {
-		logger.Debug("failed to create job in store: %v", err)
-		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create job: %v", err))
+		logger.Error("failed to create job in store: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "Failed to create job")
 		return
 	}
 	logger.Debug("job created successfully in store: %s", job.ID)
@@ -327,7 +331,8 @@ func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.DeleteJob(id); err != nil {
-		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete job: %v", err))
+		logger.Error("failed to delete job: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "Failed to delete job")
 		return
 	}
 
@@ -450,14 +455,16 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 	// Get HTTP address for the leader's Raft address
 	httpAddr, err := h.getHTTPAddressForRaft(leader)
 	if err != nil {
-		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to resolve leader HTTP address: %v", err))
+		logger.Error("failed to resolve leader HTTP address: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "Failed to resolve leader address")
 		return
 	}
 
 	// Create proxy request
 	proxyReq, err := http.NewRequest(r.Method, httpAddr+r.URL.Path, r.Body)
 	if err != nil {
-		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to create proxy request: %v", err))
+		logger.Error("failed to create proxy request: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -471,7 +478,8 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 	// Execute proxy request using reusable client
 	resp, err := h.proxyClient.Do(proxyReq)
 	if err != nil {
-		h.writeError(w, http.StatusBadGateway, fmt.Sprintf("Failed to proxy request: %v", err))
+		logger.Error("failed to proxy request to leader: %v", err)
+		h.writeError(w, http.StatusBadGateway, "Unable to reach leader")
 		return
 	}
 	defer resp.Body.Close()
@@ -502,7 +510,8 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 
 	var req JoinRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid JSON: %v", err))
+		logger.Error("failed to decode join request: %v", err)
+		h.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -513,7 +522,8 @@ func (h *Handlers) JoinCluster(w http.ResponseWriter, r *http.Request) {
 
 	// Add peer to Raft cluster
 	if err := h.store.AddPeer(req.NodeID, req.Address); err != nil {
-		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to add peer: %v", err))
+		logger.Error("failed to add peer: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "Failed to add peer")
 		return
 	}
 
@@ -672,14 +682,16 @@ func (h *Handlers) CancelJob(w http.ResponseWriter, r *http.Request) {
 
 	// Mark job as cancelled in Raft
 	if err := statusTracker.MarkCancelled(id, req.Reason); err != nil {
-		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to cancel job: %v", err))
+		logger.Error("failed to cancel job: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "Failed to cancel job")
 		return
 	}
 
 	// Get updated status
 	state, err = statusTracker.GetStatus(id)
 	if err != nil {
-		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get job status: %v", err))
+		logger.Error("failed to get job status: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "Failed to get job status")
 		return
 	}
 
@@ -747,7 +759,8 @@ func (h *Handlers) ListJobsByStatus(w http.ResponseWriter, r *http.Request) {
 	statusTracker := store.NewStatusTracker(h.store)
 	states, err := statusTracker.ListByStatus(status)
 	if err != nil {
-		h.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to list jobs: %v", err))
+		logger.Error("failed to list jobs by status: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "Failed to list jobs")
 		return
 	}
 
