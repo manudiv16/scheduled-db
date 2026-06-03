@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"scheduled-db/internal/logger"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -202,14 +203,15 @@ func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, p
 		}
 	} else {
 		// For non-bootstrap nodes, add much longer staggered delay
-		var delay time.Duration
-		if strings.HasSuffix(nodeID, "-1") {
-			delay = 15 * time.Second
-		} else if strings.HasSuffix(nodeID, "-2") {
-			delay = 25 * time.Second
-		} else {
-			delay = 10 * time.Second
+		// Extract numeric suffix from node ID (e.g., "scheduled-db-3" -> 3)
+		var ordinal int
+		parts := strings.Split(nodeID, "-")
+		if len(parts) > 0 {
+			if n, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+				ordinal = n
+			}
 		}
+		delay := time.Duration(10+ordinal*5) * time.Second
 
 		logger.Debug("Non-bootstrap node %s waiting %v before starting discovery...", nodeID, delay)
 		time.Sleep(delay)
