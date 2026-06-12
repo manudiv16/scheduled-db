@@ -15,16 +15,26 @@ import (
 // StatusChangeCallback is called when a job status changes
 type StatusChangeCallback func(oldStatus, newStatus JobStatus)
 
+// StatusStore is the minimal interface required by StatusTracker to interact
+// with the underlying store. It breaks the circular coupling between
+// StatusTracker and Store.
+type StatusStore interface {
+	IsLeader() bool
+	GetExecutionState(jobID string) (*JobExecutionState, bool)
+	GetAllExecutionStates() map[string]*JobExecutionState
+	Apply(data []byte) error
+}
+
 // StatusTracker manages job execution status
 type StatusTracker struct {
-	store                *Store
+	store                StatusStore
 	statusChangeCallback atomic.Value
 	pruningStop          chan struct{}
 	pruningCloseOnce     sync.Once
 }
 
 // NewStatusTracker creates a new StatusTracker
-func NewStatusTracker(store *Store) *StatusTracker {
+func NewStatusTracker(store StatusStore) *StatusTracker {
 	return &StatusTracker{
 		store:       store,
 		pruningStop: make(chan struct{}),
@@ -47,7 +57,7 @@ func (st *StatusTracker) getStatusChangeCallback() StatusChangeCallback {
 
 // GetStatus returns the current status of a job
 func (st *StatusTracker) GetStatus(jobID string) (*JobExecutionState, error) {
-	state, exists := st.store.fsm.GetExecutionState(jobID)
+	state, exists := st.store.GetExecutionState(jobID)
 	if !exists {
 		return nil, fmt.Errorf("execution state not found for job %s", jobID)
 	}
@@ -56,7 +66,7 @@ func (st *StatusTracker) GetStatus(jobID string) (*JobExecutionState, error) {
 
 // CanExecute checks if a job can be executed (idempotency check)
 func (st *StatusTracker) CanExecute(jobID string) (bool, error) {
-	state, exists := st.store.fsm.GetExecutionState(jobID)
+	state, exists := st.store.GetExecutionState(jobID)
 	if !exists {
 		// If no state exists, job can be executed
 		return true, nil
@@ -228,7 +238,7 @@ func (st *StatusTracker) CheckTimeouts(timeout time.Duration) ([]string, error) 
 		return nil, fmt.Errorf("not leader")
 	}
 
-	allStates := st.store.fsm.GetAllExecutionStates()
+	allStates := st.store.GetAllExecutionStates()
 	now := time.Now().Unix()
 	var timedOutJobs []string
 
@@ -264,7 +274,7 @@ func (st *StatusTracker) CheckTimeouts(timeout time.Duration) ([]string, error) 
 
 // ListByStatus returns all jobs with a given status
 func (st *StatusTracker) ListByStatus(status JobStatus) ([]*JobExecutionState, error) {
-	allStates := st.store.fsm.GetAllExecutionStates()
+	allStates := st.store.GetAllExecutionStates()
 	var result []*JobExecutionState
 
 	for _, state := range allStates {
@@ -278,7 +288,7 @@ func (st *StatusTracker) ListByStatus(status JobStatus) ([]*JobExecutionState, e
 
 // GetExecutionHistory returns all execution attempts for a job
 func (st *StatusTracker) GetExecutionHistory(jobID string) ([]ExecutionAttempt, error) {
-	state, exists := st.store.fsm.GetExecutionState(jobID)
+	state, exists := st.store.GetExecutionState(jobID)
 	if !exists {
 		return nil, fmt.Errorf("execution state not found for job %s", jobID)
 	}
@@ -314,16 +324,8 @@ func (st *StatusTracker) applyStatusCommand(cmdType CommandType, statusCmd *Stat
 		return fmt.Errorf("failed to marshal command: %w", err)
 	}
 
-	future := st.store.raft.Apply(data, getApplyTimeout())
-	if err := future.Error(); err != nil {
+	if err := st.store.Apply(data); err != nil {
 		return fmt.Errorf("failed to apply command: %w", err)
-	}
-
-	// Check if the apply returned an error
-	if result := future.Response(); result != nil {
-		if err, ok := result.(error); ok {
-			return err
-		}
 	}
 
 	return nil
@@ -335,7 +337,7 @@ func (st *StatusTracker) PruneOldAttempts(retention time.Duration) error {
 		return fmt.Errorf("not leader")
 	}
 
-	allStates := st.store.fsm.GetAllExecutionStates()
+	allStates := st.store.GetAllExecutionStates()
 	cutoffTime := time.Now().Add(-retention).Unix()
 
 	for jobID, state := range allStates {
@@ -388,16 +390,8 @@ func (st *StatusTracker) applyPruneCommand(statusCmd *StatusCommand, keptAttempt
 		return fmt.Errorf("failed to marshal command: %w", err)
 	}
 
-	future := st.store.raft.Apply(data, getApplyTimeout())
-	if err := future.Error(); err != nil {
+	if err := st.store.Apply(data); err != nil {
 		return fmt.Errorf("failed to apply command: %w", err)
-	}
-
-	// Check if the apply returned an error
-	if result := future.Response(); result != nil {
-		if err, ok := result.(error); ok {
-			return err
-		}
 	}
 
 	return nil
@@ -452,7 +446,7 @@ type ExecutionStats struct {
 
 // GetExecutionStats calculates and returns execution statistics
 func (st *StatusTracker) GetExecutionStats() (*ExecutionStats, error) {
-	allStates := st.store.fsm.GetAllExecutionStates()
+	allStates := st.store.GetAllExecutionStates()
 
 	stats := &ExecutionStats{
 		Total: int64(len(allStates)),

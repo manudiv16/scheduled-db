@@ -1,263 +1,59 @@
 package store
 
 import (
-	"encoding/json"
-	"fmt"
-	"strconv"
-	"time"
-
-	"github.com/google/uuid"
-	"github.com/robfig/cron/v3"
+	"scheduled-db/internal/store/types"
 )
 
-type JobType string
+// Type aliases — these allow existing code to keep using store.Job, store.JobStatus, etc.
+// while the actual definitions live in internal/store/types/.
+// These aliases will be removed in a follow-up cleanup after all callers have been updated
+// to import the types package directly.
 
+type (
+	Job               = types.Job
+	JobType           = types.JobType
+	SlotData          = types.SlotData
+	JobStatus         = types.JobStatus
+	ExecutionAttempt  = types.ExecutionAttempt
+	JobExecutionState = types.JobExecutionState
+	CreateJobRequest  = types.CreateJobRequest
+	CommandType       = types.CommandType
+	Command           = types.Command
+	StatusCommand     = types.StatusCommand
+	WebhookPayload    = types.WebhookPayload
+)
+
+// Constants
 const (
-	JobUnico      JobType = "unico"
-	JobRecurrente JobType = "recurrente"
+	JobUnico                 = types.JobUnico
+	JobRecurrente            = types.JobRecurrente
+	StatusPending            = types.StatusPending
+	StatusInProgress         = types.StatusInProgress
+	StatusCompleted          = types.StatusCompleted
+	StatusFailed             = types.StatusFailed
+	StatusCancelled          = types.StatusCancelled
+	StatusTimeout            = types.StatusTimeout
+	CommandCreateJob         = types.CommandCreateJob
+	CommandDeleteJob         = types.CommandDeleteJob
+	CommandCreateSlot        = types.CommandCreateSlot
+	CommandDeleteSlot        = types.CommandDeleteSlot
+	CommandArchiveSlot       = types.CommandArchiveSlot
+	CommandUnarchiveSlot     = types.CommandUnarchiveSlot
+	CommandUpdateJobStatus   = types.CommandUpdateJobStatus
+	CommandRecordAttempt     = types.CommandRecordAttempt
+	CommandPruneAttempts     = types.CommandPruneAttempts
+	CommandUpdateMemoryUsage = types.CommandUpdateMemoryUsage
+	CommandUpdateJobCount    = types.CommandUpdateJobCount
 )
 
-type Job struct {
-	ID         string                 `json:"id"`
-	Type       JobType                `json:"type"`
-	Timestamp  *int64                 `json:"timestamp,omitempty"`       // epoch seconds para unico
-	CronExpr   string                 `json:"cron_expression,omitempty"` // para recurrente
-	LastDate   *int64                 `json:"last_date,omitempty"`       // optional epoch seconds
-	CreatedAt  int64                  `json:"created_at"`
-	WebhookURL string                 `json:"webhook_url,omitempty"`
-	Payload    map[string]interface{} `json:"payload,omitempty"`
-}
+// Wrapper functions for standalone functions moved to the types package.
+// These are used by tests and by tests only; they exist to avoid breaking compilation
+// during the migration and will be removed alongside the type aliases.
 
-// Clone returns a deep copy of the Job
-func (j *Job) Clone() *Job {
-	if j == nil {
-		return nil
-	}
-	clone := *j
-	if j.Timestamp != nil {
-		ts := *j.Timestamp
-		clone.Timestamp = &ts
-	}
-	if j.LastDate != nil {
-		ld := *j.LastDate
-		clone.LastDate = &ld
-	}
-	if j.Payload != nil {
-		clone.Payload = make(map[string]interface{}, len(j.Payload))
-		for k, v := range j.Payload {
-			clone.Payload[k] = v
-		}
-	}
-	return &clone
-}
-
-// SlotData representa un slot persistido en Raft
-type SlotData struct {
-	Key     int64    `json:"key"`
-	MinTime int64    `json:"min_time"`
-	MaxTime int64    `json:"max_time"`
-	JobIDs  []string `json:"job_ids"`
-}
-
-// Clone returns a deep copy of the SlotData
-func (s *SlotData) Clone() *SlotData {
-	if s == nil {
-		return nil
-	}
-	clone := *s
-	if s.JobIDs != nil {
-		clone.JobIDs = make([]string, len(s.JobIDs))
-		copy(clone.JobIDs, s.JobIDs)
-	}
-	return &clone
-}
-
-type CreateJobRequest struct {
-	ID         string                 `json:"id,omitempty"`
-	Type       JobType                `json:"type"`
-	Timestamp  string                 `json:"timestamp,omitempty"` // puede ser RFC3339 o epoch
-	CronExpr   string                 `json:"cron_expression,omitempty"`
-	LastDate   string                 `json:"last_date,omitempty"` // puede ser RFC3339 o epoch
-	WebhookURL string                 `json:"webhook_url,omitempty"`
-	Payload    map[string]interface{} `json:"payload,omitempty"`
-}
-
-// ParseTimestamp convierte string (RFC3339 o epoch) a epoch seconds
 func ParseTimestamp(ts string) (int64, error) {
-	if ts == "" {
-		return 0, nil
-	}
-
-	// Intentar parsear como epoch seconds primero
-	if epoch, err := strconv.ParseInt(ts, 10, 64); err == nil {
-		return epoch, nil
-	}
-
-	// Intentar parsear como RFC3339
-	if t, err := time.Parse(time.RFC3339, ts); err == nil {
-		return t.Unix(), nil
-	}
-
-	// Intentar parsear con formato de timezone offset (+0200, -0500, etc)
-	layouts := []string{
-		"2006-01-02T15:04:05Z07:00", // Formato con timezone offset
-		"2006-01-02T15:04:05-07:00", // Formato con timezone offset negativo
-		"2006-01-02T15:04:05+07:00", // Formato con timezone offset positivo
-		"2006-01-02 15:04:05",       // Formato simple sin timezone
-	}
-
-	for _, layout := range layouts {
-		if t, err := time.Parse(layout, ts); err == nil {
-			return t.Unix(), nil
-		}
-	}
-
-	return 0, fmt.Errorf("invalid timestamp format: %s", ts)
+	return types.ParseTimestamp(ts)
 }
 
-// ToJob convierte CreateJobRequest a Job
-func (r *CreateJobRequest) ToJob() (*Job, error) {
-	job := &Job{
-		ID:         r.ID,
-		Type:       r.Type,
-		CronExpr:   r.CronExpr,
-		CreatedAt:  time.Now().Unix(),
-		WebhookURL: r.WebhookURL,
-		Payload:    r.Payload,
-	}
-
-	// Generar UUID si no se proporciona
-	if job.ID == "" {
-		job.ID = uuid.New().String()
-	}
-
-	// Parsear timestamp para job único
-	if r.Type == JobUnico && r.Timestamp != "" {
-		ts, err := ParseTimestamp(r.Timestamp)
-		if err != nil {
-			return nil, fmt.Errorf("invalid timestamp: %v", err)
-		}
-		job.Timestamp = &ts
-	}
-
-	// Parsear timestamp para job recurrente (primera ejecución)
-	if r.Type == JobRecurrente && r.Timestamp != "" {
-		ts, err := ParseTimestamp(r.Timestamp)
-		if err != nil {
-			return nil, fmt.Errorf("invalid timestamp: %v", err)
-		}
-		job.CreatedAt = ts
-	}
-
-	// Parsear last_date para job recurrente
-	if r.Type == JobRecurrente && r.LastDate != "" {
-		ld, err := ParseTimestamp(r.LastDate)
-		if err != nil {
-			return nil, fmt.Errorf("invalid last_date: %v", err)
-		}
-		job.LastDate = &ld
-	}
-
-	return job, nil
-}
-
-// Validate valida un job
-func (j *Job) Validate() error {
-	if j.ID == "" {
-		return fmt.Errorf("job ID is required")
-	}
-
-	if j.Type != JobUnico && j.Type != JobRecurrente {
-		return fmt.Errorf("invalid job type: %s", j.Type)
-	}
-
-	if j.Type == JobUnico {
-		if j.Timestamp == nil {
-			return fmt.Errorf("timestamp is required for unico jobs")
-		}
-		if *j.Timestamp <= time.Now().Unix() {
-			return fmt.Errorf("timestamp must be in the future")
-		}
-	}
-
-	if j.Type == JobRecurrente {
-		if j.CronExpr == "" {
-			return fmt.Errorf("cron_expression is required for recurrente jobs")
-		}
-		if _, err := cronParser.Parse(j.CronExpr); err != nil {
-			return fmt.Errorf("invalid cron expression: %v", err)
-		}
-	}
-
-	return nil
-}
-
-// ToBytes serializa el job a bytes
-func (j *Job) ToBytes() ([]byte, error) {
-	return json.Marshal(j)
-}
-
-// JobFromBytes deserializa bytes a job
 func JobFromBytes(data []byte) (*Job, error) {
-	var job Job
-	if err := json.Unmarshal(data, &job); err != nil {
-		return nil, err
-	}
-	return &job, nil
+	return types.JobFromBytes(data)
 }
-
-// JobStatus represents the execution state of a job
-type JobStatus string
-
-const (
-	StatusPending    JobStatus = "pending"
-	StatusInProgress JobStatus = "in_progress"
-	StatusCompleted  JobStatus = "completed"
-	StatusFailed     JobStatus = "failed"
-	StatusCancelled  JobStatus = "cancelled"
-	StatusTimeout    JobStatus = "timeout"
-)
-
-// ExecutionAttempt records a single execution attempt
-type ExecutionAttempt struct {
-	AttemptNum   int       `json:"attempt_num"`
-	StartTime    int64     `json:"start_time"`
-	EndTime      int64     `json:"end_time,omitempty"`
-	NodeID       string    `json:"node_id"`
-	Status       JobStatus `json:"status"`
-	HTTPStatus   int       `json:"http_status,omitempty"`
-	ResponseTime int64     `json:"response_time_ms,omitempty"`
-	ErrorMessage string    `json:"error_message,omitempty"`
-	ErrorType    string    `json:"error_type,omitempty"`
-}
-
-// JobExecutionState tracks the complete execution state of a job
-type JobExecutionState struct {
-	JobID              string             `json:"job_id"`
-	Status             JobStatus          `json:"status"`
-	AttemptCount       int                `json:"attempt_count"`
-	CreatedAt          int64              `json:"created_at"`
-	FirstAttemptAt     int64              `json:"first_attempt_at,omitempty"`
-	LastAttemptAt      int64              `json:"last_attempt_at,omitempty"`
-	CompletedAt        int64              `json:"completed_at,omitempty"`
-	CancelledAt        int64              `json:"cancelled_at,omitempty"`
-	CancellationReason string             `json:"cancellation_reason,omitempty"`
-	ExecutingNodeID    string             `json:"executing_node_id,omitempty"`
-	Attempts           []ExecutionAttempt `json:"attempts"`
-}
-
-// Clone returns a deep copy of the JobExecutionState
-func (s *JobExecutionState) Clone() *JobExecutionState {
-	if s == nil {
-		return nil
-	}
-	clone := *s
-	if s.Attempts != nil {
-		clone.Attempts = make([]ExecutionAttempt, len(s.Attempts))
-		copy(clone.Attempts, s.Attempts)
-	}
-	return &clone
-}
-
-// var cronParser is a shared parser to avoid per-call allocation
-var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)

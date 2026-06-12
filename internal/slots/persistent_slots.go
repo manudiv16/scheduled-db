@@ -5,6 +5,7 @@ package slots
 import (
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 	"sync"
 	"time"
 )
@@ -54,14 +55,14 @@ func (psq *PersistentSlotQueue) getSlotKey(timestamp int64) int64 {
 	return timestamp / slotGapSeconds
 }
 
-func (psq *PersistentSlotQueue) AddJob(job *store.Job) {
+func (psq *PersistentSlotQueue) AddJob(job *types.Job) {
 	psq.mu.Lock()
 	defer psq.mu.Unlock()
 
 	var timestamp int64
-	if job.Type == store.JobUnico && job.Timestamp != nil {
+	if job.Type == types.JobUnico && job.Timestamp != nil {
 		timestamp = *job.Timestamp
-	} else if job.Type == store.JobRecurrente {
+	} else if job.Type == types.JobRecurrente {
 		timestamp = job.CreatedAt
 	} else {
 		logger.Debug("Cannot add job %s: invalid type or missing timestamp", job.ID)
@@ -77,7 +78,7 @@ func (psq *PersistentSlotQueue) AddJob(job *store.Job) {
 	slotData, exists := psq.store.GetSlot(key)
 	if !exists {
 		slotGapSeconds := int64(psq.slotGap.Seconds())
-		slotData = &store.SlotData{
+		slotData = &types.SlotData{
 			Key:     key,
 			MinTime: key * slotGapSeconds,
 			MaxTime: (key+1)*slotGapSeconds - 1,
@@ -249,7 +250,7 @@ func (psq *PersistentSlotQueue) GetNextSlot() *Slot {
 		return nil
 	}
 
-	jobs := make([]*store.Job, 0, len(slotData.JobIDs))
+	jobs := make([]*types.Job, 0, len(slotData.JobIDs))
 	for _, jobID := range slotData.JobIDs {
 		if job, jobExists := psq.store.GetJob(jobID); jobExists {
 			jobs = append(jobs, job)
@@ -288,7 +289,7 @@ func (psq *PersistentSlotQueue) RemoveSlot(key SlotKey) {
 	}
 }
 
-func (psq *PersistentSlotQueue) LoadJobs(jobs map[string]*store.Job) {
+func (psq *PersistentSlotQueue) LoadJobs(jobs map[string]*types.Job) {
 	psq.mu.Lock()
 	defer psq.mu.Unlock()
 

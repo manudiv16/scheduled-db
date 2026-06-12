@@ -6,7 +6,7 @@ import (
 
 	"pgregory.net/rapid"
 
-	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 )
 
 // **Feature: queue-size-limits, Property 6: Job size includes all components**
@@ -18,9 +18,9 @@ func TestProperty6_JobSizeIncludesAllComponents(t *testing.T) {
 		webhookURL := rapid.String().Draw(t, "webhookURL")
 		cronExpr := rapid.String().Draw(t, "cronExpr")
 
-		job := &store.Job{
+		job := &types.Job{
 			ID:         id,
-			Type:       store.JobUnico,
+			Type:       types.JobUnico,
 			WebhookURL: webhookURL,
 			CronExpr:   cronExpr,
 		}
@@ -47,9 +47,9 @@ func TestProperty7_PayloadSizeContribution(t *testing.T) {
 		id := rapid.String().Draw(t, "id")
 
 		// Create job without payload
-		jobWithoutPayload := &store.Job{
+		jobWithoutPayload := &types.Job{
 			ID:   id,
-			Type: store.JobUnico,
+			Type: types.JobUnico,
 		}
 
 		// Generate a random payload with at least one entry
@@ -62,9 +62,9 @@ func TestProperty7_PayloadSizeContribution(t *testing.T) {
 		}
 
 		// Create job with payload
-		jobWithPayload := &store.Job{
+		jobWithPayload := &types.Job{
 			ID:      id,
-			Type:    store.JobUnico,
+			Type:    types.JobUnico,
 			Payload: payload,
 		}
 
@@ -88,18 +88,18 @@ func TestProperty8_WebhookURLSizeContribution(t *testing.T) {
 		id := rapid.String().Draw(t, "id")
 
 		// Create job without webhook URL
-		jobWithoutWebhook := &store.Job{
+		jobWithoutWebhook := &types.Job{
 			ID:   id,
-			Type: store.JobUnico,
+			Type: types.JobUnico,
 		}
 
 		// Generate a random webhook URL (non-empty)
 		webhookURL := rapid.StringMatching(`https?://[a-z]+\.[a-z]+/.*`).Draw(t, "webhookURL")
 
 		// Create job with webhook URL
-		jobWithWebhook := &store.Job{
+		jobWithWebhook := &types.Job{
 			ID:         id,
-			Type:       store.JobUnico,
+			Type:       types.JobUnico,
 			WebhookURL: webhookURL,
 		}
 
@@ -136,9 +136,9 @@ func TestProperty34_SizeCalculationPerformance(t *testing.T) {
 			payload[key] = value
 		}
 
-		job := &store.Job{
+		job := &types.Job{
 			ID:         id,
-			Type:       store.JobUnico,
+			Type:       types.JobUnico,
 			WebhookURL: webhookURL,
 			CronExpr:   cronExpr,
 			Payload:    payload,

@@ -11,6 +11,7 @@ import (
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/metrics"
 	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 
 	"github.com/robfig/cron/v3"
 )
@@ -122,7 +123,7 @@ func (w *Worker) processSlots() {
 
 		// Process jobs in this slot
 		jobsToRemove := make([]string, 0, len(slot.Jobs))
-		jobsToReschedule := make([]*store.Job, 0)
+		jobsToReschedule := make([]*types.Job, 0)
 		anyJobExecuted := false
 		hasJobsNotReady := false
 
@@ -131,10 +132,10 @@ func (w *Worker) processSlots() {
 				w.executeJob(job)
 				anyJobExecuted = true
 
-				if job.Type == store.JobUnico {
+				if job.Type == types.JobUnico {
 					// Mark unique job for removal
 					jobsToRemove = append(jobsToRemove, job.ID)
-				} else if job.Type == store.JobRecurrente {
+				} else if job.Type == types.JobRecurrente {
 					// Calculate next execution time for recurring job
 					nextTimestamp := w.calculateNextExecution(job, now)
 					if nextTimestamp > 0 {
@@ -182,12 +183,12 @@ func (w *Worker) processSlots() {
 	}
 }
 
-func (w *Worker) shouldExecuteJob(job *store.Job, now int64) bool {
-	if job.Type == store.JobUnico && job.Timestamp != nil {
+func (w *Worker) shouldExecuteJob(job *types.Job, now int64) bool {
+	if job.Type == types.JobUnico && job.Timestamp != nil {
 		return *job.Timestamp <= now
 	}
 
-	if job.Type == store.JobRecurrente {
+	if job.Type == types.JobRecurrente {
 		return w.isTimeForRecurringJob(job, now)
 	}
 
@@ -195,12 +196,12 @@ func (w *Worker) shouldExecuteJob(job *store.Job, now int64) bool {
 	return false
 }
 
-func (w *Worker) isTimeForRecurringJob(job *store.Job, now int64) bool {
+func (w *Worker) isTimeForRecurringJob(job *types.Job, now int64) bool {
 	// For recurring jobs, the CreatedAt time represents when this instance should run
 	return job.CreatedAt <= now
 }
 
-func (w *Worker) executeJob(job *store.Job) {
+func (w *Worker) executeJob(job *types.Job) {
 	start := time.Now()
 	logger.Info("executing job %s", job.ID)
 
@@ -229,7 +230,7 @@ func (w *Worker) executeJob(job *store.Job) {
 	}
 }
 
-func (w *Worker) calculateNextExecution(job *store.Job, now int64) int64 {
+func (w *Worker) calculateNextExecution(job *types.Job, now int64) int64 {
 	schedule, err := workerCronParser.Parse(job.CronExpr)
 	if err != nil {
 		logger.JobError(job.ID, "invalid cron expression: %v", err)

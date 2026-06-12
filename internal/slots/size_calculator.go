@@ -3,7 +3,7 @@ package slots
 import (
 	"encoding/json"
 
-	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 )
 
 // SizeCalculator calculates job memory footprint
@@ -20,7 +20,7 @@ func NewSizeCalculator() *SizeCalculator {
 
 // CalculateSize returns job size in bytes
 // Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5
-func (sc *SizeCalculator) CalculateSize(job *store.Job) int64 {
+func (sc *SizeCalculator) CalculateSize(job *types.Job) int64 {
 	size := sc.baseOverhead
 
 	// Job ID (string length)

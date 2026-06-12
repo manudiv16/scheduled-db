@@ -5,7 +5,7 @@ package slots
 import (
 	"context"
 	"scheduled-db/internal/metrics"
-	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 )
 
 // LimitManager enforces queue size limits
@@ -26,7 +26,7 @@ func NewLimitManager(memoryTracker *MemoryTracker, jobCounter *JobCounter, sizeC
 
 // CheckCapacity verifies if a job can be added
 // Validates: Requirements 4.1, 5.1
-func (lm *LimitManager) CheckCapacity(job *store.Job) error {
+func (lm *LimitManager) CheckCapacity(job *types.Job) error {
 	// Calculate job size
 	size := lm.sizeCalculator.CalculateSize(job)
 
@@ -45,7 +45,7 @@ func (lm *LimitManager) CheckCapacity(job *store.Job) error {
 
 // RecordJobAdded updates tracking after job is added
 // Validates: Requirements 4.1, 5.1
-func (lm *LimitManager) RecordJobAdded(job *store.Job) error {
+func (lm *LimitManager) RecordJobAdded(job *types.Job) error {
 	size := lm.sizeCalculator.CalculateSize(job)
 
 	if err := lm.memoryTracker.IncrementUsage(size); err != nil {
@@ -70,7 +70,7 @@ func (lm *LimitManager) RecordJobAdded(job *store.Job) error {
 
 // RecordJobRemoved updates tracking after job is removed
 // Validates: Requirements 4.1, 5.1
-func (lm *LimitManager) RecordJobRemoved(job *store.Job) error {
+func (lm *LimitManager) RecordJobRemoved(job *types.Job) error {
 	size := lm.sizeCalculator.CalculateSize(job)
 
 	if err := lm.memoryTracker.DecrementUsage(size); err != nil {

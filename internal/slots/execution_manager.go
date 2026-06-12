@@ -16,6 +16,7 @@ import (
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/metrics"
 	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 )
 
 // ExecutionManager coordinates job execution with status tracking
@@ -50,7 +51,7 @@ func NewExecutionManager(statusTracker *store.StatusTracker, st *store.Store, no
 	}
 
 	// Set up status change callback for metrics
-	statusTracker.SetStatusChangeCallback(func(oldStatus, newStatus store.JobStatus) {
+	statusTracker.SetStatusChangeCallback(func(oldStatus, newStatus types.JobStatus) {
 		ctx := context.Background()
 		if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
 			// Decrement old status, increment new status
@@ -63,7 +64,7 @@ func NewExecutionManager(statusTracker *store.StatusTracker, st *store.Store, no
 }
 
 // Execute executes a job with status tracking and idempotency
-func (em *ExecutionManager) Execute(job *store.Job) error {
+func (em *ExecutionManager) Execute(job *types.Job) error {
 	// Check if job can be executed (idempotency)
 	canExecute, err := em.statusTracker.CanExecute(job.ID)
 	if err != nil {
@@ -109,7 +110,7 @@ func (em *ExecutionManager) Execute(job *store.Job) error {
 		em.cancelMu.Unlock()
 	}()
 
-	attempt := &store.ExecutionAttempt{
+	attempt := &types.ExecutionAttempt{
 		AttemptNum: attemptNum,
 		StartTime:  time.Now().Unix(),
 		NodeID:     em.nodeID,
@@ -123,14 +124,14 @@ func (em *ExecutionManager) Execute(job *store.Job) error {
 	if err != nil {
 		// Check if job was cancelled during execution
 		state, statusErr := em.statusTracker.GetStatus(job.ID)
-		if statusErr == nil && state.Status == store.StatusCancelled {
+		if statusErr == nil && state.Status == types.StatusCancelled {
 			// Job was cancelled, don't mark as failed
 			logger.Info("job %s was cancelled during execution", job.ID)
 			return nil
 		}
 
 		// Execution failed
-		attempt.Status = store.StatusFailed
+		attempt.Status = types.StatusFailed
 		attempt.ErrorMessage = err.Error()
 		attempt.ErrorType = em.classifyError(err)
 		attempt.HTTPStatus = httpStatus
@@ -157,7 +158,7 @@ func (em *ExecutionManager) Execute(job *store.Job) error {
 
 	// Check if job was cancelled after execution completed
 	state, statusErr := em.statusTracker.GetStatus(job.ID)
-	if statusErr == nil && state.Status == store.StatusCancelled {
+	if statusErr == nil && state.Status == types.StatusCancelled {
 		// Job was cancelled, record the attempt but keep cancelled status
 		if recordErr := em.statusTracker.RecordAttempt(job.ID, attempt); recordErr != nil {
 			logger.JobError(job.ID, "failed to record attempt for cancelled job: %v", recordErr)
@@ -167,7 +168,7 @@ func (em *ExecutionManager) Execute(job *store.Job) error {
 	}
 
 	// Execution succeeded
-	attempt.Status = store.StatusCompleted
+	attempt.Status = types.StatusCompleted
 	attempt.HTTPStatus = httpStatus
 
 	// Record retry count if this is a retry
@@ -187,7 +188,7 @@ func (em *ExecutionManager) Execute(job *store.Job) error {
 }
 
 // executeWebhook executes the webhook and returns HTTP status, response time, and error
-func (em *ExecutionManager) executeWebhook(ctx context.Context, job *store.Job) (int, int64, error) {
+func (em *ExecutionManager) executeWebhook(ctx context.Context, job *types.Job) (int, int64, error) {
 	if job.WebhookURL == "" {
 		return 0, 0, nil
 	}

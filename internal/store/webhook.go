@@ -11,13 +11,6 @@ import (
 	"scheduled-db/internal/logger"
 )
 
-type WebhookPayload struct {
-	JobID     string                 `json:"job_id"`
-	Type      JobType                `json:"type"`
-	Timestamp int64                  `json:"timestamp"`
-	Data      map[string]interface{} `json:"data,omitempty"`
-}
-
 func ExecuteWebhook(job *Job) {
 	if job.WebhookURL == "" {
 		return

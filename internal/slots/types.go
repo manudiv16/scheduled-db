@@ -1,7 +1,7 @@
 package slots
 
 import (
-	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 	"time"
 )
 
@@ -13,5 +13,5 @@ type Slot struct {
 	Key     SlotKey
 	MinTime int64
 	MaxTime int64
-	Jobs    []*store.Job
+	Jobs    []*types.Job
 }

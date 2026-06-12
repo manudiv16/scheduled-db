@@ -7,25 +7,26 @@ import (
 	"time"
 
 	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 
 	"github.com/hashicorp/raft"
 	"github.com/stretchr/testify/assert"
 )
 
 type mockColdStore struct {
-	slots map[int64]*store.SlotData
+	slots map[int64]*types.SlotData
 }
 
 func newMockColdStore() *mockColdStore {
-	return &mockColdStore{slots: make(map[int64]*store.SlotData)}
+	return &mockColdStore{slots: make(map[int64]*types.SlotData)}
 }
 
-func (m *mockColdStore) PutColdSlot(key int64, data *store.SlotData) error {
+func (m *mockColdStore) PutColdSlot(key int64, data *types.SlotData) error {
 	m.slots[key] = data
 	return nil
 }
 
-func (m *mockColdStore) GetColdSlot(key int64) (*store.SlotData, error) {
+func (m *mockColdStore) GetColdSlot(key int64) (*types.SlotData, error) {
 	return m.slots[key], nil
 }
 
@@ -86,8 +87,8 @@ func TestFSMArchiveUnarchiveIntegration(t *testing.T) {
 	pastKey := int64((now - 100000) / 10)
 	futureKey := int64((now + 100000) / 10)
 
-	pastSlot := &store.SlotData{Key: pastKey, MinTime: pastKey * 10, MaxTime: pastKey*10 + 9, JobIDs: []string{"j1"}}
-	futureSlot := &store.SlotData{Key: futureKey, MinTime: futureKey * 10, MaxTime: futureKey*10 + 9, JobIDs: []string{"j2"}}
+	pastSlot := &types.SlotData{Key: pastKey, MinTime: pastKey * 10, MaxTime: pastKey*10 + 9, JobIDs: []string{"j1"}}
+	futureSlot := &types.SlotData{Key: futureKey, MinTime: futureKey * 10, MaxTime: futureKey*10 + 9, JobIDs: []string{"j2"}}
 
 	fsm.Apply(&raft.Log{Data: mustMarshalCommand(store.Command{Type: store.CommandCreateSlot, Slot: pastSlot})})
 	fsm.Apply(&raft.Log{Data: mustMarshalCommand(store.Command{Type: store.CommandCreateSlot, Slot: futureSlot})})
@@ -116,7 +117,7 @@ func TestFSMArchiveEmptySlotDeletes(t *testing.T) {
 	cs := newMockColdStore()
 	fsm := store.NewFSMWithColdStore(cs)
 
-	slot := &store.SlotData{Key: 50, MinTime: 500, MaxTime: 509, JobIDs: []string{}}
+	slot := &types.SlotData{Key: 50, MinTime: 500, MaxTime: 509, JobIDs: []string{}}
 	fsm.Apply(&raft.Log{Data: mustMarshalCommand(store.Command{Type: store.CommandArchiveSlot, ColdSlot: slot})})
 
 	assert.Equal(t, 1, fsm.GetColdSlotCount())

@@ -3,7 +3,7 @@ package slots
 import (
 	"testing"
 
-	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 )
 
 func TestSizeCalculator_CalculateSize(t *testing.T) {
@@ -11,18 +11,18 @@ func TestSizeCalculator_CalculateSize(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		job      *store.Job
+		job      *types.Job
 		minSize  int64 // Minimum expected size
-		validate func(t *testing.T, size int64, job *store.Job)
+		validate func(t *testing.T, size int64, job *types.Job)
 	}{
 		{
 			name: "minimal job with only ID",
-			job: &store.Job{
+			job: &types.Job{
 				ID:   "test-id-123",
-				Type: store.JobUnico,
+				Type: types.JobUnico,
 			},
 			minSize: 128 + 11 + 64, // base + ID length + fixed fields
-			validate: func(t *testing.T, size int64, job *store.Job) {
+			validate: func(t *testing.T, size int64, job *types.Job) {
 				if size < 128 {
 					t.Errorf("size should include base overhead of 128 bytes, got %d", size)
 				}
@@ -30,13 +30,13 @@ func TestSizeCalculator_CalculateSize(t *testing.T) {
 		},
 		{
 			name: "job with webhook URL",
-			job: &store.Job{
+			job: &types.Job{
 				ID:         "test-id",
-				Type:       store.JobUnico,
+				Type:       types.JobUnico,
 				WebhookURL: "https://example.com/webhook",
 			},
 			minSize: 128 + 7 + 27 + 64, // base + ID + webhook + fixed
-			validate: func(t *testing.T, size int64, job *store.Job) {
+			validate: func(t *testing.T, size int64, job *types.Job) {
 				expectedMin := int64(128 + len(job.ID) + len(job.WebhookURL) + 64)
 				if size < expectedMin {
 					t.Errorf("size should be at least %d (includes webhook URL), got %d", expectedMin, size)
@@ -45,13 +45,13 @@ func TestSizeCalculator_CalculateSize(t *testing.T) {
 		},
 		{
 			name: "job with cron expression",
-			job: &store.Job{
+			job: &types.Job{
 				ID:       "test-id",
-				Type:     store.JobRecurrente,
+				Type:     types.JobRecurrente,
 				CronExpr: "0 0 * * *",
 			},
 			minSize: 128 + 7 + 9 + 64, // base + ID + cron + fixed
-			validate: func(t *testing.T, size int64, job *store.Job) {
+			validate: func(t *testing.T, size int64, job *types.Job) {
 				expectedMin := int64(128 + len(job.ID) + len(job.CronExpr) + 64)
 				if size < expectedMin {
 					t.Errorf("size should be at least %d (includes cron expression), got %d", expectedMin, size)
@@ -60,16 +60,16 @@ func TestSizeCalculator_CalculateSize(t *testing.T) {
 		},
 		{
 			name: "job with payload",
-			job: &store.Job{
+			job: &types.Job{
 				ID:   "test-id",
-				Type: store.JobUnico,
+				Type: types.JobUnico,
 				Payload: map[string]interface{}{
 					"key1": "value1",
 					"key2": 123,
 				},
 			},
 			minSize: 128 + 7 + 64, // base + ID + fixed (payload size calculated separately)
-			validate: func(t *testing.T, size int64, job *store.Job) {
+			validate: func(t *testing.T, size int64, job *types.Job) {
 				// Payload should add some size
 				if size <= 128+7+64 {
 					t.Errorf("size should include payload, got %d", size)
@@ -78,9 +78,9 @@ func TestSizeCalculator_CalculateSize(t *testing.T) {
 		},
 		{
 			name: "job with all fields",
-			job: &store.Job{
+			job: &types.Job{
 				ID:         "test-id-full",
-				Type:       store.JobRecurrente,
+				Type:       types.JobRecurrente,
 				CronExpr:   "*/5 * * * *",
 				WebhookURL: "https://example.com/webhook/full",
 				Payload: map[string]interface{}{
@@ -92,7 +92,7 @@ func TestSizeCalculator_CalculateSize(t *testing.T) {
 				},
 			},
 			minSize: 128 + 12 + 11 + 32 + 64, // base + ID + cron + webhook + fixed
-			validate: func(t *testing.T, size int64, job *store.Job) {
+			validate: func(t *testing.T, size int64, job *types.Job) {
 				// Should be a substantial size with all fields
 				if size < 300 {
 					t.Errorf("job with all fields should be at least 300 bytes, got %d", size)
@@ -101,13 +101,13 @@ func TestSizeCalculator_CalculateSize(t *testing.T) {
 		},
 		{
 			name: "job with nil payload",
-			job: &store.Job{
+			job: &types.Job{
 				ID:      "test-id",
-				Type:    store.JobUnico,
+				Type:    types.JobUnico,
 				Payload: nil,
 			},
 			minSize: 128 + 7 + 64,
-			validate: func(t *testing.T, size int64, job *store.Job) {
+			validate: func(t *testing.T, size int64, job *types.Job) {
 				// Should not crash with nil payload
 				if size < 128 {
 					t.Errorf("size should include base overhead, got %d", size)
@@ -116,13 +116,13 @@ func TestSizeCalculator_CalculateSize(t *testing.T) {
 		},
 		{
 			name: "job with empty payload",
-			job: &store.Job{
+			job: &types.Job{
 				ID:      "test-id",
-				Type:    store.JobUnico,
+				Type:    types.JobUnico,
 				Payload: map[string]interface{}{},
 			},
 			minSize: 128 + 7 + 64,
-			validate: func(t *testing.T, size int64, job *store.Job) {
+			validate: func(t *testing.T, size int64, job *types.Job) {
 				// Empty payload should serialize to "{}" which is 2 bytes
 				expectedMin := int64(128 + 7 + 64 + 2)
 				if size < expectedMin {
@@ -157,14 +157,14 @@ func TestSizeCalculator_CalculateSize(t *testing.T) {
 func TestSizeCalculator_PayloadSizeContribution(t *testing.T) {
 	sc := NewSizeCalculator()
 
-	jobWithoutPayload := &store.Job{
+	jobWithoutPayload := &types.Job{
 		ID:   "test-id",
-		Type: store.JobUnico,
+		Type: types.JobUnico,
 	}
 
-	jobWithPayload := &store.Job{
+	jobWithPayload := &types.Job{
 		ID:   "test-id",
-		Type: store.JobUnico,
+		Type: types.JobUnico,
 		Payload: map[string]interface{}{
 			"data": "some data here",
 		},

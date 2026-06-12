@@ -3,40 +3,37 @@
 package store
 
 import (
-	"fmt"
 	"strings"
+
+	"github.com/manudiv16/pkgcluster"
 
 	"github.com/hashicorp/raft"
 )
 
-// DNSAddressProvider implements ServerAddressProvider to map server IDs to DNS names
-type DNSAddressProvider struct {
-	serviceName string
-	namespace   string
-	port        int
-}
-
-// NewDNSAddressProvider creates a new DNS-based address provider
-func NewDNSAddressProvider(serviceName, namespace string, port int) *DNSAddressProvider {
-	return &DNSAddressProvider{
+// NewRaftAddressProvider creates a raft.ServerAddressProvider that resolves
+// server IDs to K8s StatefulSet DNS names using the discovery package's
+// StatefulSetDNSName helper. When a server ID is not a StatefulSet pod name
+// (doesn't start with "scheduled-db-"), it returns the ID as-is as a fallback.
+func NewRaftAddressProvider(serviceName, namespace, domain string, port int) raft.ServerAddressProvider {
+	return &dnsAddressProvider{
 		serviceName: serviceName,
 		namespace:   namespace,
+		domain:      domain,
 		port:        port,
 	}
 }
 
-// ServerAddr implements the ServerAddressProvider interface
-// It maps server IDs to DNS names for StatefulSet pods
-func (p *DNSAddressProvider) ServerAddr(id raft.ServerID) (raft.ServerAddress, error) {
+type dnsAddressProvider struct {
+	serviceName string
+	namespace   string
+	domain      string
+	port        int
+}
+
+func (p *dnsAddressProvider) ServerAddr(id raft.ServerID) (raft.ServerAddress, error) {
 	serverID := string(id)
-
-	// For StatefulSet pods, convert to DNS name
 	if strings.HasPrefix(serverID, "scheduled-db-") {
-		dnsName := fmt.Sprintf("%s.%s.%s.svc.cluster.local:%d",
-			serverID, p.serviceName, p.namespace, p.port)
-		return raft.ServerAddress(dnsName), nil
+		return raft.ServerAddress(pkgcluster.StatefulSetDNSName(serverID, p.serviceName, p.namespace, p.domain, p.port)), nil
 	}
-
-	// For other server IDs, return as-is (fallback)
 	return raft.ServerAddress(serverID), nil
 }

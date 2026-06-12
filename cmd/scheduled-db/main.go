@@ -11,14 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/manudiv16/pkgcluster"
 	"scheduled-db/internal"
-	"scheduled-db/internal/discovery"
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/slots"
 )
 
 func main() {
 	var (
+		boostrapSpected           = flag.Int("bootstrap-spected", getEnvIntOrDefault("BOOTSTRAP_SPECTED", 0), "The minimum number of nodes that the cluster will have")
 		dataDir                   = flag.String("data-dir", getEnvOrDefault("DATA_DIR", "./data"), "Data directory for Raft storage")
 		raftPort                  = flag.String("raft-port", getEnvOrDefault("RAFT_PORT", "7000"), "Port for Raft communication")
 		httpPort                  = flag.String("http-port", getEnvOrDefault("HTTP_PORT", "8080"), "Port for HTTP API")
@@ -26,6 +27,8 @@ func main() {
 		peers                     = flag.String("peers", getEnvOrDefault("PEERS", ""), "Comma-separated list of peer addresses for joining cluster")
 		slotGap                   = flag.Duration("slot-gap", getEnvDurationOrDefault("SLOT_GAP", 10*time.Second), "Time gap for slot intervals")
 		discoveryStrategy         = flag.String("discovery-strategy", getEnvOrDefault("DISCOVERY_STRATEGY", ""), "Discovery strategy: static, kubernetes, dns, gossip")
+		kubernetesNamespace       = flag.String("kubernetes-namespace", getEnvOrDefault("KUBERNETES_NAMESPACE", ""), "kubernetes Namespace")
+		kubernetesServiceName     = flag.String("kubernetes-service-name", getEnvOrDefault("KUBERNETES_SERVICE_NAME", ""), "kubernetes service name")
 		raftHost                  = flag.String("raft-host", getEnvOrDefault("RAFT_HOST", "localhost"), "Host for Raft communication")
 		raftAdvertiseHost         = flag.String("raft-advertise-host", getEnvOrDefault("RAFT_ADVERTISE_HOST", ""), "Host to advertise for Raft communication (empty means use raft-host)")
 		httpHost                  = flag.String("http-host", getEnvOrDefault("HTTP_HOST", ""), "Host for HTTP API (empty means all interfaces)")
@@ -49,18 +52,7 @@ func main() {
 	)
 	flag.Parse()
 
-	// Determine discovery strategy - make it truly optional
-	strategy := *discoveryStrategy
-	if strategy == "" {
-		if envStrategy := os.Getenv("DISCOVERY_STRATEGY"); envStrategy != "" {
-			strategy = envStrategy
-		} else {
-			// No discovery strategy = traditional Raft only
-			strategy = "none"
-		}
-	}
-
-	// Parse peers for static strategy
+	// Parse peers list
 	var peerList []string
 	if *peers != "" {
 		peerList = strings.Split(*peers, ",")
@@ -69,16 +61,32 @@ func main() {
 		}
 	}
 
-	// Create discovery configuration (only if needed)
-	var discoveryConfig discovery.DiscoveryConfig
+	// Determine discovery strategy.
+	strategy := *discoveryStrategy
+	if strategy == "" {
+		if envStrategy := os.Getenv("DISCOVERY_STRATEGY"); envStrategy != "" {
+			strategy = envStrategy
+		} else {
+			strategy = "none"
+		}
+	}
+
+	// Build topology list from the selected strategy.
+	// Callbacks (Connect/Disconnect/ListNodes) are nil here and will be
+	// wired to the Raft store by internal.NewApp.
+	var topologies []pkgcluster.Topology
 	if strategy != "none" {
-		discoveryConfig = createDiscoveryConfig(strategy, *nodeID, peerList)
+		topo, err := buildTopology(strategy, *nodeID, peerList, *kubernetesNamespace, *kubernetesServiceName)
+		if err != nil {
+			logger.Error("failed to build discovery topology: %v", err)
+			os.Exit(1)
+		}
+		topologies = append(topologies, topo)
 	}
 
 	// Build bind addresses with environment variables
 	raftBind := fmt.Sprintf("%s:%s", *raftHost, *raftPort)
 
-	// Determine advertise address - use advertise host if provided, otherwise use raft host
 	advertiseHost := *raftAdvertiseHost
 	if advertiseHost == "" {
 		advertiseHost = *raftHost
@@ -125,7 +133,7 @@ func main() {
 		NodeID:                    *nodeID,
 		Peers:                     peerList,
 		SlotGap:                   *slotGap,
-		DiscoveryConfig:           discoveryConfig,
+		Topologies:                topologies,
 		ExecutionTimeout:          *executionTimeout,
 		InProgressTimeout:         *inProgressTimeout,
 		MaxExecutionAttempts:      *maxExecutionAttempts,
@@ -137,6 +145,7 @@ func main() {
 		ColdSpillingHotWindow:     *coldSpillingHotWindow,
 		ColdSpillingCheckInterval: *coldSpillingCheckInterval,
 		TimingWheelConfigs:        wheelConfigs,
+		BoostrapSpected:           *boostrapSpected,
 	}
 
 	// Create and start application
@@ -170,12 +179,16 @@ func main() {
 	} else {
 		logger.Info("running in single-node (bootstrap) mode")
 	}
+	if len(topologies) > 0 {
+		logger.Info("discovery: %s strategy configured for topology %q", strategy, topologies[0].Name)
+	} else {
+		logger.Info("discovery: disabled")
+	}
 
 	// Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	// Handle shutdown with force-quit on multiple Ctrl+C
 	var shutdownCount int
 	shutdownDone := make(chan bool, 1)
 
@@ -195,74 +208,100 @@ func main() {
 				}()
 			} else if shutdownCount >= 2 {
 				logger.Info("force quit requested, exiting immediately...")
-				os.Exit(130) // Standard exit code for Ctrl+C
+				os.Exit(130)
 			}
 		}
 	}()
 
-	// Wait for graceful shutdown (no automatic timeout)
 	<-shutdownDone
 	logger.Info("application stopped successfully")
 	os.Exit(0)
 }
 
-func createDiscoveryConfig(strategyStr, nodeID string, staticPeers []string) discovery.DiscoveryConfig {
-	var strategy discovery.StrategyType
-	switch strategyStr {
-	case "kubernetes":
-		strategy = discovery.StrategyKubernetes
-	case "dns":
-		strategy = discovery.StrategyDNS
-	case "gossip":
-		strategy = discovery.StrategyGossip
-	case "consul":
-		strategy = discovery.StrategyConsul
-	default:
-		strategy = discovery.StrategyStatic
-	}
+// buildTopology creates a pkgcluster.Topology from CLI flags and environment
+// variables. It only sets the strategy type and config map; callbacks are
+// wired later by internal.NewApp.
+func buildTopology(strategy, nodeID string, peers []string, kubernetesNamespace, kubernetesServiceName string) (pkgcluster.Topology, error) {
+	raftPortStr := getEnvOrDefault("RAFT_PORT", "7000")
+	raftPort, _ := strconv.Atoi(raftPortStr)
 
-	config := discovery.DiscoveryConfig{
-		Config: discovery.Config{
-			NodeID:      nodeID,
-			ServiceName: "scheduled-db",
-			Namespace:   getEnvOrDefault("NAMESPACE", "default"),
-			Interval:    30 * time.Second,
-			Meta:        make(map[string]string),
-		},
-		Strategy:       strategy,
-		AutoJoin:       getEnvBoolOrDefault("AUTO_JOIN", true),
-		UpdateInterval: 30 * time.Second,
-	}
+	var topo pkgcluster.Topology
 
-	// Add static peers if provided
-	if len(staticPeers) > 0 {
-		config.Config.Meta["peers"] = strings.Join(staticPeers, ",")
-	}
-
-	// Add strategy-specific configuration
 	switch strategy {
-	case discovery.StrategyKubernetes:
-		config.KubernetesConfig = &discovery.KubernetesConfig{
-			InCluster:    getEnvBoolOrDefault("KUBERNETES_IN_CLUSTER", true),
-			PodNamespace: getEnvOrDefault("POD_NAMESPACE", "default"),
-			ServiceName:  "scheduled-db",
+	case "static":
+		topo = pkgcluster.Topology{
+			Name:     "static",
+			Strategy: pkgcluster.StrategyStatic,
+			Config: map[string]interface{}{
+				"addresses": peers,
+			},
 		}
-	case discovery.StrategyGossip:
-		config.GossipConfig = &discovery.GossipConfig{
-			BindPort: getEnvIntOrDefault("GOSSIP_PORT", 7946),
+
+	case "kubernetes":
+		topo = pkgcluster.Topology{
+			Name:     "kubernetes",
+			Strategy: pkgcluster.StrategyKubernetes,
+			Config: map[string]interface{}{
+				"namespace":     kubernetesNamespace,
+				"selector":      fmt.Sprintf("app=%s", kubernetesServiceName),
+				"node_basename": nodeID,
+				"service_name":  kubernetesServiceName,
+				"port":          raftPort,
+			},
 		}
-		if seeds := os.Getenv("GOSSIP_SEEDS"); seeds != "" {
-			config.Config.Meta["seeds"] = seeds
+
+	case "dns":
+		topo = pkgcluster.Topology{
+			Name:     "dns",
+			Strategy: pkgcluster.StrategyDNS,
+			Config: map[string]interface{}{
+				"query":         kubernetesServiceName,
+				"node_basename": nodeID,
+				"port":          raftPort,
+			},
 		}
-	case discovery.StrategyDNS:
-		config.DNSConfig = &discovery.DNSConfig{
-			Domain:       getEnvOrDefault("DNS_DOMAIN", "cluster.local"),
-			PollInterval: 30 * time.Second,
+
+	case "kubernetes_dns":
+		topo = pkgcluster.Topology{
+			Name:     "kubernetes_dns",
+			Strategy: pkgcluster.StrategyKubernetesDNS,
+			Config: map[string]interface{}{
+				"service":          kubernetesServiceName,
+				"application_name": nodeID,
+				"port":             raftPort,
+			},
 		}
+
+	case "kubernetes_dns_srv", "dns_srv":
+		topo = pkgcluster.Topology{
+			Name:     "kubernetes_dns_srv",
+			Strategy: pkgcluster.StrategyKubernetesDNSSRV,
+			Config: map[string]interface{}{
+				"service":          kubernetesServiceName,
+				"application_name": nodeID,
+				"namespace":        kubernetesNamespace,
+				"port":             raftPort,
+			},
+		}
+
+	case "gossip":
+		topo = pkgcluster.Topology{
+			Name:     "gossip",
+			Strategy: pkgcluster.StrategyGossip,
+			Config: map[string]interface{}{
+				"port":      45892,
+				"node_addr": fmt.Sprintf("%s:%s", nodeID, raftPortStr),
+			},
+		}
+
+	default:
+		return topo, fmt.Errorf("unsupported discovery strategy: %s", strategy)
 	}
 
-	return config
+	return topo, nil
 }
+
+// --- Helper functions (env vars, parsing) ---
 
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
@@ -323,7 +362,6 @@ func ParseMemoryLimit(value string) (int64, error) {
 		return 0, fmt.Errorf("empty memory limit value")
 	}
 
-	// Check for unit suffix
 	multiplier := int64(1)
 	if strings.HasSuffix(strings.ToUpper(value), "GB") {
 		multiplier = 1024 * 1024 * 1024
@@ -351,7 +389,6 @@ func ParseMemoryLimit(value string) (int64, error) {
 
 // DetectMemoryLimit determines memory limit from config or system memory
 func DetectMemoryLimit(explicitLimit string, memoryPercent float64) int64 {
-	// If explicit limit set, use it
 	if explicitLimit != "" {
 		limit, err := ParseMemoryLimit(explicitLimit)
 		if err != nil {
@@ -362,12 +399,10 @@ func DetectMemoryLimit(explicitLimit string, memoryPercent float64) int64 {
 		}
 	}
 
-	// Detect system memory
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	systemMemory := int64(m.Sys)
 
-	// Use configured percentage or default 50%
 	percent := memoryPercent
 	if percent <= 0 || percent > 100 {
 		percent = 50.0

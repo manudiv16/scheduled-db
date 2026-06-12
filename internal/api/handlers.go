@@ -17,6 +17,7 @@ import (
 	"scheduled-db/internal/metrics"
 	"scheduled-db/internal/slots"
 	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 
 	"github.com/gorilla/mux"
 )
@@ -276,7 +277,7 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req store.CreateJobRequest
+	var req types.CreateJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		logger.Error("failed to decode job request: %v", err)
 		h.writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -643,11 +644,11 @@ func (h *Handlers) GetJobStatus(w http.ResponseWriter, r *http.Request) {
 	state, err := statusTracker.GetStatus(id)
 	if err != nil {
 		// If no execution state exists yet, return pending status
-		state = &store.JobExecutionState{
+		state = &types.JobExecutionState{
 			JobID:     id,
-			Status:    store.StatusPending,
+			Status:    types.StatusPending,
 			CreatedAt: time.Now().Unix(),
-			Attempts:  []store.ExecutionAttempt{},
+			Attempts:  []types.ExecutionAttempt{},
 		}
 	}
 
@@ -689,7 +690,7 @@ func (h *Handlers) GetJobExecutions(w http.ResponseWriter, r *http.Request) {
 	attempts, err := statusTracker.GetExecutionHistory(id)
 	if err != nil {
 		// If no execution state exists yet, return empty attempts
-		attempts = []store.ExecutionAttempt{}
+		attempts = []types.ExecutionAttempt{}
 	}
 
 	response := map[string]interface{}{
@@ -741,7 +742,7 @@ func (h *Handlers) CancelJob(w http.ResponseWriter, r *http.Request) {
 	statusTracker := store.NewStatusTracker(h.store)
 	state, err := statusTracker.GetStatus(id)
 	wasInProgress := false
-	if err == nil && state.Status == store.StatusInProgress {
+	if err == nil && state.Status == types.StatusInProgress {
 		wasInProgress = true
 		// Attempt to cancel in-progress execution
 		if h.executionManager != nil {
@@ -804,14 +805,14 @@ func (h *Handlers) ListJobsByStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate status parameter
-	status := store.JobStatus(statusParam)
-	validStatuses := []store.JobStatus{
-		store.StatusPending,
-		store.StatusInProgress,
-		store.StatusCompleted,
-		store.StatusFailed,
-		store.StatusCancelled,
-		store.StatusTimeout,
+	status := types.JobStatus(statusParam)
+	validStatuses := []types.JobStatus{
+		types.StatusPending,
+		types.StatusInProgress,
+		types.StatusCompleted,
+		types.StatusFailed,
+		types.StatusCancelled,
+		types.StatusTimeout,
 	}
 
 	isValid := false
@@ -838,7 +839,7 @@ func (h *Handlers) ListJobsByStatus(w http.ResponseWriter, r *http.Request) {
 
 	// If no states found, return empty array
 	if states == nil {
-		states = []*store.JobExecutionState{}
+		states = []*types.JobExecutionState{}
 	}
 
 	response := map[string]interface{}{

@@ -6,7 +6,7 @@ import (
 
 	"pgregory.net/rapid"
 
-	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 )
 
 // **Feature: queue-size-limits, Property 5: Job count accuracy**
@@ -20,7 +20,7 @@ func TestProperty5_JobCountAccuracy(t *testing.T) {
 		expectedTotalJobs := int64(0)
 
 		// Create a map to represent slots with jobs
-		slots := make(map[int64]*store.SlotData)
+		slots := make(map[int64]*types.SlotData)
 
 		for i := 0; i < numSlots; i++ {
 			// Generate a unique slot key
@@ -36,7 +36,7 @@ func TestProperty5_JobCountAccuracy(t *testing.T) {
 			}
 
 			// Create the slot
-			slots[slotKey] = &store.SlotData{
+			slots[slotKey] = &types.SlotData{
 				Key:     slotKey,
 				MinTime: slotKey * 10,
 				MaxTime: (slotKey + 1) * 10,
@@ -102,7 +102,7 @@ func TestProperty5_JobCountAccuracyWithJobs(t *testing.T) {
 		numJobs := rapid.IntRange(0, 100).Draw(rt, "numJobs")
 
 		// Create jobs and organize them into slots
-		jobs := make(map[string]*store.Job)
+		jobs := make(map[string]*types.Job)
 		slotJobCounts := make(map[int64]int)
 
 		for i := 0; i < numJobs; i++ {
@@ -114,9 +114,9 @@ func TestProperty5_JobCountAccuracyWithJobs(t *testing.T) {
 			}
 			timestamp := rapid.Int64Range(time.Now().Unix()+1, time.Now().Unix()+86400).Draw(rt, "timestamp")
 
-			job := &store.Job{
+			job := &types.Job{
 				ID:        jobID,
-				Type:      store.JobUnico,
+				Type:      types.JobUnico,
 				Timestamp: &timestamp,
 				CreatedAt: time.Now().Unix(),
 			}

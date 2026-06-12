@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"scheduled-db/internal/store"
+	"scheduled-db/internal/store/types"
 
 	"pgregory.net/rapid"
 )
@@ -43,9 +43,9 @@ func TestLimitManager_SizeCalculation(t *testing.T) {
 
 	// Create a test job
 	timestamp := time.Now().Add(1 * time.Hour).Unix()
-	job := &store.Job{
+	job := &types.Job{
 		ID:         "test-job-1",
-		Type:       store.JobUnico,
+		Type:       types.JobUnico,
 		Timestamp:  &timestamp,
 		CreatedAt:  time.Now().Unix(),
 		WebhookURL: "https://example.com/webhook",

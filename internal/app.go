@@ -11,12 +11,13 @@ import (
 	"time"
 
 	"scheduled-db/internal/api"
-	"scheduled-db/internal/discovery"
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/metrics"
 	"scheduled-db/internal/slots"
 	"scheduled-db/internal/store"
 
+	"github.com/hashicorp/raft"
+	"github.com/manudiv16/pkgcluster"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 )
@@ -31,7 +32,7 @@ type App struct {
 	httpServer         *http.Server
 	metricsServer      *http.Server
 	prometheusExporter *prometheus.Exporter
-	discoveryManager   *discovery.DiscoveryManager
+	discoveryManager   *pkgcluster.Manager
 	nodeID             string
 	useDiscovery       bool
 	shutdownSignal     chan os.Signal
@@ -45,7 +46,7 @@ type Config struct {
 	NodeID                    string
 	Peers                     []string
 	SlotGap                   time.Duration
-	DiscoveryConfig           discovery.DiscoveryConfig
+	Topologies                []pkgcluster.Topology
 	ExecutionTimeout          time.Duration
 	InProgressTimeout         time.Duration
 	MaxExecutionAttempts      int
@@ -57,8 +58,15 @@ type Config struct {
 	ColdSpillingHotWindow     time.Duration
 	ColdSpillingCheckInterval time.Duration
 	TimingWheelConfigs        []slots.WheelLevelConfig
+	BoostrapSpected           int
 }
 
+// NewApp creates a new application instance.
+//
+// Discovery topologies are provided via config.Topologies. Each topology
+// carries a strategy type and config map but no callbacks — NewApp fills
+// in the Connect/Disconnect/ListNodes closures after creating the store,
+// so that the discovery layer never depends on Raft or store types.
 func NewApp(config *Config) (*App, error) {
 	// Initialize metrics system
 	ctx := context.Background()
@@ -77,8 +85,23 @@ func NewApp(config *Config) (*App, error) {
 		return nil, fmt.Errorf("failed to initialize metrics: %v", err)
 	}
 
+	// Build a Raft ServerAddressProvider from topology config when a
+	// Kubernetes or DNS strategy is used (for StatefulSet DNS resolution).
+	var addrProvider raft.ServerAddressProvider
+	for _, t := range config.Topologies {
+		if t.Strategy == pkgcluster.StrategyKubernetes ||
+			t.Strategy == pkgcluster.StrategyKubernetesDNS ||
+			t.Strategy == pkgcluster.StrategyKubernetesDNSSRV {
+			serviceName := pkgcluster.StringConfigFromMap(t.Config, "service_name", "scheduled-db")
+			namespace := pkgcluster.StringConfigFromMap(t.Config, "namespace", "default")
+			domain := pkgcluster.StringConfigFromMap(t.Config, "cluster_domain", "cluster.local")
+			addrProvider = store.NewRaftAddressProvider(serviceName, namespace, domain, 7000)
+			break
+		}
+	}
+
 	// Create store with Raft (start with configured peers, discovery will handle dynamic joining)
-	jobStore, err := store.NewStoreWithColdSpilling(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers, config.EnableColdSpilling)
+	jobStore, err := store.NewStoreWithColdSpilling(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers, config.EnableColdSpilling, config.BoostrapSpected, addrProvider)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("failed to create store: %v", err)
@@ -98,24 +121,49 @@ func NewApp(config *Config) (*App, error) {
 		}
 	}
 
-	shutdownCallback := func() error {
-		logger.Error("split-brain detected, shutting down node")
-		// This will be called by split-brain detection to shutdown the app
-		go func() {
-			time.Sleep(100 * time.Millisecond) // Small delay to allow log to be written
-			os.Exit(42)                        // Exit code for split-brain prevention
-		}()
-		return nil
+	// Build discovery topologies with callbacks wired to the store.
+	// The callbacks translate between discovery node addresses (host:port
+	// as produced by the strategy) and Raft server addresses.
+	topologies := make([]pkgcluster.Topology, len(config.Topologies))
+	for i, t := range config.Topologies {
+		// Capture t by value for the closure.
+		topo := t
+
+		// Build the address discovery → Raft adddress mapping from topology config.
+		raftPort := pkgcluster.IntConfigFromMap(topo.Config, "port", 7000)
+
+		topo.Connect = func(ctx context.Context, addr string) error {
+			// addr is a host:port string from the strategy. Use it directly for Raft.
+			logger.Debug("discovery: connecting peer %s", addr)
+			return jobStore.AddPeer(config.NodeID, addr)
+		}
+		topo.Disconnect = func(ctx context.Context, addr string) error {
+			logger.Debug("discovery: disconnecting peer %s", addr)
+			return jobStore.RemovePeer(config.NodeID)
+		}
+		topo.ListNodes = func(ctx context.Context) ([]string, error) {
+			servers, err := jobStore.GetClusterConfiguration()
+			if err != nil {
+				return nil, err
+			}
+			addrs := make([]string, 0, len(servers))
+			for _, s := range servers {
+				addrs = append(addrs, string(s.Address))
+			}
+			return addrs, nil
+		}
+
+		// Ensure port in config is used for raft port when producing addresses.
+		topo.Config["port"] = raftPort
+
+		topologies[i] = topo
 	}
 
-	// Create discovery manager only if discovery is enabled
-	var discoveryManager *discovery.DiscoveryManager
-	useDiscovery := config.DiscoveryConfig.Strategy != ""
+	// Create discovery manager only if topologies are configured.
+	var discoveryManager *pkgcluster.Manager
+	useDiscovery := len(topologies) > 0
 	if useDiscovery {
-		discoveryManager, err = discovery.NewDiscoveryManager(config.DiscoveryConfig, jobStore, shutdownCallback)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create discovery manager: %v", err)
-		}
+		discoveryManager = pkgcluster.NewManager(topologies...)
 	}
 
 	// Create slot queue
@@ -214,7 +262,6 @@ func NewApp(config *Config) (*App, error) {
 				if job != nil {
 					slotQueue.AddJob(job)
 					logger.Debug("added job %s to slot queue", job.ID)
-					// Record metrics
 					if metrics.GlobalJobInstrumentation != nil {
 						metrics.GlobalJobInstrumentation.RecordJobCreated(context.Background(), job)
 					}
@@ -223,7 +270,6 @@ func NewApp(config *Config) (*App, error) {
 				if job != nil {
 					slotQueue.RemoveJob(job.ID)
 					logger.Debug("removed job %s from slot queue", job.ID)
-					// Record metrics
 					if metrics.GlobalJobInstrumentation != nil {
 						metrics.GlobalJobInstrumentation.RecordJobDeleted(context.Background(), job)
 					}
@@ -232,7 +278,7 @@ func NewApp(config *Config) (*App, error) {
 		}
 	})
 
-	// Setup leadership change handler for all nodes (needed for high availability)
+	// Setup leadership change handler for all nodes
 	go app.monitorLeadership()
 
 	// Setup graceful shutdown handler
@@ -246,9 +292,8 @@ func (a *App) Start() error {
 
 	// Start discovery manager only if enabled
 	if a.useDiscovery {
-		if err := a.discoveryManager.Start(); err != nil {
-			return fmt.Errorf("failed to start discovery manager: %v", err)
-		}
+		ctx := context.Background() // long-lived; Manager uses its own internal cancellation
+		a.discoveryManager.Start(ctx)
 
 		if a.store.GetLeader() == "" {
 			logger.Debug("no leader found, discovery will help coordinate cluster join")
@@ -282,7 +327,6 @@ func (a *App) Start() error {
 func (a *App) Stop() error {
 	logger.Info("stopping application...")
 
-	// Use shorter timeouts and force shutdown if needed
 	done := make(chan bool, 1)
 
 	go func() {
@@ -291,19 +335,7 @@ func (a *App) Stop() error {
 		// Stop discovery manager if enabled
 		if a.useDiscovery {
 			logger.Info("stopping discovery manager...")
-			discoveryDone := make(chan error, 1)
-			go func() {
-				discoveryDone <- a.discoveryManager.Stop()
-			}()
-
-			select {
-			case err := <-discoveryDone:
-				if err != nil {
-					logger.Error("error stopping discovery manager: %v", err)
-				}
-			case <-time.After(10 * time.Second):
-				logger.Warn("discovery manager shutdown timeout, continuing...")
-			}
+			a.discoveryManager.Stop()
 		}
 
 		// Stop pruning goroutine
@@ -314,7 +346,7 @@ func (a *App) Stop() error {
 		logger.Info("stopping worker...")
 		a.worker.Stop()
 
-		// Force close HTTP server (don't wait for graceful)
+		// Force close HTTP server
 		logger.Info("force closing HTTP server...")
 		if err := a.httpServer.Close(); err != nil {
 			logger.Error("error force closing HTTP server: %v", err)
@@ -343,7 +375,6 @@ func (a *App) Stop() error {
 		}
 	}()
 
-	// Force exit after 10 seconds total
 	select {
 	case <-done:
 		logger.Info("all components stopped successfully")
@@ -362,11 +393,9 @@ func (a *App) handleGracefulShutdown() {
 	if a.store.IsLeader() {
 		logger.Info("[GRACEFUL SHUTDOWN] I am the leader - performing graceful resignation")
 
-		// Step 1: Stop accepting new work
 		logger.Info("[GRACEFUL SHUTDOWN] stopping worker to prevent new job processing")
 		a.worker.Stop()
 
-		// Step 2: Remove myself from cluster configuration
 		logger.Info("[GRACEFUL SHUTDOWN] removing myself from cluster configuration")
 		if err := a.store.RemovePeer(a.nodeID); err != nil {
 			logger.Error("[GRACEFUL SHUTDOWN] failed to remove self from cluster: %v", err)
@@ -374,11 +403,9 @@ func (a *App) handleGracefulShutdown() {
 			logger.Info("[GRACEFUL SHUTDOWN] successfully removed self from cluster")
 		}
 
-		// Step 3: Wait a bit for followers to detect leader loss and start election
 		logger.Info("[GRACEFUL SHUTDOWN] waiting for followers to start election...")
 		time.Sleep(2 * time.Second)
 
-		// Step 4: Step down from leadership
 		logger.Info("[GRACEFUL SHUTDOWN] stepping down from leadership")
 		future := a.store.GetRaft().LeadershipTransfer()
 		if err := future.Error(); err != nil {
@@ -387,13 +414,11 @@ func (a *App) handleGracefulShutdown() {
 			logger.Info("[GRACEFUL SHUTDOWN] leadership transfer initiated")
 		}
 
-		// Step 5: Wait a bit more for transition to complete
 		time.Sleep(1 * time.Second)
 	} else {
 		logger.Info("[GRACEFUL SHUTDOWN] I am a follower - performing normal shutdown")
 	}
 
-	// Final shutdown
 	logger.Info("[GRACEFUL SHUTDOWN] performing final shutdown")
 	if err := a.Stop(); err != nil {
 		logger.Error("[GRACEFUL SHUTDOWN] error during shutdown: %v", err)
@@ -416,23 +441,19 @@ func (a *App) monitorLeadership() {
 		currentLeader := a.store.GetLeader()
 
 		if !wasLeader && isLeader {
-			// Became leader
 			logger.ClusterInfo("node %s became leader", a.nodeID)
 			a.becomeLeader()
 			noLeaderCount = 0
 		} else if wasLeader && !isLeader {
-			// Lost leadership
 			logger.ClusterWarn("node %s lost leadership, current leader: %s", a.nodeID, currentLeader)
 			a.loseLeadership()
 		}
 
-		// Check for orphaned cluster situation
 		if currentLeader == "" {
 			noLeaderCount++
-			if noLeaderCount > 60 { // Wait 60 seconds without leader
+			if noLeaderCount > 60 {
 				servers, err := a.store.GetClusterConfiguration()
 				if err == nil && len(servers) == 0 {
-					// Empty cluster - attempt auto-bootstrap
 					logger.ClusterWarn("no leader for 60 seconds and empty cluster, attempting auto-bootstrap")
 					if err := a.attemptAutoBootstrap(); err != nil {
 						logger.ClusterError("auto-bootstrap failed: %v", err)
@@ -446,9 +467,7 @@ func (a *App) monitorLeadership() {
 			noLeaderCount = 0
 		}
 
-		// Periodic status log (every 30 seconds)
 		if ticker := time.Now().Unix(); ticker%30 == 0 {
-			// Get cluster configuration for debugging
 			servers, err := a.store.GetClusterConfiguration()
 			var clusterInfo string
 			if err != nil {
@@ -471,13 +490,10 @@ func (a *App) monitorLeadership() {
 
 func (a *App) becomeLeader() {
 	logger.ClusterInfo("node %s becoming leader - starting worker", a.nodeID)
-
 	a.worker.Start()
-
 	if a.slotEvictor != nil {
 		a.slotEvictor.Start()
 	}
-
 	logger.Info("🎯 CLUSTER READY: Node %s is leader, cluster fully operational", a.nodeID)
 }
 
@@ -492,8 +508,5 @@ func (a *App) loseLeadership() {
 
 func (a *App) attemptAutoBootstrap() error {
 	logger.Debug("[LEADERSHIP DEBUG] node %s attempting auto-bootstrap as single-node cluster", a.nodeID)
-
-	// This is a recovery mechanism for orphaned nodes
-	// Only attempt if we're truly isolated (no other nodes in cluster config)
 	return a.store.ForceBootstrap(a.nodeID)
 }

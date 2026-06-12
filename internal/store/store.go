@@ -59,7 +59,7 @@ func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (
 	return NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID, peers, false)
 }
 
-func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, peers []string, enableColdSpilling bool) (*Store, error) {
+func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, peers []string, enableColdSpilling bool, boostrapSpected int) (*Store, error) {
 	// Use pod IP for Raft advertise address (simpler and more reliable than hostnames)
 	if os.Getenv("POD_IP") != "" && os.Getenv("DISCOVERY_STRATEGY") == "kubernetes" {
 		podIP := os.Getenv("POD_IP")
@@ -176,13 +176,13 @@ func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, p
 	shouldBootstrap := false
 
 	// ONLY scheduled-db-0 should ever bootstrap, others wait for discovery
-	if len(peers) == 0 && nodeID == "scheduled-db-0" {
-		logger.Debug("This is the bootstrap node (%s), attempting bootstrap", nodeID)
-		shouldBootstrap = true
-	} else {
-		logger.Debug("This is NOT the bootstrap node (%s) or has peers, will wait for discovery", nodeID)
-		shouldBootstrap = false
-	}
+	// if len(peers) == 0 && nodeID == "scheduled-db-0" {
+	// 	logger.Debug("This is the bootstrap node (%s), attempting bootstrap", nodeID)
+	// 	shouldBootstrap = true
+	// } else {
+	// 	logger.Debug("This is NOT the bootstrap node (%s) or has peers, will wait for discovery", nodeID)
+	// 	shouldBootstrap = false
+	// }
 
 	if shouldBootstrap {
 		// Use DNS name as Address so it's stored in Raft state
@@ -744,3 +744,4 @@ func (s *Store) GetColdSlotData(key int64) (*SlotData, error) {
 	}
 	return s.coldStore.GetColdSlot(key)
 }
+
