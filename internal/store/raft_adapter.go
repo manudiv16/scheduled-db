@@ -12,6 +12,10 @@ import (
 	"github.com/hashicorp/raft"
 )
 
+// raft_adapter.go bridges the pure in-memory FSM (fsm.go) with the
+// github.com/hashicorp/raft library. It implements raft.FSM and
+// raft.FSMSnapshot so that the FSM can be used as Raft's state machine.
+
 // Apply applies a Raft log entry to the FSM
 func (f *FSM) Apply(logEntry *raft.Log) interface{} {
 	var cmd Command
