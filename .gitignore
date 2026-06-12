@@ -22,3 +22,8 @@ logs*/
 .vscode/
 *.swp
 *.swo
+# Agent / tooling runtime state
+.atl/
+.pi/
+.pi-lens/
+openspec/

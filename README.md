@@ -1,5 +1,10 @@
 # Scheduled-DB
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go" alt="Go 1.23+"></a>
+</p>
+
 A distributed job scheduling system built on Raft consensus. Provides reliable, fault-tolerant job execution across a cluster of nodes with automatic leader election and failover.
 
 ## ✨ Features
@@ -545,7 +550,9 @@ See [Debugging Guide](./docs/development-guide.md#debugging) for more solutions.
 
 ## 📄 License
 
-See LICENSE file for details.
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Copyright 2026 Manu Divi. See [LICENSE](LICENSE) for the full license text.
 
 ## 🙏 Acknowledgments
 
