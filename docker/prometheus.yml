@@ -14,7 +14,7 @@ scrape_configs:
           - "scheduled-db-1:8080"
           - "scheduled-db-2:8080"
           - "scheduled-db-3:8080"
-    metrics_path: "/health"
+    metrics_path: "/metrics"
     scrape_interval: 30s
     scrape_timeout: 10s
     scheme: http
