@@ -15,6 +15,7 @@ services:
       - DATA_DIR=/data
       - DISCOVERY_STRATEGY=static
       - STATIC_PEERS=scheduled-db-1:7000,scheduled-db-2:7000,scheduled-db-3:7000
+      - BOOTSTRAP_EXPECT=3
       - SLOT_GAP=10s
     ports:
       - "8080:8080"
@@ -47,6 +48,7 @@ services:
       - DATA_DIR=/data
       - DISCOVERY_STRATEGY=static
       - STATIC_PEERS=scheduled-db-1:7000,scheduled-db-2:7000,scheduled-db-3:7000
+      - BOOTSTRAP_EXPECT=3
       - SLOT_GAP=10s
     ports:
       - "8081:8080"

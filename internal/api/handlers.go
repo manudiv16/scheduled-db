@@ -257,7 +257,6 @@ func (h *Handlers) calculateHTTPAddress(raftAddr string) (string, error) {
 	return httpAddr, nil
 }
 
-
 func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 	leader := h.store.GetLeader()
 	if leader == "" {
@@ -313,7 +312,6 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 	}
 	logger.Debug("proxied %s %s to leader %s", r.Method, r.URL.Path, leader)
 }
-
 
 func (h *Handlers) writeError(w http.ResponseWriter, status int, message string) {
 	if status >= 400 {

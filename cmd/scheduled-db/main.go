@@ -154,7 +154,7 @@ func main() {
 		ColdSpillingHotWindow:     *coldSpillingHotWindow,
 		ColdSpillingCheckInterval: *coldSpillingCheckInterval,
 		TimingWheelConfigs:        wheelConfigs,
-		BoostrapExpect:            *boostrapexpect,
+		BootstrapExpect:           *boostrapexpect,
 
 		// Security configuration
 		HTTPReadTimeout:       *httpReadTimeout,
@@ -191,7 +191,9 @@ func main() {
 	}
 	logger.Info("timing wheel: L0=%s×%d, L1=%s×%d, L2=%s×%d",
 		l0g, *wheelLevel0Buckets, l1g, *wheelLevel1Buckets, l2g, *wheelLevel2Buckets)
-	if len(peerList) > 0 {
+	if *boostrapexpect > 0 {
+		logger.Info("bootstrap-expect: %d, will wait for peers before bootstrapping cluster", *boostrapexpect)
+	} else if len(peerList) > 0 {
 		logger.Info("peers: %v", peerList)
 	} else {
 		logger.Info("running in single-node (bootstrap) mode")

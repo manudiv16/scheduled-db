@@ -28,11 +28,9 @@ data:
   # Kubernetes Service Discovery
   KUBERNETES_NAMESPACE: "default"
   KUBERNETES_SERVICE_NAME: "scheduled-db"
-  KUBERNETES_LABEL_SELECTOR: "app=scheduled-db"
-
   # Cluster Configuration
   CLUSTER_SIZE: "3"
-
+  BOOTSTRAP_EXPECT: "3"
   # Logging
   LOG_LEVEL: "DEBUG"
 

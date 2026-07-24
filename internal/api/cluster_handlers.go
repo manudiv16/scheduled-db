@@ -9,6 +9,20 @@ import (
 	"scheduled-db/internal/store"
 )
 
+
+// Ready returns 200 when the node is ready to serve requests.
+// It indicates the node has a leader or is itself the leader.
+func (h *Handlers) Ready(w http.ResponseWriter, r *http.Request) {
+	// A node is ready if it has a leader (or is the leader).
+	// If no leader is known yet, return 503 to signal unreadiness.
+	if h.store.GetLeader() == "" && !h.store.IsLeader() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"status": "not ready", "reason": "no leader"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+}
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	response := HealthResponse{
 		Status: "ok",
