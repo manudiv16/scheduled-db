@@ -16,17 +16,6 @@ import (
 )
 
 func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	defer func() {
-		duration := time.Since(start)
-		// Record HTTP metrics using OpenTelemetry
-		ctx := context.Background()
-		if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
-			globalMetrics.IncrementHTTPRequests(ctx, r.Method, r.URL.Path, 200)
-			globalMetrics.RecordHTTPRequestDuration(ctx, duration, r.Method, r.URL.Path)
-		}
-	}()
-
 	// If not leader, try to proxy to leader
 	if !h.store.IsLeader() {
 		h.proxyToLeader(w, r)

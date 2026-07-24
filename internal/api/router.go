@@ -1,7 +1,12 @@
 package api
 
 import (
+	"context"
 	"net/http"
+	"time"
+
+	"scheduled-db/internal/logger"
+	"scheduled-db/internal/metrics"
 
 	"github.com/gorilla/mux"
 )
@@ -24,9 +29,23 @@ func NewRouter(handlers *Handlers) *mux.Router {
 
 	// Add CORS middleware
 	router.Use(corsMiddleware)
+	router.Use(metricsMiddleware)
 	router.Use(loggingMiddleware)
 
 	return router
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the status code
+// actually written by the handler, defaulting to 200 if WriteHeader is
+// never called explicitly (matching net/http's own default behavior).
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -44,8 +63,31 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func metricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
+
+		next.ServeHTTP(rec, r)
+
+		duration := time.Since(start)
+		if globalMetrics := metrics.GetGlobalMetrics(); globalMetrics != nil {
+			globalMetrics.IncrementHTTPRequests(context.Background(), r.Method, r.URL.Path, rec.status)
+			globalMetrics.RecordHTTPRequestDuration(context.Background(), duration, r.Method, r.URL.Path)
+		}
+	})
+}
+
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
+		rec, ok := w.(*statusRecorder)
+		if !ok {
+			rec = &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		}
+		start := time.Now()
+
+		next.ServeHTTP(rec, r)
+
+		logger.Info("%s %s %d %s", r.Method, r.URL.RequestURI(), rec.status, time.Since(start))
 	})
 }

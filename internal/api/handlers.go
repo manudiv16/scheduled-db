@@ -182,6 +182,7 @@ func (h *Handlers) buildAddressMapping() {
 			if !strings.HasPrefix(httpAddr, "http://") && !strings.HasPrefix(httpAddr, "https://") {
 				httpAddr = "http://" + httpAddr
 			}
+			h.addressMap[raftAddr] = httpAddr
 			logger.Debug("mapped Raft %s -> HTTP %s", raftAddr, httpAddr)
 		}
 	}
@@ -272,8 +273,8 @@ func (h *Handlers) proxyToLeader(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create proxy request
-	proxyReq, err := http.NewRequest(r.Method, httpAddr+r.URL.Path, r.Body)
+	// Create proxy request, preserving the query string
+	proxyReq, err := http.NewRequest(r.Method, httpAddr+r.URL.RequestURI(), r.Body)
 	if err != nil {
 		logger.Error("failed to create proxy request: %v", err)
 		h.writeError(w, http.StatusInternalServerError, "Internal error")

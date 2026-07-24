@@ -65,7 +65,13 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	statusCode := http.StatusOK
+	if response.Status == "unhealthy" {
+		statusCode = http.StatusServiceUnavailable
+	}
+
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logger.Error("failed to encode health response: %v", err)
 	}
