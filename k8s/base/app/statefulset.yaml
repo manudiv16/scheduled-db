@@ -31,6 +31,18 @@ spec:
         runAsNonRoot: false
         runAsUser: 0
         fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - scheduled-db
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: scheduled-db
           image: scheduled-db:v1.0.0-13-ge20a7f9-dirty

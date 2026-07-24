@@ -26,19 +26,6 @@ patches:
         path: /data/AUTO_JOIN
         value: "true"
 
-  - target:
-      kind: HorizontalPodAutoscaler
-      name: scheduled-db-hpa
-    patch: |-
-      - op: replace
-        path: /spec/minReplicas
-        value: 3
-      - op: replace
-        path: /spec/maxReplicas
-        value: 3
-      - op: replace
-        path: /spec/metrics
-        value: []
 
 images:
   - name: scheduled-db

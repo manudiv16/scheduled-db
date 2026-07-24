@@ -8,13 +8,8 @@ kind: Kustomization
 #   kubectl apply -k overlays/production
 
 resources:
-  - rbac.yaml
-  - service.yaml
-  - statefulset.yaml
-  - pdb.yaml
-  - hpa.yaml
-  - configmap.yaml
-  - otel-collector.yaml
+  - base/app
+  - base/monitoring
 
 
 

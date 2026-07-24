@@ -39,17 +39,6 @@ patches:
         path: /spec/template/spec/containers/0/resources/limits/cpu
         value: 500m
 
-  # Moderate HPA settings
-  - target:
-      kind: HorizontalPodAutoscaler
-      name: scheduled-db-hpa
-    patch: |-
-      - op: replace
-        path: /spec/minReplicas
-        value: 2
-      - op: replace
-        path: /spec/maxReplicas
-        value: 4
 
   # Add staging-specific config
   - target:

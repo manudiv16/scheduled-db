@@ -42,23 +42,6 @@ patches:
         path: /spec/template/spec/containers/0/env/4/value
         value: "prod-otel-collector-collector:4317"
 
-  # Aggressive HPA for production
-  - target:
-      kind: HorizontalPodAutoscaler
-      name: scheduled-db-hpa
-    patch: |-
-      - op: replace
-        path: /spec/minReplicas
-        value: 3
-      - op: replace
-        path: /spec/maxReplicas
-        value: 7
-      - op: replace
-        path: /spec/metrics/0/resource/target/averageUtilization
-        value: 70
-      - op: replace
-        path: /spec/metrics/1/resource/target/averageUtilization
-        value: 80
 
   # Production config
   - target:

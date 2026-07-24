@@ -43,17 +43,6 @@ patches:
         value: "dev-otel-collector-collector:4317"
 
 
-  # Disable HPA in dev
-  - target:
-      kind: HorizontalPodAutoscaler
-      name: scheduled-db-hpa
-    patch: |-
-      - op: replace
-        path: /spec/minReplicas
-        value: 3
-      - op: replace
-        path: /spec/maxReplicas
-        value: 3
 
   # Add dev-specific config
   - target:
