@@ -75,19 +75,19 @@ func (w *SimulatedWorker) ProcessTick() TickResult {
 			result.ExecutedJobs = append(result.ExecutedJobs, execResult)
 
 			if job.Type == store.JobUnico {
-				w.fsm.DeleteJob(jobID)
+				w.fsm.ApplyCommand(&store.Command{Type: store.CommandDeleteJob, ID: jobID})
 			} else if job.Type == store.JobRecurrente {
 				nextTs := w.calculateNextExecution(job, now)
 				if nextTs > 0 {
-					w.fsm.DeleteJob(jobID)
+					w.fsm.ApplyCommand(&store.Command{Type: store.CommandDeleteJob, ID: jobID})
 					rescheduled := job.Clone()
 					rescheduled.CreatedAt = nextTs
-					w.fsm.CreateJob(rescheduled)
+					w.fsm.ApplyCommand(&store.Command{Type: store.CommandCreateJob, Job: rescheduled})
 					w.addToWheel(rescheduled)
 					w.updateSlotInFSM(rescheduled)
 					result.Rescheduled = append(result.Rescheduled, jobID)
 				} else {
-					w.fsm.DeleteJob(jobID)
+					w.fsm.ApplyCommand(&store.Command{Type: store.CommandDeleteJob, ID: jobID})
 				}
 			}
 		}
@@ -172,5 +172,5 @@ func (w *SimulatedWorker) updateSlotInFSM(job *store.Job) {
 		slotData.JobIDs = append(slotData.JobIDs, job.ID)
 	}
 
-	w.fsm.CreateSlot(slotData)
+	w.fsm.ApplyCommand(&store.Command{Type: store.CommandCreateSlot, Slot: slotData})
 }

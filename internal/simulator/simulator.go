@@ -79,8 +79,10 @@ func (s *Simulator) CreateJob(req store.CreateJobRequest) (*store.Job, error) {
 		return nil, fmt.Errorf("invalid job request: %w", err)
 	}
 
-	if err := s.fsm.CreateJob(job); err != nil {
-		return nil, fmt.Errorf("failed to create job: %w", err)
+	if result := s.fsm.ApplyCommand(&store.Command{Type: store.CommandCreateJob, Job: job}); result != nil {
+		if err, ok := result.(error); ok {
+			return nil, fmt.Errorf("failed to create job: %w", err)
+		}
 	}
 
 	s.addToWheel(job)
@@ -92,8 +94,10 @@ func (s *Simulator) DeleteJob(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.fsm.DeleteJob(id); err != nil {
-		return fmt.Errorf("failed to delete job: %w", err)
+	if result := s.fsm.ApplyCommand(&store.Command{Type: store.CommandDeleteJob, ID: id}); result != nil {
+		if err, ok := result.(error); ok {
+			return fmt.Errorf("failed to delete job: %w", err)
+		}
 	}
 	logger.Info("simulator: deleted job %s", id)
 	return nil
@@ -229,7 +233,5 @@ func (s *Simulator) addToWheel(job *store.Job) {
 	} else {
 		slotData.JobIDs = append(slotData.JobIDs, job.ID)
 	}
-
-	s.fsm.CreateSlot(slotData)
-	s.wheel.Add(key)
+	s.fsm.ApplyCommand(&store.Command{Type: store.CommandCreateSlot, Slot: slotData})
 }

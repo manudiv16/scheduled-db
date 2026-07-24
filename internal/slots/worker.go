@@ -117,8 +117,9 @@ func (w *Worker) processSlots() {
 		}
 
 		// Record slot processing metrics using OpenTelemetry
-		if metrics.GlobalSlotInstrumentation != nil {
-			metrics.GlobalSlotInstrumentation.RecordSlotProcessed(context.Background(), int64(len(slot.Jobs)), time.Since(start))
+		if m := metrics.GetGlobalMetrics(); m != nil {
+			m.IncrementSlotsProcessed(context.Background(), int64(len(slot.Jobs)))
+			m.RecordSlotProcessingDuration(context.Background(), time.Since(start))
 		}
 
 		// Process jobs in this slot
@@ -211,16 +212,18 @@ func (w *Worker) executeJob(job *types.Job) {
 
 	// Record metrics
 	duration := time.Since(start)
-	if metrics.GlobalJobInstrumentation != nil {
-		metrics.GlobalJobInstrumentation.RecordJobExecution(context.Background(), job, duration, success)
+	if m := metrics.GetGlobalMetrics(); m != nil {
+		m.IncrementJobsExecuted(context.Background(), string(job.Type), success)
+		m.RecordJobExecutionDuration(context.Background(), duration, string(job.Type))
 	}
 
 	// Record worker processing metrics using OpenTelemetry
-	if metrics.GlobalWorkerInstrumentation != nil {
+	if m := metrics.GetGlobalMetrics(); m != nil {
 		if !success {
-			metrics.GlobalWorkerInstrumentation.RecordWorkerError(context.Background(), "job_execution_failed")
+			m.IncrementWorkerErrors(context.Background(), "job_execution_failed")
 		}
-		metrics.GlobalWorkerInstrumentation.RecordProcessingCycle(context.Background(), duration, 0)
+		m.RecordWorkerProcessingTime(context.Background(), duration)
+		m.RecordWorkerIdleTime(context.Background(), 0)
 	}
 
 	if success {

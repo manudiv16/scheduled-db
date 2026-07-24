@@ -1,8 +1,9 @@
 package internal
 
 import (
-	"github.com/manudiv16/pkgcluster"
 	"scheduled-db/internal/logger"
+
+	"github.com/manudiv16/pkgcluster"
 )
 
 func init() {

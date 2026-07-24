@@ -93,8 +93,8 @@ func (h *Handlers) CreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Record job creation metrics using OpenTelemetry
-	if metrics.GlobalJobInstrumentation != nil {
-		metrics.GlobalJobInstrumentation.RecordJobCreated(context.Background(), job)
+	if m := metrics.GetGlobalMetrics(); m != nil {
+		m.IncrementJobsCreated(context.Background(), string(job.Type))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -161,8 +161,8 @@ func (h *Handlers) DeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Record job deletion metrics using OpenTelemetry
-	if metrics.GlobalJobInstrumentation != nil {
-		metrics.GlobalJobInstrumentation.RecordJobDeleted(context.Background(), job)
+	if m := metrics.GetGlobalMetrics(); m != nil {
+		m.IncrementJobsDeleted(context.Background(), string(job.Type))
 	}
 
 	w.WriteHeader(http.StatusNoContent)
