@@ -283,16 +283,16 @@ func NewApp(config *Config) (*App, error) {
 				if job != nil {
 					slotQueue.AddJob(job)
 					logger.Debug("added job %s to slot queue", job.ID)
-					if metrics.GlobalJobInstrumentation != nil {
-						metrics.GlobalJobInstrumentation.RecordJobCreated(context.Background(), job)
+					if m := metrics.GetGlobalMetrics(); m != nil {
+						m.IncrementJobsCreated(context.Background(), string(job.Type))
 					}
 				}
 			case "deleted":
 				if job != nil {
 					slotQueue.RemoveJob(job.ID)
 					logger.Debug("removed job %s from slot queue", job.ID)
-					if metrics.GlobalJobInstrumentation != nil {
-						metrics.GlobalJobInstrumentation.RecordJobDeleted(context.Background(), job)
+					if m := metrics.GetGlobalMetrics(); m != nil {
+						m.IncrementJobsDeleted(context.Background(), string(job.Type))
 					}
 				}
 			}

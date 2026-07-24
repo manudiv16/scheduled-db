@@ -213,7 +213,7 @@ func (s *Store) SetEventHandler(handler JobEventHandler) {
 // CreateJob creates a new job
 func (s *Store) CreateJob(job *Job) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	command := Command{
@@ -241,7 +241,7 @@ func (s *Store) CreateJob(job *Job) error {
 // DeleteJob deletes a job
 func (s *Store) DeleteJob(id string) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	job, _ := s.GetJob(id)
@@ -281,7 +281,7 @@ func (s *Store) GetAllJobs() map[string]*Job {
 // CreateSlot creates a new slot
 func (s *Store) CreateSlot(slot *SlotData) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	cmd := Command{
@@ -305,7 +305,7 @@ func (s *Store) CreateSlot(slot *SlotData) error {
 // DeleteSlot deletes a slot
 func (s *Store) DeleteSlot(key int64) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	cmd := Command{
@@ -377,7 +377,7 @@ func (s *Store) GetRaft() *raft.Raft {
 // AddPeer adds a new peer to the Raft cluster (only if leader)
 func (s *Store) AddPeer(id, address string) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader, cannot add peer")
+		return NotLeaderError("cannot add peer")
 	}
 
 	serverID := raft.ServerID(id)
@@ -410,7 +410,7 @@ func (s *Store) AddPeer(id, address string) error {
 // RemovePeer removes a peer from the Raft cluster (only if leader)
 func (s *Store) RemovePeer(id string) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader, cannot remove peer")
+		return NotLeaderError("cannot remove peer")
 	}
 
 	serverID := raft.ServerID(id)
@@ -579,7 +579,7 @@ func (s *Store) GetJobCount() int64 {
 // UpdateMemoryUsage updates the memory usage by the given delta via Raft
 func (s *Store) UpdateMemoryUsage(delta int64) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	command := Command{
@@ -603,7 +603,7 @@ func (s *Store) UpdateMemoryUsage(delta int64) error {
 // UpdateJobCount updates the job count by the given delta via Raft
 func (s *Store) UpdateJobCount(delta int64) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	command := Command{
@@ -636,12 +636,12 @@ func (s *Store) Close() error {
 
 func (s *Store) ArchiveSlot(key int64) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	slotData, exists := s.fsm.GetSlot(key)
 	if !exists {
-		return fmt.Errorf("slot %d not found", key)
+		return fmt.Errorf("slot %d: %w", key, ErrSlotNotFound)
 	}
 
 	cmd := Command{
@@ -665,7 +665,7 @@ func (s *Store) ArchiveSlot(key int64) error {
 
 func (s *Store) UnarchiveSlot(key int64) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	cmd := Command{
@@ -727,7 +727,7 @@ func (s *Store) GetAllExecutionStates() map[string]*JobExecutionState {
 // Apply applies a marshaled Raft command to the cluster.
 func (s *Store) Apply(data []byte) error {
 	if !s.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 	future := s.raft.Apply(data, getApplyTimeout())
 	if err := future.Error(); err != nil {

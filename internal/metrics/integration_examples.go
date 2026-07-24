@@ -187,7 +187,7 @@ func (iw *InstrumentedWorker) executeJob(ctx context.Context, job *store.Job) bo
 
 	// For webhook jobs, you could add webhook instrumentation here
 	if job.WebhookURL != "" {
-		webhookInstrumentation := NewWebhookInstrumentation(GetMetrics())
+		webhookInstrumentation := NewWebhookInstrumentation(GetGlobalMetrics())
 		webhookStart := time.Now()
 
 		// Execute webhook (placeholder)
@@ -348,10 +348,8 @@ func SetupApplicationWithMetrics(config *Config, nodeID, discoveryStrategy strin
 	}
 
 	// Initialize global instrumentation
-	if err := InitializeGlobalInstrumentation(nodeID, discoveryStrategy); err != nil {
-		cleanup()
-		return err
-	}
+	// Set the global metrics instance
+	SetGlobalMetrics(metrics)
 
 	// Setup system monitoring
 	systemInstrumentation := NewSystemInstrumentation(metrics)

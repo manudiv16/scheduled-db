@@ -176,34 +176,9 @@ func InitializeWithOTLP(ctx context.Context, config *Config) (*Metrics, func(), 
 		return nil, nil, nil, fmt.Errorf("failed to create metrics: %w", err)
 	}
 
-	fmt.Printf("✅ Metrics instance created successfully\n")
-
-	// Initialize global instrumentation with the same metrics instance
-	if err := initializeGlobalInstrumentationWithMetrics(metrics, config.NodeID); err != nil {
-		cleanup()
-		return nil, nil, nil, fmt.Errorf("failed to initialize global instrumentation: %w", err)
-	}
-
-	fmt.Printf("✅ Global instrumentation initialized successfully\n")
-
-	return metrics, cleanup, prometheusExporter, nil
-}
-
-// initializeGlobalInstrumentationWithMetrics initializes global instrumentation with provided metrics
-func initializeGlobalInstrumentationWithMetrics(metrics *Metrics, nodeID string) error {
-	// Set the global metrics instance
 	SetGlobalMetrics(metrics)
 
-	// Initialize global instrumentation helpers
-	GlobalJobInstrumentation = NewJobInstrumentation(metrics)
-	GlobalSlotInstrumentation = NewSlotInstrumentation(metrics)
-	GlobalWorkerInstrumentation = NewWorkerInstrumentation(metrics)
-	GlobalClusterInstrumentation = NewClusterInstrumentation(metrics, nodeID)
-	GlobalDiscoveryInstrumentation = NewDiscoveryInstrumentation(metrics, "kubernetes")
-	GlobalWebhookInstrumentation = NewWebhookInstrumentation(metrics)
-	GlobalSystemInstrumentation = NewSystemInstrumentation(metrics)
-
-	return nil
+	return metrics, cleanup, prometheusExporter, nil
 }
 
 // HealthCheck represents the health status of the metrics system

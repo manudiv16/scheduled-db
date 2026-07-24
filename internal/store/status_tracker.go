@@ -59,7 +59,7 @@ func (st *StatusTracker) getStatusChangeCallback() StatusChangeCallback {
 func (st *StatusTracker) GetStatus(jobID string) (*JobExecutionState, error) {
 	state, exists := st.store.GetExecutionState(jobID)
 	if !exists {
-		return nil, fmt.Errorf("execution state not found for job %s", jobID)
+		return nil, fmt.Errorf("execution state not found for job %s: %w", jobID, ErrNotFound)
 	}
 	return state, nil
 }
@@ -96,7 +96,7 @@ func (st *StatusTracker) CanExecute(jobID string) (bool, error) {
 // MarkInProgress marks a job as in progress
 func (st *StatusTracker) MarkInProgress(jobID string, nodeID string) error {
 	if !st.store.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	// Get previous status for callback
@@ -128,7 +128,7 @@ func (st *StatusTracker) MarkInProgress(jobID string, nodeID string) error {
 // MarkCompleted marks a job as completed
 func (st *StatusTracker) MarkCompleted(jobID string, attempt *ExecutionAttempt) error {
 	if !st.store.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	// Get previous status for callback
@@ -165,7 +165,7 @@ func (st *StatusTracker) MarkCompleted(jobID string, attempt *ExecutionAttempt) 
 // MarkFailed marks a job as failed
 func (st *StatusTracker) MarkFailed(jobID string, attempt *ExecutionAttempt) error {
 	if !st.store.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	// Get previous status for callback
@@ -202,7 +202,7 @@ func (st *StatusTracker) MarkFailed(jobID string, attempt *ExecutionAttempt) err
 // MarkCancelled marks a job as cancelled
 func (st *StatusTracker) MarkCancelled(jobID string, reason string) error {
 	if !st.store.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	// Get previous status for callback
@@ -235,7 +235,7 @@ func (st *StatusTracker) MarkCancelled(jobID string, reason string) error {
 // CheckTimeouts checks for timed-out jobs and marks them
 func (st *StatusTracker) CheckTimeouts(timeout time.Duration) ([]string, error) {
 	if !st.store.IsLeader() {
-		return nil, fmt.Errorf("not leader")
+		return nil, ErrNotLeader
 	}
 
 	allStates := st.store.GetAllExecutionStates()
@@ -290,7 +290,7 @@ func (st *StatusTracker) ListByStatus(status JobStatus) ([]*JobExecutionState, e
 func (st *StatusTracker) GetExecutionHistory(jobID string) ([]ExecutionAttempt, error) {
 	state, exists := st.store.GetExecutionState(jobID)
 	if !exists {
-		return nil, fmt.Errorf("execution state not found for job %s", jobID)
+		return nil, fmt.Errorf("execution state not found for job %s: %w", jobID, ErrNotFound)
 	}
 
 	return state.Attempts, nil
@@ -334,7 +334,7 @@ func (st *StatusTracker) applyStatusCommand(cmdType CommandType, statusCmd *Stat
 // PruneOldAttempts removes execution attempts older than the retention period
 func (st *StatusTracker) PruneOldAttempts(retention time.Duration) error {
 	if !st.store.IsLeader() {
-		return fmt.Errorf("not leader")
+		return ErrNotLeader
 	}
 
 	allStates := st.store.GetAllExecutionStates()

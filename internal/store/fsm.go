@@ -117,7 +117,7 @@ func (f *FSM) applyCommandInternal(cmd *Command) interface{} {
 			return fmt.Errorf("cold slot data is required for archive slot command")
 		}
 		if f.coldStore == nil {
-			return fmt.Errorf("cold store not enabled, cannot archive slot")
+			return ErrColdStoreNotEnabled
 		}
 		key := cmd.ColdSlot.Key
 		if err := f.coldStore.PutColdSlot(key, cmd.ColdSlot); err != nil {
@@ -132,7 +132,7 @@ func (f *FSM) applyCommandInternal(cmd *Command) interface{} {
 			return fmt.Errorf("slot key is required for unarchive slot command")
 		}
 		if f.coldStore == nil {
-			return fmt.Errorf("cold store not enabled, cannot unarchive slot")
+			return ErrColdStoreNotEnabled
 		}
 		var key int64
 		if _, err := fmt.Sscanf(cmd.ID, "%d", &key); err != nil {
@@ -293,59 +293,6 @@ func (f *FSM) GetJobCount() int64 {
 	return f.jobCount.Load()
 }
 
-// CreateJob creates a job in the FSM (no Raft)
-func (f *FSM) CreateJob(job *Job) error {
-	result := f.ApplyCommand(&Command{Type: CommandCreateJob, Job: job})
-	if err, ok := result.(error); ok {
-		return err
-	}
-	return nil
-}
-
-// DeleteJob deletes a job from the FSM (no Raft)
-func (f *FSM) DeleteJob(id string) error {
-	result := f.ApplyCommand(&Command{Type: CommandDeleteJob, ID: id})
-	if err, ok := result.(error); ok {
-		return err
-	}
-	return nil
-}
-
-// CreateSlot creates a slot in the FSM (no Raft)
-func (f *FSM) CreateSlot(slot *SlotData) error {
-	result := f.ApplyCommand(&Command{Type: CommandCreateSlot, Slot: slot})
-	if err, ok := result.(error); ok {
-		return err
-	}
-	return nil
-}
-
-// DeleteSlot deletes a slot from the FSM (no Raft)
-func (f *FSM) DeleteSlot(key int64) error {
-	result := f.ApplyCommand(&Command{Type: CommandDeleteSlot, ID: fmt.Sprintf("%d", key)})
-	if err, ok := result.(error); ok {
-		return err
-	}
-	return nil
-}
-
-// UpdateJobStatus updates a job's execution status in the FSM (no Raft)
-func (f *FSM) UpdateJobStatus(jobID string, status JobStatus, nodeID string, timestamp int64) error {
-	result := f.ApplyCommand(&Command{
-		Type: CommandUpdateJobStatus,
-		StatusCommand: &StatusCommand{
-			JobID:     jobID,
-			Status:    status,
-			NodeID:    nodeID,
-			Timestamp: timestamp,
-		},
-	})
-	if err, ok := result.(error); ok {
-		return err
-	}
-	return nil
-}
-
 // GetSnapshot returns a snapshot of the entire FSM state
 func (f *FSM) GetSnapshot() *Snapshot {
 	f.mu.RLock()
@@ -444,7 +391,7 @@ func (f *FSM) applyStatusUpdate(cmd *StatusCommand) error {
 func (f *FSM) applyRecordAttempt(cmd *StatusCommand) error {
 	state, exists := f.executionStates[cmd.JobID]
 	if !exists {
-		return fmt.Errorf("execution state not found for job %s", cmd.JobID)
+		return fmt.Errorf("execution state not found for job %s: %w", cmd.JobID, ErrNotFound)
 	}
 
 	if cmd.Attempt == nil {
@@ -461,7 +408,7 @@ func (f *FSM) applyRecordAttempt(cmd *StatusCommand) error {
 func (f *FSM) applyPruneAttempts(cmd *StatusCommand, keptAttempts []ExecutionAttempt) error {
 	state, exists := f.executionStates[cmd.JobID]
 	if !exists {
-		return fmt.Errorf("execution state not found for job %s", cmd.JobID)
+		return fmt.Errorf("execution state not found for job %s: %w", cmd.JobID, ErrNotFound)
 	}
 
 	oldCount := len(state.Attempts)

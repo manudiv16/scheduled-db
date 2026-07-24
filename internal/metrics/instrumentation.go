@@ -31,23 +31,6 @@ func GetGlobalMetrics() *Metrics {
 	return globalMetrics
 }
 
-// Initialize sets up the global metrics instance
-func Initialize() error {
-	globalMutex.Lock()
-	defer globalMutex.Unlock()
-
-	var err error
-	globalMetrics, err = NewMetrics()
-	return err
-}
-
-// GetMetrics returns the global metrics instance
-func GetMetrics() *Metrics {
-	globalMutex.RLock()
-	defer globalMutex.RUnlock()
-	return globalMetrics
-}
-
 // JobInstrumentation provides instrumentation helpers for job operations
 type JobInstrumentation struct {
 	metrics *Metrics
@@ -390,33 +373,4 @@ func (si *SystemInstrumentation) UpdateUptime(ctx context.Context) {
 // GetStartTime returns the system start time
 func (si *SystemInstrumentation) GetStartTime() time.Time {
 	return si.startTime
-}
-
-// Global instrumentation instances for easy access
-var (
-	GlobalJobInstrumentation       *JobInstrumentation
-	GlobalSlotInstrumentation      *SlotInstrumentation
-	GlobalWorkerInstrumentation    *WorkerInstrumentation
-	GlobalClusterInstrumentation   *ClusterInstrumentation
-	GlobalDiscoveryInstrumentation *DiscoveryInstrumentation
-	GlobalWebhookInstrumentation   *WebhookInstrumentation
-	GlobalSystemInstrumentation    *SystemInstrumentation
-)
-
-// InitializeGlobalInstrumentation initializes all global instrumentation helpers
-func InitializeGlobalInstrumentation(nodeID string, discoveryStrategy string) error {
-	if err := Initialize(); err != nil {
-		return err
-	}
-
-	metrics := GetMetrics()
-	GlobalJobInstrumentation = NewJobInstrumentation(metrics)
-	GlobalSlotInstrumentation = NewSlotInstrumentation(metrics)
-	GlobalWorkerInstrumentation = NewWorkerInstrumentation(metrics)
-	GlobalClusterInstrumentation = NewClusterInstrumentation(metrics, nodeID)
-	GlobalDiscoveryInstrumentation = NewDiscoveryInstrumentation(metrics, discoveryStrategy)
-	GlobalWebhookInstrumentation = NewWebhookInstrumentation(metrics)
-	GlobalSystemInstrumentation = NewSystemInstrumentation(metrics)
-
-	return nil
 }
