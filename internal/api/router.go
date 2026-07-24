@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"scheduled-db/internal/logger"
@@ -11,7 +12,8 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func NewRouter(handlers *Handlers) *mux.Router {
+// NewRouter creates a new router with all API routes and middleware.
+func NewRouter(handlers *Handlers, maxBodySize int64, authToken string) *mux.Router {
 	router := mux.NewRouter()
 
 	// API routes
@@ -24,13 +26,18 @@ func NewRouter(handlers *Handlers) *mux.Router {
 	api.HandleFunc("/jobs/{id}/executions", handlers.GetJobExecutions).Methods("GET")
 	api.HandleFunc("/jobs/{id}/cancel", handlers.CancelJob).Methods("POST")
 	api.HandleFunc("/health", handlers.Health).Methods("GET")
-	api.HandleFunc("/join", handlers.JoinCluster).Methods("POST")
+	api.HandleFunc("/join", authMiddleware(authToken, handlers.JoinCluster)).Methods("POST")
 	api.HandleFunc("/debug/cluster", handlers.ClusterDebug).Methods("GET")
 
 	// Add CORS middleware
 	router.Use(corsMiddleware)
 	router.Use(metricsMiddleware)
 	router.Use(loggingMiddleware)
+
+	// Add request body size limiter middleware
+	if maxBodySize > 0 {
+		router.Use(maxBodySizeMiddleware(maxBodySize))
+	}
 
 	return router
 }
@@ -48,11 +55,47 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+// authMiddleware protects a handler with shared-secret Bearer token authentication.
+func authMiddleware(expectedToken string, next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if expectedToken == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+
+		token := strings.TrimPrefix(auth, "Bearer ")
+		if token != expectedToken {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// maxBodySizeMiddleware limits the request body size using http.MaxBytesReader.
+func maxBodySizeMiddleware(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)

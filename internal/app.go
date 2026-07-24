@@ -59,6 +59,14 @@ type Config struct {
 	ColdSpillingCheckInterval time.Duration
 	TimingWheelConfigs        []slots.WheelLevelConfig
 	BoostrapExpect            int
+
+	// Security configuration
+	HTTPReadTimeout          time.Duration
+	HTTPReadHeaderTimeout    time.Duration
+	HTTPWriteTimeout         time.Duration
+	HTTPIdleTimeout          time.Duration
+	MaxRequestBodySize       int64
+	AuthToken                string
 }
 
 // NewApp creates a new application instance.
@@ -210,22 +218,18 @@ func NewApp(config *Config) (*App, error) {
 	jobCounter := slots.NewJobCounter(jobStore, config.QueueJobLimit)
 	limitManager := slots.NewLimitManager(memoryTracker, jobCounter, sizeCalculator)
 
-	// Set initial metrics for limits
-	if m := metrics.GetGlobalMetrics(); m != nil {
-		ctx := context.Background()
-		m.SetQueueMemoryLimit(ctx, config.QueueMemoryLimit)
-		m.SetQueueJobLimit(ctx, config.QueueJobLimit)
-	}
-
 	// Setup HTTP API
 	handlers := api.NewHandlers(jobStore, executionManager, limitManager, config.HealthFailureThreshold)
-	router := api.NewRouter(handlers)
+	router := api.NewRouter(handlers, config.MaxRequestBodySize, config.AuthToken)
 
 	httpServer := &http.Server{
-		Addr:    config.HTTPBind,
-		Handler: router,
+		Addr:              config.HTTPBind,
+		Handler:           router,
+		ReadTimeout:       config.HTTPReadTimeout,
+		ReadHeaderTimeout: config.HTTPReadHeaderTimeout,
+		WriteTimeout:      config.HTTPWriteTimeout,
+		IdleTimeout:       config.HTTPIdleTimeout,
 	}
-
 	// Setup metrics server
 	metricsRouter := http.NewServeMux()
 	metricsRouter.Handle("/metrics", promhttp.Handler())

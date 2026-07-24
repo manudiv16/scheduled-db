@@ -50,6 +50,14 @@ func main() {
 		wheelLevel1Buckets        = flag.Int("htw-level1-buckets", getEnvIntOrDefault("HTW_LEVEL1_BUCKETS", 24), "Timing wheel level 1 buckets (default: 24)")
 		wheelLevel2Granularity    = flag.Duration("htw-level2-granularity", getEnvDurationOrDefault("HTW_LEVEL2_GRANULARITY", 0), "Timing wheel level 2 granularity (default: slot-gap * 360 * 24)")
 		wheelLevel2Buckets        = flag.Int("htw-level2-buckets", getEnvIntOrDefault("HTW_LEVEL2_BUCKETS", 365), "Timing wheel level 2 buckets (default: 365)")
+
+		// Security flags
+		httpReadTimeout       = flag.Duration("http-read-timeout", getEnvDurationOrDefault("HTTP_READ_TIMEOUT", 30*time.Second), "HTTP read timeout")
+		httpReadHeaderTimeout = flag.Duration("http-read-header-timeout", getEnvDurationOrDefault("HTTP_READ_HEADER_TIMEOUT", 10*time.Second), "HTTP read header timeout")
+		httpWriteTimeout      = flag.Duration("http-write-timeout", getEnvDurationOrDefault("HTTP_WRITE_TIMEOUT", 30*time.Second), "HTTP write timeout")
+		httpIdleTimeout       = flag.Duration("http-idle-timeout", getEnvDurationOrDefault("HTTP_IDLE_TIMEOUT", 60*time.Second), "HTTP idle timeout")
+		maxRequestBodySize    = flag.Int64("max-request-body-size", getEnvInt64OrDefault("MAX_REQUEST_BODY_SIZE", 10*1024*1024), "Maximum request body size in bytes (default 10MB)")
+		authToken             = flag.String("auth-token", getEnvOrDefault("AUTH_TOKEN", ""), "Shared secret for cluster join authentication (empty = disabled)")
 	)
 	flag.Parse()
 
@@ -147,6 +155,14 @@ func main() {
 		ColdSpillingCheckInterval: *coldSpillingCheckInterval,
 		TimingWheelConfigs:        wheelConfigs,
 		BoostrapExpect:            *boostrapexpect,
+
+		// Security configuration
+		HTTPReadTimeout:       *httpReadTimeout,
+		HTTPReadHeaderTimeout: *httpReadHeaderTimeout,
+		HTTPWriteTimeout:      *httpWriteTimeout,
+		HTTPIdleTimeout:       *httpIdleTimeout,
+		MaxRequestBodySize:    *maxRequestBodySize,
+		AuthToken:             *authToken,
 	}
 
 	// Create and start application
