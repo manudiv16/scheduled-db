@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"scheduled-db/internal/logger"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -56,11 +55,10 @@ type Store struct {
 }
 
 func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (*Store, error) {
-	return NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID, peers, false, 0, nil)
+	return NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID, peers, false, nil)
 }
 
-
-func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, peers []string, enableColdSpilling bool, boostrapSpected int, addrProvider raft.ServerAddressProvider) (*Store, error) {
+func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, peers []string, enableColdSpilling bool, addrProvider raft.ServerAddressProvider) (*Store, error) {
 	// Use pod IP for Raft advertise address (simpler and more reliable than hostnames)
 	if os.Getenv("POD_IP") != "" && os.Getenv("DISCOVERY_STRATEGY") == "kubernetes" {
 		podIP := os.Getenv("POD_IP")
@@ -132,7 +130,6 @@ func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, p
 		}
 	}
 
-
 	// Create transport with ServerAddressProvider using NewTCPTransportWithConfig
 	transport, err := raft.NewTCPTransportWithConfig(raftBind, finalAdvertiseAddr, &raft.NetworkTransportConfig{
 		ServerAddressProvider: addrProvider,
@@ -174,54 +171,6 @@ func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, p
 		raftBind:      raftBind,
 		raftAdvertise: raftAdvertise,
 		coldStore:     coldStore,
-	}
-
-	// Smart bootstrap logic for StatefulSet deployment
-	shouldBootstrap := false
-
-	// ONLY scheduled-db-0 should ever bootstrap, others wait for discovery
-	// if len(peers) == 0 && nodeID == "scheduled-db-0" {
-	// 	logger.Debug("This is the bootstrap node (%s), attempting bootstrap", nodeID)
-	// 	shouldBootstrap = true
-	// } else {
-	// 	logger.Debug("This is NOT the bootstrap node (%s) or has peers, will wait for discovery", nodeID)
-	// 	shouldBootstrap = false
-	// }
-
-	if shouldBootstrap {
-		// Use DNS name as Address so it's stored in Raft state
-		dnsAddress := fmt.Sprintf("%s.scheduled-db.default.svc.cluster.local:7000", nodeID)
-		configuration := raft.Configuration{
-			Servers: []raft.Server{
-				{
-					ID:      config.LocalID,
-					Address: raft.ServerAddress(dnsAddress),
-				},
-			},
-		}
-		bootstrap := ra.BootstrapCluster(configuration)
-		if err := bootstrap.Error(); err != nil {
-			logger.Debug("Failed to bootstrap cluster: %v", err)
-		} else {
-			logger.Debug("Successfully bootstrapped single-node cluster with ID: %s, Address: %s", config.LocalID, transport.LocalAddr())
-		}
-	} else {
-		// For non-bootstrap nodes, add much longer staggered delay
-		// Extract numeric suffix from node ID (e.g., "scheduled-db-3" -> 3)
-		var ordinal int
-		parts := strings.Split(nodeID, "-")
-		if len(parts) > 0 {
-			if n, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
-				ordinal = n
-			}
-		}
-		delay := time.Duration(10+ordinal*5) * time.Second
-
-		logger.Debug("Non-bootstrap node %s waiting %v before starting discovery...", nodeID, delay)
-		time.Sleep(delay)
-
-		logger.Debug("Starting as follower node ID: %s, Address: %s, will wait for discovery to add to cluster",
-			config.LocalID, transport.LocalAddr())
 	}
 
 	logger.Debug("Raft store initialized - Node ID: %s, Bind: %s, Advertise: %s, Initial state: %s", nodeID, raftBind, raftAdvertise, ra.State())
@@ -528,6 +477,22 @@ func (s *Store) ForceBootstrap(nodeID string) error {
 		return fmt.Errorf("failed to force bootstrap: %v", err)
 	}
 	logger.Debug("Successfully force-bootstrapped node %s as single-node cluster", nodeID)
+	return nil
+}
+
+// BootstrapWithPeers bootstraps this node as a Raft cluster with the given
+// set of servers. It is used by the bootstrap-expect flow: after enough
+// peers are discovered, the designated bootstrap node calls this to form
+// the initial cluster with all expected members.
+func (s *Store) BootstrapWithPeers(servers []raft.Server) error {
+	configuration := raft.Configuration{
+		Servers: servers,
+	}
+	bootstrap := s.raft.BootstrapCluster(configuration)
+	if err := bootstrap.Error(); err != nil {
+		return fmt.Errorf("failed to bootstrap cluster with peers: %v", err)
+	}
+	logger.Debug("Successfully bootstrapped cluster with %d server(s)", len(servers))
 	return nil
 }
 

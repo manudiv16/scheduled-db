@@ -3,10 +3,12 @@ package internal
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,7 +36,10 @@ type App struct {
 	prometheusExporter *prometheus.Exporter
 	discoveryManager   *pkgcluster.Manager
 	nodeID             string
+	raftAdvertise      string
 	useDiscovery       bool
+	bootstrapExpect    int
+	peerTracker        *peerTracker
 	shutdownSignal     chan os.Signal
 }
 
@@ -58,7 +63,7 @@ type Config struct {
 	ColdSpillingHotWindow     time.Duration
 	ColdSpillingCheckInterval time.Duration
 	TimingWheelConfigs        []slots.WheelLevelConfig
-	BoostrapExpect            int
+	BootstrapExpect           int
 
 	// Security configuration
 	HTTPReadTimeout          time.Duration
@@ -108,46 +113,55 @@ func NewApp(config *Config) (*App, error) {
 		}
 	}
 
-	// Create store with Raft (start with configured peers, discovery will handle dynamic joining)
-	jobStore, err := store.NewStoreWithColdSpilling(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers, config.EnableColdSpilling, config.BoostrapExpect, addrProvider)
+	// Create store with Raft (no bootstrap yet — bootstrap-expect will handle it)
+	jobStore, err := store.NewStoreWithColdSpilling(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers, config.EnableColdSpilling, addrProvider)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("failed to create store: %v", err)
 	}
 
-	// Wait for leader election (shorter timeout for nodes with peers)
-	timeout := 30 * time.Second
-	if len(config.Peers) > 0 {
-		timeout = 5 * time.Second // Shorter timeout for joining nodes
-	}
-
-	if err := jobStore.WaitForLeader(timeout); err != nil {
-		if len(config.Peers) == 0 {
-			logger.Warn("no leader found yet, will attempt join after discovery starts")
-		} else {
-			return nil, fmt.Errorf("failed to wait for leader: %v", err)
-		}
-	}
-
 	// Build discovery topologies with callbacks wired to the store.
-	// The callbacks translate between discovery node addresses (host:port
-	// as produced by the strategy) and Raft server addresses.
+	// When bootstrap-expect is enabled, the Connect callback feeds a peer
+	// tracker so the app can defer bootstrap until enough peers are known.
+	var peerTracker *peerTracker
+	if config.BootstrapExpect > 0 {
+		peerTracker = newPeerTracker(config.BootstrapExpect)
+	}
+
+	// Build the local Raft advertise address once for self-filtering in callbacks.
+	localRaftAddr := config.RaftAdvertise
+
 	topologies := make([]pkgcluster.Topology, len(config.Topologies))
 	for i, t := range config.Topologies {
 		// Capture t by value for the closure.
 		topo := t
 
-		// Build the address discovery → Raft adddress mapping from topology config.
+		// Build the address discovery → Raft address mapping from topology config.
 		raftPort := pkgcluster.IntConfigFromMap(topo.Config, "port", 7000)
 
 		topo.Connect = func(ctx context.Context, addr string) error {
-			// addr is a host:port string from the strategy. Use it directly for Raft.
+			// Skip self — discovery may report our own address.
+			if addr == localRaftAddr {
+				return nil
+			}
+
 			logger.Debug("discovery: connecting peer %s", addr)
-			return jobStore.AddPeer(config.NodeID, addr)
+
+			// Feed the peer tracker when bootstrap-expect is active.
+			if peerTracker != nil {
+				peerTracker.add(addr)
+			}
+
+			// Try to add the peer to Raft. Before bootstrap this will fail
+			// (not leader) — that's expected; the bootstrap flow handles it.
+			if err := jobStore.AddPeer(derivePeerID(addr), addr); err != nil {
+				logger.Debug("discovery: add peer %s deferred (not leader yet): %v", addr, err)
+			}
+			return nil
 		}
 		topo.Disconnect = func(ctx context.Context, addr string) error {
 			logger.Debug("discovery: disconnecting peer %s", addr)
-			return jobStore.RemovePeer(config.NodeID)
+			return jobStore.RemovePeer(derivePeerID(addr))
 		}
 		topo.ListNodes = func(ctx context.Context) ([]string, error) {
 			servers, err := jobStore.GetClusterConfiguration()
@@ -254,7 +268,10 @@ func NewApp(config *Config) (*App, error) {
 		prometheusExporter: prometheusExporter,
 		discoveryManager:   discoveryManager,
 		nodeID:             config.NodeID,
+		raftAdvertise:      config.RaftAdvertise,
 		useDiscovery:       useDiscovery,
+		bootstrapExpect:    config.BootstrapExpect,
+		peerTracker:        peerTracker,
 		shutdownSignal:     shutdownSignal,
 	}
 
@@ -284,8 +301,6 @@ func NewApp(config *Config) (*App, error) {
 
 	// Setup leadership change handler for all nodes
 	go app.monitorLeadership()
-
-	// Setup graceful shutdown handler
 	go app.handleGracefulShutdown()
 
 	return app, nil
@@ -296,11 +311,14 @@ func (a *App) Start() error {
 
 	// Start discovery manager only if enabled
 	if a.useDiscovery {
-		ctx := context.Background() // long-lived; Manager uses its own internal cancellation
+		ctx := context.Background()
 		a.discoveryManager.Start(ctx)
+	}
 
-		if a.store.GetLeader() == "" {
-			logger.Debug("no leader found, discovery will help coordinate cluster join")
+	// Bootstrap-expect: wait for enough peers and form the cluster.
+	if a.bootstrapExpect > 0 {
+		if err := a.waitForBootstrap(); err != nil {
+			return fmt.Errorf("bootstrap-expect: %v", err)
 		}
 	}
 
@@ -513,4 +531,163 @@ func (a *App) loseLeadership() {
 func (a *App) attemptAutoBootstrap() error {
 	logger.Debug("[LEADERSHIP DEBUG] node %s attempting auto-bootstrap as single-node cluster", a.nodeID)
 	return a.store.ForceBootstrap(a.nodeID)
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap-expect helpers
+// ---------------------------------------------------------------------------
+
+// peerTracker tracks discovered peer addresses and signals when a threshold
+// is reached. It is goroutine-safe.
+type peerTracker struct {
+	mu        sync.Mutex
+	addresses map[string]struct{}
+	threshold int
+	done      chan struct{}
+	closed    bool
+}
+
+func newPeerTracker(threshold int) *peerTracker {
+	return &peerTracker{
+		addresses: make(map[string]struct{}),
+		threshold: threshold,
+		done:      make(chan struct{}),
+	}
+}
+
+// add records a discovered peer address. If the threshold is met for the
+// first time, the done channel is closed.
+func (pt *peerTracker) add(addr string) {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	if pt.closed {
+		return
+	}
+	pt.addresses[addr] = struct{}{}
+	if len(pt.addresses) >= pt.threshold {
+		pt.closed = true
+		close(pt.done)
+	}
+}
+
+// wait blocks until the threshold is reached or the context is cancelled.
+// It returns the list of discovered peer addresses.
+func (pt *peerTracker) wait(ctx context.Context) []string {
+	select {
+	case <-pt.done:
+	case <-ctx.Done():
+	}
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	addrs := make([]string, 0, len(pt.addresses))
+	for addr := range pt.addresses {
+		addrs = append(addrs, addr)
+	}
+	return addrs
+}
+
+// count returns the current number of tracked peer addresses.
+func (pt *peerTracker) count() int {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	return len(pt.addresses)
+}
+
+// list returns a copy of the tracked addresses.
+func (pt *peerTracker) list() []string {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	addrs := make([]string, 0, len(pt.addresses))
+	for addr := range pt.addresses {
+		addrs = append(addrs, addr)
+	}
+	return addrs
+}
+
+// derivePeerID extracts a Raft server ID from a peer address.
+//
+// For DNS names (e.g., "scheduled-db-1.scheduled-db.default.svc:7000"), the
+// first DNS label is the StatefulSet pod name, which matches the node ID.
+// For plain hostnames or IPs, the host portion is returned as-is.
+//
+// The caller MUST ensure the returned ID matches the peer's --node-id for
+// Raft to function correctly. This works naturally with Kubernetes DNS and
+// hostname discovery modes. In IP mode the ID will be an IP literal, which
+// will NOT match the node's actual ID — use DNS/hostname mode or configure
+// an explicit mapping.
+func derivePeerID(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	// If DNS name, first label is the pod name (StatefulSet convention).
+	if idx := strings.IndexByte(host, '.'); idx > 0 {
+		return host[:idx]
+	}
+	return host
+}
+
+// waitForBootstrap implements the bootstrap-expect flow. It waits for enough
+// peers to be discovered, then either initiates the bootstrap (if this node
+// is the designated initiator) or waits for the cluster to form.
+func (a *App) waitForBootstrap() error {
+	logger.ClusterInfo("bootstrap-expect=%d: waiting for peers to be discovered", a.bootstrapExpect)
+
+	if a.peerTracker == nil {
+		return fmt.Errorf("bootstrap-expect enabled but peer tracker not initialized")
+	}
+
+	// Wait for threshold with a generous timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	peers := a.peerTracker.wait(ctx)
+	logger.ClusterInfo("bootstrap-expect: discovered %d peer(s) (expected %d)", len(peers), a.bootstrapExpect-1)
+
+	// Determine if this node should initiate the bootstrap.
+	if a.isBootstrapInitiator(peers) {
+		logger.ClusterInfo("designated bootstrap initiator for %d-node cluster", a.bootstrapExpect)
+
+		// Bootstrap self as single-node cluster.
+		if err := a.store.ForceBootstrap(a.nodeID); err != nil {
+			logger.Debug("bootstrap initiator: self-bootstrap result: %v", err)
+		}
+
+		// Wait to become leader.
+		if err := a.store.WaitForLeader(10 * time.Second); err != nil {
+			logger.Warn("bootstrap initiator: not leader after bootstrap, will retry")
+		}
+
+		// Add discovered peers to the cluster.
+		if a.store.IsLeader() {
+			for _, addr := range peers {
+				peerID := derivePeerID(addr)
+				logger.ClusterInfo("adding peer %s at %s", peerID, addr)
+				if err := a.store.AddPeer(peerID, addr); err != nil {
+					logger.Warn("failed to add peer %s: %v", peerID, err)
+				}
+			}
+			servers, _ := a.store.GetClusterConfiguration()
+			logger.ClusterInfo("bootstrap complete: cluster has %d server(s)", len(servers))
+		}
+	} else {
+		logger.ClusterInfo("waiting for bootstrap initiator to form cluster...")
+		if err := a.store.WaitForLeader(60 * time.Second); err != nil {
+			logger.Warn("bootstrap-expect: timeout waiting for leader, will proceed with discovery")
+		}
+	}
+
+	return nil
+}
+
+// isBootstrapInitiator returns true if this node should initiate the cluster
+// bootstrap. The node with the smallest node ID (compared against derived
+// peer IDs) is the designated initiator, ensuring exactly one node bootstraps.
+func (a *App) isBootstrapInitiator(peers []string) bool {
+	for _, addr := range peers {
+		if derivePeerID(addr) < a.nodeID {
+			return false
+		}
+	}
+	return true
 }
