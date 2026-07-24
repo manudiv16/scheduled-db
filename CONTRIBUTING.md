@@ -75,7 +75,6 @@ make dev-down      # teardown cluster
 │   └── wasm/             # WASM simulator (browser)
 ├── internal/
 │   ├── api/              # HTTP handlers + router
-│   ├── discovery/        # Service discovery strategies
 │   ├── e2e/              # End-to-end cluster tests
 │   ├── logger/           # Structured logger
 │   ├── metrics/          # Prometheus + OpenTelemetry

@@ -11,9 +11,9 @@ import (
 )
 
 // NewRaftAddressProvider creates a raft.ServerAddressProvider that resolves
-// server IDs to K8s StatefulSet DNS names using the discovery package's
-// StatefulSetDNSName helper. When a server ID is not a StatefulSet pod name
-// (doesn't start with "scheduled-db-"), it returns the ID as-is as a fallback.
+// server IDs to K8s StatefulSet DNS names using pkgcluster.StatefulSetDNSName.
+// When a server ID is not a StatefulSet pod name (doesn't start with
+// "scheduled-db-"), it returns the ID as-is as a fallback.
 func NewRaftAddressProvider(serviceName, namespace, domain string, port int) raft.ServerAddressProvider {
 	return &dnsAddressProvider{
 		serviceName: serviceName,

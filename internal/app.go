@@ -58,7 +58,7 @@ type Config struct {
 	ColdSpillingHotWindow     time.Duration
 	ColdSpillingCheckInterval time.Duration
 	TimingWheelConfigs        []slots.WheelLevelConfig
-	BoostrapSpected           int
+	BoostrapExpect            int
 }
 
 // NewApp creates a new application instance.
@@ -101,7 +101,7 @@ func NewApp(config *Config) (*App, error) {
 	}
 
 	// Create store with Raft (start with configured peers, discovery will handle dynamic joining)
-	jobStore, err := store.NewStoreWithColdSpilling(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers, config.EnableColdSpilling, config.BoostrapSpected, addrProvider)
+	jobStore, err := store.NewStoreWithColdSpilling(config.DataDir, config.RaftBind, config.RaftAdvertise, config.NodeID, config.Peers, config.EnableColdSpilling, config.BoostrapExpect, addrProvider)
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("failed to create store: %v", err)

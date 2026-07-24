@@ -29,10 +29,11 @@
   - `store/` — Raft consensus + FSM + status tracker + cold slot store + DNS address provider (the distributed state layer)
   - `slots/` — time-slotted job queue, worker, execution manager, capacity limits (memory/job), slot evictor
   - `api/` — HTTP handlers + gorilla/mux router
-  - `discovery/` — service discovery strategies (kubernetes, dns, gossip, static) + split-brain detection
   - `logger/` — custom structured logger (`logger.Info/Error/Debug/Warn/ClusterInfo`)
   - `metrics/` — Prometheus + OpenTelemetry
   - `e2e/` — end-to-end cluster tests (5 tests, require running cluster)
+  - `app.go` — wires everything together, including service discovery via the `pkgcluster` library
+    (strategies: kubernetes, dns, gossip, static; split-brain detection)
 - **`internal/app.go`** wires everything together: Store → SlotQueue → Worker → HTTP server. Modification flow: Raft log → FSM → EventHandler → SlotQueue
 
 ## Key Conventions

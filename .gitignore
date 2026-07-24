@@ -25,5 +25,6 @@ logs*/
 # Agent / tooling runtime state
 .atl/
 .pi/
+.kiro/
 .pi-lens/
 openspec/

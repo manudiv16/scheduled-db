@@ -198,31 +198,42 @@ Limits are configurable via environment variables (`QUEUE_MEMORY_LIMIT`, `QUEUE_
 
 ### 5. Service Discovery
 
-**Location:** `internal/discovery/`
-
-Multiple strategies for cluster formation:
+Service discovery is handled via the external library `github.com/manudiv16/pkgcluster`,
+wired in `internal/app.go`. It supports multiple strategies for cluster formation:
 
 ```mermaid
 graph TB
-    DM[Discovery Manager]
-    
+    DM[Discovery Manager<br/>pkgcluster.Manager]
+
     subgraph "Strategies"
         STATIC[Static<br/>Peer List]
         K8S[Kubernetes<br/>API]
         DNS[DNS<br/>SRV Records]
         GOSSIP[Gossip<br/>Memberlist]
     end
-    
+
     DM --> STATIC
     DM --> K8S
     DM --> DNS
     DM --> GOSSIP
-    
-    STATIC -->|Join| RAFT[Raft Cluster]
-    K8S -->|Join| RAFT
-    DNS -->|Join| RAFT
-    GOSSIP -->|Join| RAFT
+
+    STATIC -->|Connect/Disconnect| RAFT[Raft Cluster]
+    K8S -->|Connect/Disconnect| RAFT
+    DNS -->|Connect/Disconnect| RAFT
+    GOSSIP -->|Connect/Disconnect| RAFT
 ```
+
+Each strategy is configured via topology configs passed to `internal.Config.Topologies`.
+The `app.go` NewApp function fills in Connect/Disconnect/ListNodes closures that
+translate between discovery addresses and Raft server addresses.
+When Kubernetes or DNS strategies are used, a `RaftAddressProvider` is also
+configured to resolve StatefulSet pod IDs to DNS names for proper Raft communication.
+
+Split-brain detection is handled by the `pkgcluster.Manager` during each
+discovery cycle, comparing the local Raft configuration size against the
+expected cluster size. A minority partition that detects it has fewer nodes
+than expected will voluntarily shut down (exit code 42) after a 30-second
+grace period.
 
 ## Data Flow
 
@@ -1300,7 +1311,7 @@ When `CLUSTER_SIZE` is not set, the system uses the maximum of discovered nodes 
 
 ### Kubernetes Quorum Checks
 
-The Kubernetes discovery strategy (`internal/discovery/kubernetes.go`) performs additional quorum validation:
+The pkgcluster library's Kubernetes strategy performs additional quorum validation:
 
 - Healthy nodes > `expectedClusterSize / 2`: Quorum achieved, cluster stable
 - Healthy nodes <= `expectedClusterSize / 2`: Warning logged, quorum error returned

@@ -56,10 +56,11 @@ type Store struct {
 }
 
 func NewStore(dataDir, raftBind, raftAdvertise, nodeID string, peers []string) (*Store, error) {
-	return NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID, peers, false)
+	return NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID, peers, false, 0, nil)
 }
 
-func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, peers []string, enableColdSpilling bool, boostrapSpected int) (*Store, error) {
+
+func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, peers []string, enableColdSpilling bool, boostrapSpected int, addrProvider raft.ServerAddressProvider) (*Store, error) {
 	// Use pod IP for Raft advertise address (simpler and more reliable than hostnames)
 	if os.Getenv("POD_IP") != "" && os.Getenv("DISCOVERY_STRATEGY") == "kubernetes" {
 		podIP := os.Getenv("POD_IP")
@@ -72,6 +73,11 @@ func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, p
 		}
 	}
 	config := raft.DefaultConfig()
+
+	// Use provided address provider, or default DNS-based one as fallback
+	if addrProvider == nil {
+		addrProvider = NewRaftAddressProvider("scheduled-db", "default", "cluster.local", 7000)
+	}
 	config.LocalID = raft.ServerID(nodeID)
 
 	// Use much more conservative timeouts to prevent election storms
@@ -126,12 +132,10 @@ func NewStoreWithColdSpilling(dataDir, raftBind, raftAdvertise, nodeID string, p
 		}
 	}
 
-	// Create DNS address provider for dynamic address resolution
-	addressProvider := NewDNSAddressProvider("scheduled-db", "default", 7000)
 
 	// Create transport with ServerAddressProvider using NewTCPTransportWithConfig
 	transport, err := raft.NewTCPTransportWithConfig(raftBind, finalAdvertiseAddr, &raft.NetworkTransportConfig{
-		ServerAddressProvider: addressProvider,
+		ServerAddressProvider: addrProvider,
 		MaxPool:               3,
 		Timeout:               timeout,
 	})
@@ -745,3 +749,24 @@ func (s *Store) GetColdSlotData(key int64) (*SlotData, error) {
 	return s.coldStore.GetColdSlot(key)
 }
 
+// GetExecutionState returns a deep copy of the execution state for a job.
+func (s *Store) GetExecutionState(jobID string) (*JobExecutionState, bool) {
+	return s.fsm.GetExecutionState(jobID)
+}
+
+// GetAllExecutionStates returns deep copies of all execution states.
+func (s *Store) GetAllExecutionStates() map[string]*JobExecutionState {
+	return s.fsm.GetAllExecutionStates()
+}
+
+// Apply applies a marshaled Raft command to the cluster.
+func (s *Store) Apply(data []byte) error {
+	if !s.IsLeader() {
+		return fmt.Errorf("not leader")
+	}
+	future := s.raft.Apply(data, getApplyTimeout())
+	if err := future.Error(); err != nil {
+		return fmt.Errorf("failed to apply command: %v", err)
+	}
+	return nil
+}

@@ -11,15 +11,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/manudiv16/pkgcluster"
 	"scheduled-db/internal"
 	"scheduled-db/internal/logger"
 	"scheduled-db/internal/slots"
+
+	"github.com/manudiv16/pkgcluster"
 )
 
 func main() {
 	var (
-		boostrapSpected           = flag.Int("bootstrap-spected", getEnvIntOrDefault("BOOTSTRAP_SPECTED", 0), "The minimum number of nodes that the cluster will have")
+		boostrapexpect            = flag.Int("bootstrap-expect", getEnvIntOrDefault("BOOTSTRAP_EXPECT", 0), "The minimum number of nodes that the cluster will have")
 		dataDir                   = flag.String("data-dir", getEnvOrDefault("DATA_DIR", "./data"), "Data directory for Raft storage")
 		raftPort                  = flag.String("raft-port", getEnvOrDefault("RAFT_PORT", "7000"), "Port for Raft communication")
 		httpPort                  = flag.String("http-port", getEnvOrDefault("HTTP_PORT", "8080"), "Port for HTTP API")
@@ -145,7 +146,7 @@ func main() {
 		ColdSpillingHotWindow:     *coldSpillingHotWindow,
 		ColdSpillingCheckInterval: *coldSpillingCheckInterval,
 		TimingWheelConfigs:        wheelConfigs,
-		BoostrapSpected:           *boostrapSpected,
+		BoostrapExpect:            *boostrapexpect,
 	}
 
 	// Create and start application

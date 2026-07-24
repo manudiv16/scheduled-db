@@ -18,7 +18,6 @@ scheduled-db/
 │       └── main.go
 ├── internal/                  # Private application code
 │   ├── api/                   # HTTP API handlers and routing
-│   ├── discovery/             # Service discovery strategies
 │   ├── logger/                # Structured logging
 │   ├── metrics/               # Observability and metrics
 │   ├── slots/                 # Time-slotted job queue
