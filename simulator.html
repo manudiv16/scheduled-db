@@ -1,764 +1,720 @@
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Scheduled-DB — Simulator</title>
-  <meta name="description" content="Interactive WebAssembly simulator for visualizing job scheduling with the hierarchical timing wheel engine." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            display: ['"Plus Jakarta Sans"', 'sans-serif'],
-            body: ['"DM Sans"', 'sans-serif'],
-          },
-          colors: {
-            surface: '#E0E5EC',
-            fg: '#3D4852',
-            muted: '#6B7280',
-            accent: '#6C63FF',
-            'accent-light': '#8B84FF',
-            teal: '#38B2AC',
-            'shadow-light': 'rgba(255, 255, 255, 0.5)',
-            'shadow-dark': 'rgb(163, 177, 198)',
-          },
-          borderRadius: {
-            neu: '32px',
-          },
-        },
-      },
-    }
-  </script>
-  <style>
-    body {
-      background-color: #E0E5EC;
-      font-family: 'DM Sans', sans-serif;
-      color: #3D4852;
-    }
-    .font-display {
-      font-family: 'Plus Jakarta Sans', sans-serif;
-    }
-    .neu-extruded {
-      box-shadow: 9px 9px 16px rgb(163,177,198,0.6), -9px -9px 16px rgba(255,255,255,0.5);
-    }
-    .neu-extruded-sm {
-      box-shadow: 5px 5px 10px rgb(163,177,198,0.6), -5px -5px 10px rgba(255,255,255,0.5);
-    }
-    .neu-inset {
-      box-shadow: inset 6px 6px 10px rgb(163,177,198,0.6), inset -6px -6px 10px rgba(255,255,255,0.5);
-    }
-    .neu-inset-sm {
-      box-shadow: inset 3px 3px 6px rgb(163,177,198,0.6), inset -3px -3px 6px rgba(255,255,255,0.5);
-    }
-    .neu-transition {
-      transition: all 0.3s ease-out;
-    }
-    .neu-btn {
-      box-shadow: 5px 5px 10px rgb(163,177,198,0.6), -5px -5px 10px rgba(255,255,255,0.5);
-      transition: all 0.2s ease-out;
-    }
-    .neu-btn:hover {
-      box-shadow: 7px 7px 14px rgb(163,177,198,0.7), -7px -7px 14px rgba(255,255,255,0.6);
-      transform: translateY(-1px);
-    }
-    .neu-btn:active, .neu-btn.active {
-      box-shadow: inset 4px 4px 8px rgb(163,177,198,0.6), inset -4px -4px 8px rgba(255,255,255,0.5);
-      transform: translateY(0);
-    }
-    .neu-input {
-      box-shadow: inset 3px 3px 6px rgb(163,177,198,0.5), inset -3px -3px 6px rgba(255,255,255,0.4);
-      background: #E0E5EC;
-      border: none;
-    }
-    .neu-input:focus {
-      box-shadow: inset 3px 3px 6px rgb(163,177,198,0.5), inset -3px -3px 6px rgba(255,255,255,0.4), 0 0 0 2px rgba(108,99,255,0.3);
-      outline: none;
-    }
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #E0E5EC; }
-    ::-webkit-scrollbar-thumb { background: #C4CAD4; border-radius: 3px; }
-    @keyframes pulse-dot {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.5; transform: scale(0.8); }
-    }
-    .animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
-    @keyframes slide-in {
-      from { opacity: 0; transform: translateY(-8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    .animate-slide-in { animation: slide-in 0.3s ease-out; }
-    .job-card { transition: all 0.2s ease; }
-    .job-card:hover { transform: translateX(4px); }
-    input[type="range"] {
-      -webkit-appearance: none;
-      height: 6px;
-      border-radius: 3px;
-      background: #C4CAD4;
-      box-shadow: inset 1px 1px 2px rgba(163,177,198,0.5);
-    }
-    input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: #6C63FF;
-      box-shadow: 2px 2px 4px rgba(163,177,198,0.6), -2px -2px 4px rgba(255,255,255,0.5);
-      cursor: pointer;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scheduled-DB — Live Simulator</title>
+<meta name="description" content="Interactive WebAssembly simulator for visualizing job scheduling with the hierarchical timing wheel engine.">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+body{background:#080808;color:#b3ffb3;font-family:'Courier New',monospace;font-size:13px;line-height:1.5;
+  overflow:hidden;height:100vh;display:flex;flex-direction:column}
+::selection{background:#00ff41;color:#080808}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:#080808}
+::-webkit-scrollbar-thumb{background:#1a3a1a;border-radius:2px}
+
+/* Scanlines */
+body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,0.1) 0px,rgba(0,0,0,0.1) 1px,transparent 1px,transparent 3px);
+  pointer-events:none;z-index:9999}
+
+/* ── LAYOUT ─────────────────────────────────────── */
+#app{display:flex;flex-direction:column;height:100vh;padding:4px;gap:4px}
+
+/* Status bar */
+#status{display:flex;align-items:center;gap:16px;padding:6px 12px;
+  border:1px solid #1a3a1a;border-radius:4px;background:rgba(0,0,0,0.4);
+  font-size:11px;min-height:32px;flex-shrink:0}
+#status .stat{color:#3a5a3a}
+#status .stat span{color:#00ff41}
+#status .stat .cy{color:#00cccc}
+#status .stat .am{color:#ffb000}
+#status .err{color:#ff5f56}
+
+/* Main grid */
+#main{display:grid;grid-template-columns:1fr 1fr;gap:4px;flex:1;min-height:0}
+
+/* Panels */
+.panel{border:1px solid #1a3a1a;border-radius:4px;background:rgba(0,0,0,0.3);
+  display:flex;flex-direction:column;overflow:hidden}
+.panel-head{padding:6px 10px;border-bottom:1px solid #1a3a1a;
+  font-size:10px;color:#3a5a3a;letter-spacing:1px;text-transform:uppercase;
+  background:rgba(0,0,0,0.2);flex-shrink:0;display:flex;justify-content:space-between;align-items:center}
+.panel-body{flex:1;overflow-y:auto;padding:4px;font-size:12px}
+.panel-body pre{margin:0;white-space:pre-wrap;word-break:break-all}
+
+/* ── TIMING WHEEL PANEL ─────────────────────────── */
+#wheel-canvas{width:100%;height:100%;display:block;cursor:grab}
+
+/* ── JOB LIST ───────────────────────────────────── */
+#job-list .job-entry{padding:3px 8px;border-bottom:1px solid #0d1f0d;font-size:11px;
+  display:flex;align-items:center;gap:6px}
+#job-list .job-entry:last-child{border:none}
+#job-list .job-id{color:#00cccc;font-family:inherit;font-size:10px;min-width:80px}
+#job-list .job-type{font-size:9px;padding:1px 5px;border-radius:2px;border:1px solid;min-width:40px;text-align:center}
+#job-list .job-type.unico{color:#ffb000;border-color:#1a4a1a}
+#job-list .job-type.recurrente{color:#00cccc;border-color:#1a4a4a}
+#job-list .job-status{font-size:10px;min-width:60px}
+#job-list .job-status.pending{color:#556b55}
+#job-list .job-status.in_progress{color:#ffb000}
+#job-list .job-status.completed{color:#00ff41}
+#job-list .job-status.failed{color:#ff5f56}
+#job-list .job-status.cancelled{color:#3a5a3a}
+#job-list .job-ts{color:#3a5a3a;font-size:9px;margin-left:auto}
+#job-list .empty{color:#1a3a1a;text-align:center;padding:20px;font-size:11px}
+
+/* ── EXECUTION LOG ──────────────────────────────── */
+#exec-log .log-entry{padding:2px 8px;font-size:10px;color:#556b55;border-bottom:1px solid #0a1a0a}
+#exec-log .log-entry .ts{color:#3a5a3a;margin-right:8px}
+#exec-log .log-entry.success{color:#00ff41}
+#exec-log .log-entry.fail{color:#ff5f56}
+#exec-log .empty{color:#1a3a1a;text-align:center;padding:20px;font-size:11px}
+
+/* ── BOTTOM BAR ─────────────────────────────────── */
+#bottom{display:flex;gap:4px;flex-shrink:0;min-height:32px}
+#bottom input{flex:1;background:rgba(0,0,0,0.4);border:1px solid #1a3a1a;border-radius:4px;
+  padding:0 10px;color:#00ff41;font-family:'Courier New',monospace;font-size:12px;outline:none}
+#bottom input:focus{border-color:#00ff41}
+#bottom input::placeholder{color:#1a3a1a}
+#bottom button{background:rgba(0,0,0,0.4);border:1px solid #1a3a1a;border-radius:4px;
+  color:#3a5a3a;padding:0 14px;font-family:'Courier New',monospace;font-size:11px;cursor:pointer;
+  transition:all .15s;white-space:nowrap}
+#bottom button:hover{border-color:#00ff41;color:#00ff41}
+#bottom button.danger:hover{border-color:#ff5f56;color:#ff5f56}
+#bottom button.accent{color:#00cccc;border-color:#1a4a4a}
+#bottom button.accent:hover{border-color:#00cccc;color:#00cccc}
+
+/* ── MODAL ──────────────────────────────────────── */
+#modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+  background:rgba(0,0,0,0.7);z-index:100;justify-content:center;align-items:center}
+#modal-overlay.open{display:flex}
+#modal{border:1px solid #1a3a1a;border-radius:6px;background:#0a0a0a;padding:24px;
+  min-width:340px;max-width:500px;width:90%}
+#modal h3{font-size:14px;color:#00ff41;margin-bottom:16px;letter-spacing:1px}
+#modal label{display:block;font-size:11px;color:#3a5a3a;margin-bottom:4px;margin-top:12px}
+#modal label:first-child{margin-top:0}
+#modal input,#modal select{width:100%;background:rgba(0,0,0,0.4);border:1px solid #1a3a1a;
+  border-radius:3px;padding:8px 10px;color:#b3ffb3;font-family:'Courier New',monospace;font-size:12px;outline:none}
+#modal input:focus,#modal select:focus{border-color:#00ff41}
+#modal select option{background:#0a0a0a;color:#b3ffb3}
+#modal .btn-row{display:flex;gap:8px;margin-top:20px;justify-content:flex-end}
+#modal .btn-row button{padding:8px 20px;border-radius:3px;font-family:'Courier New',monospace;
+  font-size:12px;cursor:pointer;transition:all .15s}
+#modal .btn-cancel{background:none;border:1px solid #1a3a1a;color:#3a5a3a}
+#modal .btn-cancel:hover{border-color:#556b55;color:#556b55}
+#modal .btn-submit{background:#00ff41;border:none;color:#080808;font-weight:700}
+#modal .btn-submit:hover{background:#00cc35}
+
+/* ── TOAST ──────────────────────────────────────── */
+#toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);
+  background:#0a0a0a;border:1px solid #1a3a1a;border-radius:4px;padding:8px 20px;
+  font-size:11px;color:#00ff41;opacity:0;transition:opacity .3s;pointer-events:none;z-index:50}
+#toast.show{opacity:1}
+#toast.err{color:#ff5f56}
+
+/* ── RESPONSIVE ─────────────────────────────────── */
+@media(max-width:800px){
+  #main{grid-template-columns:1fr}
+  #status{flex-wrap:wrap;gap:8px;font-size:10px}
+}
+</style>
 </head>
-<body class="min-h-screen antialiased">
+<body>
+<div id="app">
+  <!-- Status Bar -->
+  <div id="status">
+    <div class="stat"><span>SCHEDULED-DB</span> SIMULATOR</div>
+    <div class="stat" style="margin-left:auto">⏱ <span id="now-display">---</span></div>
+    <div class="stat">⚡ <span id="speed-display" class="cy">1.0x</span></div>
+    <div class="stat">◈ <span id="job-count" class="cy">0</span></div>
+    <div class="stat">▶ <span id="exec-count" class="am">0</span></div>
+    <div class="stat" id="status-msg" style="color:#1a3a1a;font-size:10px">← type <span style="color:#3a5a3a">help</span> in the terminal</div>
+  </div>
 
-  <nav class="sticky top-0 z-50 neu-transition" style="background: rgba(224,229,236,0.85); backdrop-filter: blur(12px);">
-    <div class="max-w-7xl mx-auto px-6 lg:px-8">
-      <div class="flex items-center justify-between h-16">
-        <a href="index.html" class="font-display font-extrabold text-xl text-fg tracking-tight flex items-center gap-2">
-          <i data-lucide="arrow-left" class="w-4 h-4 text-muted"></i>
-          Scheduled<span class="text-accent">-DB</span>
-        </a>
-        <div class="flex items-center gap-4">
-          <div id="wasm-status" class="flex items-center gap-2 text-sm">
-            <span class="w-2 h-2 rounded-full bg-muted animate-pulse-dot"></span>
-            <span class="text-muted">Loading WASM...</span>
-          </div>
-          <a href="https://github.com/manudiv16/scheduled-db" target="_blank" rel="noopener noreferrer" class="neu-extruded-sm neu-transition rounded-2xl px-4 py-2 text-sm font-medium text-fg hover:translate-y-[-1px] flex items-center gap-2">
-            <i data-lucide="github" class="w-4 h-4"></i>
-            GitHub
-          </a>
+  <!-- Main Grid -->
+  <div id="main">
+    <!-- Left Column -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <!-- Timing Wheel -->
+      <div class="panel" style="flex:1">
+        <div class="panel-head">
+          <span>◆ Timing Wheel</span>
+          <span id="wheel-info" style="color:#1a3a1a;font-size:10px">0 slots</span>
+        </div>
+        <div class="panel-body" style="padding:0;overflow:hidden">
+          <canvas id="wheel-canvas"></canvas>
+        </div>
+      </div>
+      <!-- Execution Log -->
+      <div class="panel" style="flex:0.8">
+        <div class="panel-head">
+          <span>■ Execution Log</span>
+          <span style="color:#1a3a1a;font-size:10px">last 50</span>
+        </div>
+        <div class="panel-body" id="exec-log">
+          <div class="empty">⏳ awaiting execution...</div>
         </div>
       </div>
     </div>
-  </nav>
 
-  <div class="max-w-7xl mx-auto px-6 lg:px-8 py-8">
-    <div class="mb-8">
-      <h1 class="font-display font-extrabold text-3xl md:text-4xl text-fg tracking-tight mb-2">
-        Job <span class="text-accent">Simulator</span>
-      </h1>
-      <p class="text-muted text-lg">Visualize the hierarchical timing wheel engine in action.</p>
-    </div>
-
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-      <div class="lg:col-span-3 space-y-6">
-        <div class="neu-extruded rounded-[32px] p-6">
-          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
-            <i data-lucide="plus-circle" class="w-5 h-5 text-accent"></i>
-            Create Job
-          </h2>
-          <form id="job-form" class="space-y-4">
-            <div>
-              <label class="text-xs text-muted font-medium mb-1.5 block">Type</label>
-              <select id="job-type" class="w-full neu-input rounded-2xl px-4 py-2.5 text-sm text-fg focus:outline-none">
-                <option value="unico">unico (one-time)</option>
-                <option value="recurrente">recurrente (cron)</option>
-              </select>
-            </div>
-            <div id="timestamp-field">
-              <label class="text-xs text-muted font-medium mb-1.5 block">Execute at</label>
-              <input id="job-timestamp" type="datetime-local" class="w-full neu-input rounded-2xl px-4 py-2.5 text-sm text-fg" />
-            </div>
-            <div id="cron-field" class="hidden">
-              <label class="text-xs text-muted font-medium mb-1.5 block">Cron expression</label>
-              <input id="job-cron" type="text" placeholder="*/5 * * * *" class="w-full neu-input rounded-2xl px-4 py-2.5 text-sm text-fg font-mono" />
-              <p class="text-[10px] text-muted mt-1">min hour dom month dow</p>
-            </div>
-            <div>
-              <label class="text-xs text-muted font-medium mb-1.5 block">Webhook URL</label>
-              <input id="job-webhook" type="text" placeholder="https://example.com/webhook" class="w-full neu-input rounded-2xl px-4 py-2.5 text-sm text-fg" />
-            </div>
-            <button type="submit" class="w-full bg-accent text-white font-display font-bold rounded-2xl px-6 py-3 neu-transition hover:bg-accent-light text-sm">
-              Schedule Job
-            </button>
-          </form>
+    <!-- Right Column -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <!-- Job List -->
+      <div class="panel" style="flex:1">
+        <div class="panel-head">
+          <span>● Job Queue</span>
+          <span style="color:#1a3a1a;font-size:10px" id="job-count-label">0 jobs</span>
         </div>
-
-        <div class="neu-extruded rounded-[32px] p-6">
-          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
-            <i data-lucide="sliders" class="w-5 h-5 text-accent"></i>
-            Controls
-          </h2>
-          <div class="space-y-4">
-            <div>
-              <span class="text-xs text-muted font-medium block mb-2">Speed</span>
-              <div class="flex gap-2" id="speed-controls">
-                <button data-speed="0" class="speed-btn neu-btn flex-1 px-3 py-2 text-xs rounded-2xl text-muted font-medium">Pause</button>
-                <button data-speed="1" class="speed-btn neu-btn flex-1 px-3 py-2 text-xs rounded-2xl text-muted font-medium">1x</button>
-                <button data-speed="10" class="speed-btn neu-btn flex-1 px-3 py-2 text-xs rounded-2xl bg-accent text-white font-medium active">10x</button>
-                <button data-speed="100" class="speed-btn neu-btn flex-1 px-3 py-2 text-xs rounded-2xl text-muted font-medium">100x</button>
-              </div>
-            </div>
-            <div>
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-xs text-muted font-medium">Success rate</span>
-                <span id="success-rate-label" class="text-xs text-fg font-medium">95%</span>
-              </div>
-              <input id="success-rate" type="range" min="0" max="100" value="95" class="w-full" />
-            </div>
-            <button id="btn-tick" class="w-full neu-btn rounded-2xl px-6 py-2.5 text-sm font-medium text-fg">
-              <span class="flex items-center justify-center gap-2">
-                <i data-lucide="step-forward" class="w-4 h-4"></i>
-                Tick (advance 1 step)
-              </span>
-            </button>
-            <button id="btn-reset" class="w-full neu-btn rounded-2xl px-6 py-2.5 text-sm font-medium text-muted hover:text-red-500">
-              <span class="flex items-center justify-center gap-2">
-                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
-                Reset Simulator
-              </span>
-            </button>
-          </div>
-        </div>
-
-        <div class="neu-extruded rounded-[32px] p-6">
-          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
-            <i data-lucide="bar-chart-3" class="w-5 h-5 text-accent"></i>
-            Stats
-          </h2>
-          <div class="grid grid-cols-2 gap-3" id="stats-grid">
-            <div class="neu-inset-sm rounded-2xl p-3 text-center">
-              <div id="stat-jobs" class="text-xl font-bold text-fg">0</div>
-              <div class="text-[10px] text-muted font-medium">Jobs</div>
-            </div>
-            <div class="neu-inset-sm rounded-2xl p-3 text-center">
-              <div id="stat-slots" class="text-xl font-bold text-fg">0</div>
-              <div class="text-[10px] text-muted font-medium">Slots</div>
-            </div>
-            <div class="neu-inset-sm rounded-2xl p-3 text-center">
-              <div id="stat-executed" class="text-xl font-bold text-teal">0</div>
-              <div class="text-[10px] text-muted font-medium">Executed</div>
-            </div>
-            <div class="neu-inset-sm rounded-2xl p-3 text-center">
-              <div id="stat-ticks" class="text-xl font-bold text-accent">0</div>
-              <div class="text-[10px] text-muted font-medium">Ticks</div>
-            </div>
-          </div>
+        <div class="panel-body" id="job-list">
+          <div class="empty">◇ no jobs scheduled</div>
         </div>
       </div>
-
-      <div class="lg:col-span-5 space-y-6">
-        <div class="neu-extruded rounded-[32px] p-6">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="font-display font-bold text-fg flex items-center gap-2">
-              <i data-lucide="clock" class="w-5 h-5 text-accent"></i>
-              Timing Wheel
-            </h2>
-            <div class="flex items-center gap-2 text-sm">
-              <span class="text-muted">Time:</span>
-              <span id="sim-time" class="text-fg font-mono font-medium">--:--:--</span>
-            </div>
-          </div>
-          <div class="neu-inset rounded-2xl p-4">
-            <canvas id="wheel-canvas" width="600" height="300" class="w-full"></canvas>
-          </div>
-          <div class="flex items-center gap-4 mt-3 text-[10px] text-muted">
-            <div class="flex items-center gap-1.5">
-              <span class="w-2.5 h-2.5 rounded-full bg-accent"></span> L0 (seconds)
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="w-2.5 h-2.5 rounded-full bg-teal"></span> L1 (minutes)
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="w-2.5 h-2.5 rounded-full" style="background: #fbbf24;"></span> L2 (hours)
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="w-2.5 h-2.5 rounded-full bg-fg opacity-30"></span> Now
-            </div>
-          </div>
+      <!-- Slots / Debug -->
+      <div class="panel" style="flex:0.6">
+        <div class="panel-head">
+          <span>▣ Slot Map</span>
+          <span style="color:#1a3a1a;font-size:10px" id="slot-count-label">0 slots</span>
         </div>
-
-        <div class="neu-extruded rounded-[32px] p-6">
-          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
-            <i data-lucide="gantt-chart" class="w-5 h-5 text-accent"></i>
-            Job Timeline
-          </h2>
-          <div class="neu-inset rounded-2xl p-4">
-            <canvas id="timeline-canvas" width="600" height="200" class="w-full"></canvas>
-          </div>
+        <div class="panel-body" id="slot-list">
+          <div class="empty">◇ no active slots</div>
         </div>
       </div>
-
-      <div class="lg:col-span-4 space-y-6">
-        <div class="neu-extruded rounded-[32px] p-6">
-          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
-            <i data-lucide="list-checks" class="w-5 h-5 text-accent"></i>
-            Active Jobs
-            <span id="job-count" class="ml-auto text-xs neu-inset-sm px-2.5 py-1 rounded-full text-muted font-medium">0</span>
-          </h2>
-          <div id="jobs-list" class="space-y-2 max-h-[300px] overflow-y-auto">
-            <div class="text-center text-muted text-sm py-8">No jobs scheduled yet</div>
-          </div>
-        </div>
-
-        <div class="neu-extruded rounded-[32px] p-6">
-          <h2 class="font-display font-bold text-fg mb-4 flex items-center gap-2">
-            <i data-lucide="terminal" class="w-5 h-5 text-accent"></i>
-            Execution Log
-          </h2>
-          <div id="exec-log" class="space-y-1 max-h-[250px] overflow-y-auto font-mono text-xs">
-            <div class="text-center text-muted py-4">Waiting for activity...</div>
-          </div>
-        </div>
-      </div>
-
     </div>
   </div>
 
+  <!-- Bottom Terminal Bar -->
+  <div id="bottom">
+    <input id="cmd-input" type="text" placeholder="$ type a command (help, create, tick, advance, speed, reset)" autofocus spellcheck="false">
+    <button id="btn-tick" class="accent">[ tick ]</button>
+    <button id="btn-create" class="accent">[ create ]</button>
+    <button id="btn-reset" class="danger">[ reset ]</button>
+  </div>
+</div>
+
+<!-- Modal -->
+<div id="modal-overlay">
+  <div id="modal">
+    <h3>$ create_job</h3>
+    <label>Job Type</label>
+    <select id="modal-type">
+      <option value="unico">unico (one-time)</option>
+      <option value="recurrente">recurrente (cron)</option>
+    </select>
+    <label id="modal-ts-label">Timestamp (RFC3339 or epoch)</label>
+    <input id="modal-ts" type="text" placeholder="2025-12-25T10:00:00Z">
+    <label id="modal-cron-label" style="display:none">Cron Expression</label>
+    <input id="modal-cron" type="text" placeholder="0 3 * * *" style="display:none">
+    <label>Webhook URL (optional)</label>
+    <input id="modal-webhook" type="text" placeholder="https://example.com/hook">
+    <label>Payload (optional JSON)</label>
+    <input id="modal-payload" type="text" placeholder='{"key":"value"}'>
+    <div class="btn-row">
+      <button class="btn-cancel" id="modal-cancel">cancel</button>
+      <button class="btn-submit" id="modal-submit">create</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
 <script src="wasm_exec.js"></script>
 <script>
-const STATE = {
-  wasmReady: false,
-  speed: 10,
-  autoTickInterval: null,
-  simTime: 0,
-  jobs: {},
-  execLog: [],
-  tickCount: 0,
-  totalExecuted: 0,
-};
+// ── App State ──────────────────────────────────
+let sim = null;
+let ready = false;
+let state = { now: 0, clock_speed: 1, jobs: {}, slots: {}, execution_states: {}, exec_log: [], wheel_size: 0, tick_count: 0, total_executed: 0, total_rescheduled: 0 };
+let animFrame = null;
+let wheelCanvas, wheelCtx;
 
-const $ = (id) => document.getElementById(id);
-const $$ = (sel) => document.querySelectorAll(sel);
-
-function formatTime(epoch) {
-  if (!epoch) return '--:--:--';
-  const d = new Date(epoch * 1000);
-  return d.toLocaleTimeString('en-GB');
+// ── Toast ──────────────────────────────────────
+function toast(msg, isErr) {
+  const el = document.getElementById('toast');
+  el.textContent = isErr ? '✗ ' + msg : '✓ ' + msg;
+  el.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 2000);
 }
 
-function formatDateTime(epoch) {
-  if (!epoch) return '--';
-  const d = new Date(epoch * 1000);
-  return d.toLocaleString('en-GB', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
-}
+// ── Load WASM ──────────────────────────────────
+async function loadWasm() {
+  const status = document.getElementById('status-msg');
+  status.textContent = '⏳ loading WASM...';
+  status.style.color = '#ffb000';
 
-function statusColor(status) {
-  switch(status) {
-    case 'pending': return 'bg-amber-500';
-    case 'in_progress': return 'bg-blue-500 animate-pulse';
-    case 'completed': return 'bg-emerald-500';
-    case 'failed': return 'bg-red-500';
-    case 'cancelled': return 'bg-gray-400';
-    default: return 'bg-gray-400';
+  if (!WebAssembly.instantiateStreaming) {
+    // Fallback for environments without instantiateStreaming
+    const resp = await fetch('scheduled-db.wasm');
+    const bytes = await resp.arrayBuffer();
+    const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
+    go.run(instance);
+  } else {
+    const resp = await fetch('scheduled-db.wasm');
+    const { instance } = await WebAssembly.instantiateStreaming(resp, go.importObject);
+    go.run(instance);
   }
-}
 
-function statusText(status) {
-  switch(status) {
-    case 'pending': return 'Pending';
-    case 'in_progress': return 'Running';
-    case 'completed': return 'Done';
-    case 'failed': return 'Failed';
-    case 'cancelled': return 'Cancelled';
-    case 'timeout': return 'Timeout';
-    default: return status;
+  sim = window.simulator;
+  if (!sim) {
+    status.textContent = '✗ failed to load simulator';
+    status.style.color = '#ff5f56';
+    toast('WASM load failed', true);
+    return;
   }
+
+  ready = true;
+  status.textContent = '✓ simulator ready — try create, tick, or advance';
+  status.style.color = '#00ff41';
+  toast('simulator loaded');
+  refresh();
+  startWheelAnimation();
 }
 
-function addLogEntry(msg, type='info') {
-  const log = $('exec-log');
-  if (log.querySelector('.text-muted')) log.innerHTML = '';
-  const colors = { info:'text-blue-600', success:'text-emerald-600', error:'text-red-600', warn:'text-amber-600' };
-  const time = formatTime(STATE.simTime);
-  const entry = document.createElement('div');
-  entry.className = `${colors[type] || 'text-muted'} animate-slide-in`;
-  entry.textContent = `[${time}] ${msg}`;
-  log.prepend(entry);
-  while (log.children.length > 100) log.lastChild.remove();
-}
-
-function callSimulator(fn, ...args) {
+// ── Fetch State ────────────────────────────────
+function fetchState() {
+  if (!ready || !sim) return;
   try {
-    const result = simulator[fn](...args);
-    if (result && typeof result === 'object' && result.ok !== undefined) {
-      if (!result.ok) {
-        console.error('Simulator error:', result.error);
-        return null;
-      }
-      try { return JSON.parse(result.data); } catch { return result.data; }
-    }
-    return result;
+    const raw = sim.getStateJSON();
+    state = JSON.parse(raw);
   } catch(e) {
-    console.error('WASM call error:', e);
-    return null;
+    // partial state is ok
   }
 }
 
-function updateStats(state) {
-  if (!state) return;
-  STATE.simTime = state.now;
-  STATE.jobs = state.jobs || {};
-  STATE.tickCount = state.tick_count || 0;
-  STATE.totalExecuted = state.total_executed || 0;
+// ── DOM Updates ────────────────────────────────
+function refresh() {
+  if (!ready) return;
+  fetchState();
 
-  $('sim-time').textContent = formatTime(state.now);
-  $('stat-jobs').textContent = Object.keys(STATE.jobs).length;
-  $('stat-slots').textContent = state.wheel_size || 0;
-  $('stat-executed').textContent = STATE.totalExecuted;
-  $('stat-ticks').textContent = STATE.tickCount;
-  $('job-count').textContent = Object.keys(STATE.jobs).length;
-}
+  // Status bar
+  const nowDate = state.now ? new Date(state.now * 1000).toISOString().replace('T',' ').slice(0,19) + 'Z' : '---';
+  document.getElementById('now-display').textContent = nowDate;
+  document.getElementById('speed-display').textContent = state.clock_speed.toFixed(1) + 'x';
+  const jobCount = state.jobs ? Object.keys(state.jobs).length : 0;
+  document.getElementById('job-count').textContent = jobCount;
+  document.getElementById('exec-count').textContent = state.total_executed || 0;
+  document.getElementById('job-count-label').textContent = jobCount + ' jobs';
+  document.getElementById('wheel-info').textContent = (state.wheel_size || 0) + ' slots';
 
-function renderJobs() {
-  const list = $('jobs-list');
-  const jobs = Object.values(STATE.jobs);
-
-  if (jobs.length === 0) {
-    list.innerHTML = '<div class="text-center text-muted text-sm py-8">No jobs scheduled yet</div>';
-    return;
+  // Job List
+  const jobList = document.getElementById('job-list');
+  const jobEntries = state.jobs ? Object.entries(state.jobs) : [];
+  if (jobEntries.length === 0) {
+    jobList.innerHTML = '<div class="empty">◇ no jobs scheduled</div>';
+  } else {
+    jobList.innerHTML = jobEntries.map(([id, job]) => {
+      const ex = state.execution_states?.[id];
+      const status = ex ? ex.status : 'pending';
+      const statusClass = status === 'in_progress' ? 'in_progress' : status;
+      return `<div class="job-entry">
+        <span class="job-id">${id.slice(0,8)}</span>
+        <span class="job-type ${job.type}">${job.type}</span>
+        <span class="job-status ${statusClass}">${status}</span>
+        <span class="job-ts">${job.timestamp || job.cron_expression || ''}</span>
+      </div>`;
+    }).join('');
   }
 
-  list.innerHTML = jobs.map(job => {
-    const state = (window._execStates || {})[job.id] || {};
-    const status = state.status || 'pending';
-    const ts = job.type === 'unico' && job.timestamp
-      ? formatDateTime(job.timestamp)
-      : job.type === 'recurrente'
-        ? `cron: ${job.cron_expression}`
-        : formatDateTime(job.created_at);
-    return `
-      <div class="job-card neu-inset-sm rounded-2xl p-3 cursor-pointer" data-job-id="${job.id}">
-        <div class="flex items-center gap-2 mb-1">
-          <span class="w-2 h-2 rounded-full ${statusColor(status)}"></span>
-          <span class="text-xs font-medium text-fg truncate flex-1">${job.id.slice(0,12)}</span>
-          <span class="text-[10px] px-2 py-0.5 rounded-full neu-inset-sm text-muted font-medium">${job.type}</span>
-        </div>
-        <div class="text-[10px] text-muted truncate">${ts}</div>
-        <div class="text-[10px] text-fg font-medium">${statusText(status)}</div>
-      </div>
-    `;
-  }).join('');
-}
-
-function drawTimingWheel() {
-  const canvas = $('wheel-canvas');
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width;
-  const H = canvas.height;
-  const cx = W / 2;
-  const cy = H / 2;
-
-  ctx.clearRect(0, 0, W, H);
-
-  const radii = [100, 70, 45];
-  const colors = ['#6C63FF', '#38B2AC', '#fbbf24'];
-
-  radii.forEach((r, i) => {
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = colors[i] + '30';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-  });
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-  ctx.fillStyle = '#3D485230';
-  ctx.fill();
-
-  const now = STATE.simTime || Date.now() / 1000;
-  const jobs = Object.values(STATE.jobs);
-  jobs.forEach((job, idx) => {
-    const ts = job.timestamp || job.created_at || 0;
-    const delta = ts - now;
-    const angle = ((delta % 60) / 60) * Math.PI * 2 - Math.PI / 2;
-    const layer = delta < 10 ? 0 : delta < 60 ? 1 : 2;
-    const r = radii[layer];
-    const x = cx + Math.cos(angle) * r;
-    const y = cy + Math.sin(angle) * r;
-
-    const state = (window._execStates || {})[job.id] || {};
-    const status = state.status || 'pending';
-    const dotColor = status === 'completed' ? '#10b981' : status === 'failed' ? '#ef4444' : status === 'in_progress' ? '#6C63FF' : '#f59e0b';
-
-    ctx.beginPath();
-    ctx.arc(x, y, 5, 0, Math.PI * 2);
-    ctx.fillStyle = dotColor;
-    ctx.fill();
-
-    if (status === 'in_progress') {
-      ctx.beginPath();
-      ctx.arc(x, y, 8, 0, Math.PI * 2);
-      ctx.strokeStyle = dotColor + '40';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-  });
-
-  const nowAngle = -Math.PI / 2;
-  ctx.beginPath();
-  ctx.moveTo(cx, cy);
-  ctx.lineTo(cx + Math.cos(nowAngle) * 110, cy + Math.sin(nowAngle) * 110);
-  ctx.strokeStyle = '#3D485220';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 4]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-}
-
-function drawTimeline() {
-  const canvas = $('timeline-canvas');
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width;
-  const H = canvas.height;
-
-  ctx.clearRect(0, 0, W, H);
-
-  const jobs = Object.values(STATE.jobs);
-  if (jobs.length === 0) {
-    ctx.fillStyle = '#6B7280';
-    ctx.font = '12px DM Sans, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('No jobs to display', W/2, H/2);
-    return;
+  // Execution Log
+  const execLog = document.getElementById('exec-log');
+  const log = state.exec_log || [];
+  if (log.length === 0) {
+    execLog.innerHTML = '<div class="empty">⏳ awaiting execution...</div>';
+  } else {
+    const recent = log.slice(-50).reverse();
+    execLog.innerHTML = recent.map(e => {
+      const cls = e.success ? 'success' : 'fail';
+      const t = new Date(e.timestamp * 1000).toISOString().slice(11,19);
+      return `<div class="log-entry ${cls}">
+        <span class="ts">[${t}]</span>
+        ${e.job_id ? e.job_id.slice(0,8) : '???'}
+        ${e.success ? '✓ completed' : '✗ failed'}
+        <span style="color:#3a5a3a">${e.response_time || 0}ms</span>
+      </div>`;
+    }).join('');
   }
 
-  const now = STATE.simTime || Date.now()/1000;
-  const lookAhead = 120;
-  const barH = Math.min(20, (H - 20) / Math.max(jobs.length, 1));
-  const padding = 80;
-
-  ctx.fillStyle = '#D1D5DB';
-  ctx.fillRect(padding, 10, W - padding - 10, H - 20);
-
-  const nowX = padding + (0 / lookAhead) * (W - padding - 10);
-  ctx.beginPath();
-  ctx.moveTo(nowX, 10);
-  ctx.lineTo(nowX, H - 10);
-  ctx.strokeStyle = '#6C63FF40';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([4, 4]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  ctx.fillStyle = '#6B7280';
-  ctx.font = '9px DM Sans, sans-serif';
-  ctx.textAlign = 'center';
-  for (let s = 0; s <= lookAhead; s += 30) {
-    const x = padding + (s / lookAhead) * (W - padding - 10);
-    ctx.fillText(`+${s}s`, x, H - 2);
-  }
-
-  jobs.forEach((job, i) => {
-    const ts = job.timestamp || job.created_at || 0;
-    const delta = ts - now;
-    const x = padding + (delta / lookAhead) * (W - padding - 10);
-    const y = 15 + i * (barH + 4);
-
-    if (x < padding || x > W - 10) return;
-
-    const state = (window._execStates || {})[job.id] || {};
-    const status = state.status || 'pending';
-    const colors = { pending:'#f59e0b', in_progress:'#6C63FF', completed:'#10b981', failed:'#ef4444', cancelled:'#6B7280' };
-    const color = colors[status] || '#6B7280';
-
-    ctx.fillStyle = '#C4CAD4';
-    ctx.fillRect(padding, y, W - padding - 10, barH);
-
-    ctx.fillStyle = color + '50';
-    ctx.fillRect(padding, y, x - padding, barH);
-
-    ctx.beginPath();
-    ctx.arc(x, y + barH/2, 5, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-
-    ctx.fillStyle = '#3D4852';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(job.id.slice(0, 8), padding - 5, y + barH/2 + 4);
-  });
-}
-
-function render() {
-  drawTimingWheel();
-  drawTimeline();
-  renderJobs();
-}
-
-function processTick() {
-  if (!STATE.wasmReady) return;
-
-  const result = callSimulator('tick');
-  const state = callSimulator('getState');
-
-  if (state) {
-    window._execStates = state.execution_states || {};
-    updateStats(state);
-
-    if (result && result.executed_jobs) {
-      result.executed_jobs.forEach(r => {
-        const status = r.Success ? 'success' : 'error';
-        addLogEntry(`Job ${r.JobID.slice(0,8)} ${r.Success ? 'completed' : 'failed'} (${r.ResponseTime}ms)`, status);
-      });
-    }
-    if (result && result.rescheduled_ids) {
-      result.rescheduled_ids.forEach(id => {
-        addLogEntry(`Job ${id.slice(0,8)} rescheduled (recurring)`, 'info');
-      });
-    }
-  }
-
-  render();
-}
-
-function startAutoTick() {
-  if (STATE.autoTickInterval) return;
-  const speed = STATE.speed;
-  if (speed === 0) return;
-
-  const interval = Math.max(50, 1000 / speed);
-  STATE.autoTickInterval = setInterval(() => {
-    callSimulator('advanceTime', 1);
-    processTick();
-  }, interval);
-  addLogEntry(`Simulation started at ${speed}x speed`, 'info');
-}
-
-function stopAutoTick() {
-  if (STATE.autoTickInterval) {
-    clearInterval(STATE.autoTickInterval);
-    STATE.autoTickInterval = null;
+  // Slot List
+  const slotList = document.getElementById('slot-list');
+  const slots = state.slots ? Object.entries(state.slots) : [];
+  const slotCountLabel = document.getElementById('slot-count-label');
+  slotCountLabel.textContent = slots.length + ' slots';
+  if (slots.length === 0) {
+    slotList.innerHTML = '<div class="empty">◇ no active slots</div>';
+  } else {
+    slotList.innerHTML = slots.map(([key, slot]) => {
+      const minDate = new Date(slot.min_time * 1000).toISOString().slice(11,19);
+      const maxDate = new Date(slot.max_time * 1000).toISOString().slice(11,19);
+      const jobCount = slot.job_ids ? slot.job_ids.length : 0;
+      return `<div class="job-entry" style="font-size:10px">
+        <span style="color:#ffb000">◈</span>
+        <span style="color:#00cccc;font-size:9px">${minDate}–${maxDate}</span>
+        <span style="color:#556b55">${jobCount} jobs</span>
+        <span style="color:#3a5a3a;margin-left:auto;font-size:8px">key:${key}</span>
+      </div>`;
+    }).join('');
   }
 }
 
-function setSpeed(speed) {
-  STATE.speed = speed;
-  $$('.speed-btn').forEach(btn => {
-    const s = parseInt(btn.dataset.speed);
-    if (s === speed) {
-      btn.classList.add('bg-accent', 'text-white', 'active');
-      btn.classList.remove('text-muted');
+// ── Timing Wheel Canvas ────────────────────────
+function initWheelCanvas() {
+  wheelCanvas = document.getElementById('wheel-canvas');
+  wheelCtx = wheelCanvas.getContext('2d');
+}
+
+function resizeWheel() {
+  if (!wheelCanvas) return;
+  const rect = wheelCanvas.parentElement.getBoundingClientRect();
+  wheelCanvas.width = rect.width * window.devicePixelRatio;
+  wheelCanvas.height = rect.height * window.devicePixelRatio;
+  wheelCanvas.style.width = rect.width + 'px';
+  wheelCanvas.style.height = rect.height + 'px';
+  wheelCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+}
+window.addEventListener('resize', resizeWheel);
+
+let wheelRotation = 0;
+function drawWheel() {
+  if (!wheelCtx || !wheelCanvas) return;
+  const rect = wheelCanvas.getBoundingClientRect();
+  const w = rect.width;
+  const h = rect.height;
+  const cx = w / 2;
+  const cy = h / 2;
+  const maxR = Math.min(cx, cy) - 20;
+
+  wheelCtx.clearRect(0, 0, w, h);
+
+  // Background
+  wheelCtx.fillStyle = 'rgba(8,8,8,0.5)';
+  wheelCtx.fillRect(0, 0, w, h);
+
+  // Get slots data
+  const slots = state.slots || {};
+  const slotKeys = Object.keys(slots);
+  const slotCount = slotKeys.length;
+
+  // Outer ring (timing wheel)
+  const outerR = maxR;
+  wheelCtx.beginPath();
+  wheelCtx.arc(cx, cy, outerR, 0, Math.PI * 2);
+  wheelCtx.strokeStyle = '#1a3a1a';
+  wheelCtx.lineWidth = 1;
+  wheelCtx.stroke();
+
+  // Tick marks (60 divisions)
+  for (let i = 0; i < 60; i++) {
+    const angle = (i / 60) * Math.PI * 2 - Math.PI / 2 + wheelRotation;
+    const inner = i % 5 === 0 ? outerR - 10 : outerR - 5;
+    wheelCtx.beginPath();
+    wheelCtx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
+    wheelCtx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR);
+    wheelCtx.strokeStyle = i % 5 === 0 ? '#2a5a2a' : '#1a3a1a';
+    wheelCtx.lineWidth = 1;
+    wheelCtx.stroke();
+  }
+
+  // Inner ring
+  const innerR = outerR * 0.55;
+  wheelCtx.beginPath();
+  wheelCtx.arc(cx, cy, innerR, 0, Math.PI * 2);
+  wheelCtx.strokeStyle = '#1a3a1a';
+  wheelCtx.lineWidth = 1;
+  wheelCtx.stroke();
+
+  // Slot arcs
+  if (slotCount > 0) {
+    // Show up to 16 slots on the wheel
+    const displaySlots = slotKeys.slice(0, 16);
+    const arcSize = (Math.PI * 2) / Math.max(displaySlots.length, 16);
+
+    displaySlots.forEach((key, i) => {
+      const startAngle = i * arcSize - Math.PI / 2 + wheelRotation;
+      const endAngle = startAngle + arcSize * 0.85;
+
+      // Arc on outer ring
+      wheelCtx.beginPath();
+      wheelCtx.arc(cx, cy, outerR - 2, startAngle, endAngle);
+      wheelCtx.strokeStyle = '#00ff41';
+      wheelCtx.lineWidth = 2;
+      wheelCtx.globalAlpha = 0.6;
+      wheelCtx.stroke();
+      wheelCtx.globalAlpha = 1;
+
+      // Arc on inner ring
+      wheelCtx.beginPath();
+      wheelCtx.arc(cx, cy, innerR + 2, startAngle, endAngle);
+      wheelCtx.strokeStyle = '#00cccc';
+      wheelCtx.lineWidth = 1.5;
+      wheelCtx.globalAlpha = 0.4;
+      wheelCtx.stroke();
+      wheelCtx.globalAlpha = 1;
+
+      // Connecting line
+      const midAngle = (startAngle + endAngle) / 2;
+      wheelCtx.beginPath();
+      wheelCtx.moveTo(cx + Math.cos(midAngle) * innerR, cy + Math.sin(midAngle) * innerR);
+      wheelCtx.lineTo(cx + Math.cos(midAngle) * outerR, cy + Math.sin(midAngle) * outerR);
+      wheelCtx.strokeStyle = '#1a3a1a';
+      wheelCtx.lineWidth = 0.5;
+      wheelCtx.stroke();
+    });
+  }
+
+  // Current time indicator
+  const nowAngle = (state.now % 60 / 60) * Math.PI * 2 - Math.PI / 2;
+  wheelCtx.beginPath();
+  wheelCtx.moveTo(cx, cy);
+  wheelCtx.lineTo(cx + Math.cos(nowAngle) * outerR, cy + Math.sin(nowAngle) * outerR);
+  wheelCtx.strokeStyle = '#00ff41';
+  wheelCtx.lineWidth = 1.5;
+  wheelCtx.globalAlpha = 0.8;
+  wheelCtx.stroke();
+  wheelCtx.globalAlpha = 1;
+
+  // Center dot
+  wheelCtx.beginPath();
+  wheelCtx.arc(cx, cy, 3, 0, Math.PI * 2);
+  wheelCtx.fillStyle = '#00ff41';
+  wheelCtx.fill();
+
+  // Labels
+  wheelCtx.fillStyle = '#1a3a1a';
+  wheelCtx.font = '9px "Courier New", monospace';
+  wheelCtx.textAlign = 'center';
+  wheelCtx.fillText('SCHEDULED-DB', cx, cy + 3);
+  wheelCtx.fillStyle = '#3a5a3a';
+  wheelCtx.font = '7px "Courier New", monospace';
+  wheelCtx.fillText(slotCount + ' slots · ' + (state.total_executed || 0) + ' exec', cx, cy + 16);
+
+  // HUD in corner
+  wheelCtx.textAlign = 'left';
+  wheelCtx.fillStyle = '#1a3a1a';
+  wheelCtx.font = '8px "Courier New", monospace';
+  wheelCtx.fillText('T+' + (state.tick_count || 0), 8, 12);
+  wheelCtx.fillText('◈' + jobCount(), 8, 22);
+
+  // Animate rotation
+  wheelRotation += 0.008 * (state.clock_speed || 1);
+}
+
+function jobCount() {
+  return state.jobs ? Object.keys(state.jobs).length : 0;
+}
+
+let wheelAnimId = null;
+function startWheelAnimation() {
+  function frame() {
+    drawWheel();
+    wheelAnimId = requestAnimationFrame(frame);
+  }
+  if (wheelAnimId) cancelAnimationFrame(wheelAnimId);
+  frame();
+}
+
+// ── Refresh Loop ───────────────────────────────
+let refreshInterval = null;
+function startRefresh() {
+  refresh();
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = setInterval(refresh, 500);
+}
+
+// ── Simulator Commands ─────────────────────────
+function cmdTick() {
+  if (!ready) { toast('simulator not loaded', true); return; }
+  try {
+    const result = JSON.parse(sim.tick());
+    toast('tick: ' + result.executed + ' executed, ' + result.rescheduled + ' rescheduled');
+    refresh();
+  } catch(e) {
+    toast('tick failed: ' + e.message, true);
+  }
+}
+
+function cmdAdvance(seconds) {
+  if (!ready) { toast('simulator not loaded', true); return; }
+  try {
+    const result = JSON.parse(sim.advanceTime(seconds));
+    toast('advanced ' + seconds + 's → now ' + result.now);
+    refresh();
+  } catch(e) {
+    toast('advance failed: ' + e.message, true);
+  }
+}
+
+function cmdSpeed(speed) {
+  if (!ready) { toast('simulator not loaded', true); return; }
+  try {
+    sim.setClockSpeed(speed);
+    toast('speed → ' + speed + 'x');
+    refresh();
+  } catch(e) {
+    toast('speed failed: ' + e.message, true);
+  }
+}
+
+function cmdReset() {
+  if (!ready) { toast('simulator not loaded', true); return; }
+  try {
+    sim.reset();
+    toast('simulator reset');
+    refresh();
+  } catch(e) {
+    toast('reset failed: ' + e.message, true);
+  }
+}
+
+function cmdCreate(jobData) {
+  if (!ready) { toast('simulator not loaded', true); return; }
+  try {
+    const result = JSON.parse(sim.createJob(JSON.stringify(jobData)));
+    if (result.error) {
+      toast('create failed: ' + result.error, true);
     } else {
-      btn.classList.remove('bg-accent', 'text-white', 'active');
-      btn.classList.add('text-muted');
+      toast('job created: ' + (result.data ? result.data.id || result.data.slice(0,8) : 'ok'));
+      refresh();
     }
-  });
-
-  stopAutoTick();
-  callSimulator('setClockSpeed', speed);
-  if (speed > 0) startAutoTick();
-  else addLogEntry('Simulation paused', 'warn');
-}
-
-async function initWasm() {
-  try {
-    const go = new Go();
-    const result = await WebAssembly.instantiateStreaming(fetch('scheduled-db.wasm'), go.importObject);
-    go.run(result.instance);
-
-    STATE.wasmReady = true;
-    $('wasm-status').innerHTML = `
-      <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-      <span class="text-emerald-600 text-sm font-medium">WASM Ready</span>
-    `;
-
-    callSimulator('setClockSpeed', STATE.speed);
-    callSimulator('setSuccessRate', 0.95);
-
-    const state = callSimulator('getState');
-    if (state) {
-      window._execStates = state.execution_states || {};
-      updateStats(state);
-    }
-
-    setSpeed(STATE.speed);
-    render();
-    addLogEntry('WASM simulator initialized', 'success');
-    lucide.createIcons();
   } catch(e) {
-    console.error('WASM init failed:', e);
-    $('wasm-status').innerHTML = `
-      <span class="w-2 h-2 rounded-full bg-red-500"></span>
-      <span class="text-red-600 text-sm font-medium">WASM Error</span>
-    `;
-    addLogEntry('Failed to load WASM: ' + e.message, 'error');
+    toast('create failed: ' + e.message, true);
   }
 }
 
-$('job-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  if (!STATE.wasmReady) return;
+// ── Terminal Input ─────────────────────────────
+const cmdInput = document.getElementById('cmd-input');
+cmdInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const val = cmdInput.value.trim();
+    cmdInput.value = '';
+    processCommand(val);
+  }
+});
 
-  const type = $('job-type').value;
-  const webhook = $('job-webhook').value || 'https://example.com/webhook';
+function processCommand(input) {
+  if (!input) return;
+  const parts = input.split(/\s+/);
+  const cmd = parts[0].toLowerCase();
+  const args = parts.slice(1);
 
-  const req = { type, webhook_url: webhook };
+  switch(cmd) {
+    case 'help':
+      toast('commands: create, tick, advance <s>, speed <n>, reset, jobs');
+      break;
+    case 'tick':
+      cmdTick();
+      break;
+    case 'advance':
+      cmdAdvance(parseFloat(args[0]) || 10);
+      break;
+    case 'speed':
+      cmdSpeed(parseFloat(args[0]) || 1);
+      break;
+    case 'reset':
+      cmdReset();
+      break;
+    case 'create':
+      openCreateModal();
+      break;
+    case 'jobs':
+      refresh();
+      toast(Object.keys(state.jobs || {}).length + ' jobs');
+      break;
+    default:
+      toast('unknown: ' + cmd + ' (try help)', true);
+  }
+}
+
+// ── Modal ──────────────────────────────────────
+const modalOverlay = document.getElementById('modal-overlay');
+const modalType = document.getElementById('modal-type');
+const modalTs = document.getElementById('modal-ts');
+const modalCron = document.getElementById('modal-cron');
+const modalTsLabel = document.getElementById('modal-ts-label');
+const modalCronLabel = document.getElementById('modal-cron-label');
+const modalWebhook = document.getElementById('modal-webhook');
+const modalPayload = document.getElementById('modal-payload');
+
+modalType.addEventListener('change', () => {
+  const isRecurrente = modalType.value === 'recurrente';
+  modalTsLabel.style.display = isRecurrente ? 'none' : 'block';
+  modalTs.style.display = isRecurrente ? 'none' : 'block';
+  modalCronLabel.style.display = isRecurrente ? 'block' : 'none';
+  modalCron.style.display = isRecurrente ? 'block' : 'none';
+});
+
+function openCreateModal() {
+  modalOverlay.classList.add('open');
+  modalTs.value = new Date(Date.now() + 3600000).toISOString().slice(0,19) + 'Z';
+  modalCron.value = '0 * * * *';
+  modalWebhook.value = '';
+  modalPayload.value = '';
+  modalTs.focus();
+}
+
+function closeModal() {
+  modalOverlay.classList.remove('open');
+  cmdInput.focus();
+}
+
+document.getElementById('modal-cancel').addEventListener('click', closeModal);
+modalOverlay.addEventListener('click', (e) => {
+  if (e.target === modalOverlay) closeModal();
+});
+
+document.getElementById('modal-submit').addEventListener('click', () => {
+  const type = modalType.value;
+  const jobData = { type };
 
   if (type === 'unico') {
-    const dt = $('job-timestamp').value;
-    if (!dt) { addLogEntry('Please set a timestamp', 'warn'); return; }
-    req.timestamp = new Date(dt).toISOString();
+    if (modalTs.value) jobData.timestamp = modalTs.value;
   } else {
-    const cron = $('job-cron').value;
-    if (!cron) { addLogEntry('Please set a cron expression', 'warn'); return; }
-    req.cron_expression = cron;
-    const now = new Date();
-    now.setSeconds(now.getSeconds() + 5);
-    req.timestamp = now.toISOString();
+    if (modalCron.value) jobData.cron_expression = modalCron.value;
   }
-
-  const result = callSimulator('createJob', JSON.stringify(req));
-  if (result) {
-    addLogEntry(`Created ${type} job: ${result.id.slice(0,8)}`, 'success');
-    const state = callSimulator('getState');
-    if (state) {
-      window._execStates = state.execution_states || {};
-      updateStats(state);
+  if (modalWebhook.value) jobData.webhook_url = modalWebhook.value;
+  if (modalPayload.value) {
+    try {
+      jobData.payload = JSON.parse(modalPayload.value);
+    } catch(e) {
+      toast('invalid payload JSON', true);
+      return;
     }
-    render();
-  } else {
-    addLogEntry('Failed to create job', 'error');
+  }
+
+  cmdCreate(jobData);
+  closeModal();
+});
+
+// ── Button Handlers ────────────────────────────
+document.getElementById('btn-tick').addEventListener('click', cmdTick);
+document.getElementById('btn-create').addEventListener('click', openCreateModal);
+document.getElementById('btn-reset').addEventListener('click', () => {
+  if (confirm('reset simulator?')) cmdReset();
+});
+
+// ── Init ───────────────────────────────────────
+initWheelCanvas();
+setTimeout(() => {
+  resizeWheel();
+  startRefresh();
+  loadWasm();
+}, 100);
+
+// ── Keyboard shortcuts ─────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (modalOverlay.classList.contains('open')) return;
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    document.getElementById('btn-tick').focus();
+  }
+  if (e.key === 't' && !e.ctrlKey && !e.metaKey && document.activeElement !== cmdInput) {
+    cmdTick();
   }
 });
 
-$('job-type').addEventListener('change', (e) => {
-  const isUnico = e.target.value === 'unico';
-  $('timestamp-field').classList.toggle('hidden', !isUnico);
-  $('cron-field').classList.toggle('hidden', isUnico);
+// ── Global error handler for WASM ──────────────
+window.addEventListener('error', (e) => {
+  toast('runtime error: ' + e.message, true);
 });
-
-$$('.speed-btn').forEach(btn => {
-  btn.addEventListener('click', () => setSpeed(parseInt(btn.dataset.speed)));
-});
-
-$('success-rate').addEventListener('input', (e) => {
-  const rate = parseInt(e.target.value);
-  $('success-rate-label').textContent = rate + '%';
-  if (STATE.wasmReady) callSimulator('setSuccessRate', rate / 100);
-});
-
-$('btn-tick').addEventListener('click', () => {
-  if (!STATE.wasmReady) return;
-  callSimulator('advanceTime', 1);
-  processTick();
-});
-
-$('btn-reset').addEventListener('click', () => {
-  if (!STATE.wasmReady) return;
-  stopAutoTick();
-  callSimulator('reset');
-  STATE.execLog = [];
-  STATE.jobs = {};
-  STATE.tickCount = 0;
-  STATE.totalExecuted = 0;
-  window._execStates = {};
-  $('exec-log').innerHTML = '<div class="text-center text-muted py-4">Waiting for activity...</div>';
-  const state = callSimulator('getState');
-  if (state) updateStats(state);
-  render();
-  addLogEntry('Simulator reset', 'warn');
-});
-
-initWasm();
-setInterval(render, 1000);
 </script>
-
 </body>
 </html>
