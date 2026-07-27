@@ -7,12 +7,12 @@
 <meta name="description" content="Interactive WebAssembly simulator for visualizing job scheduling with the hierarchical timing wheel engine.">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-body{background:#080808;color:#b3ffb3;font-family:'Courier New',monospace;font-size:13px;line-height:1.5;
+body{background:#000000;color:#e2e8f0;font-family:'Courier New',monospace;font-size:13px;line-height:1.5;
   overflow:hidden;height:100vh;display:flex;flex-direction:column}
-::selection{background:#00ff41;color:#080808}
+::selection{background:#a78bfa;color:#000000}
 ::-webkit-scrollbar{width:4px}
-::-webkit-scrollbar-track{background:#080808}
-::-webkit-scrollbar-thumb{background:#1a3a1a;border-radius:2px}
+::-webkit-scrollbar-track{background:#000000}
+::-webkit-scrollbar-thumb{background:#1a1a1a;border-radius:2px}
 
 /* Scanlines */
 body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
@@ -24,11 +24,11 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
 
 /* Status bar */
 #status{display:flex;align-items:center;gap:16px;padding:6px 12px;
-  border:1px solid #1a3a1a;border-radius:4px;background:rgba(0,0,0,0.4);
+  border:1px solid #1a1a1a;border-radius:4px;background:rgba(0,0,0,0.4);
   font-size:11px;min-height:32px;flex-shrink:0}
-#status .stat{color:#3a5a3a}
-#status .stat span{color:#00ff41}
-#status .stat .cy{color:#00cccc}
+#status .stat{color:#444444}
+#status .stat span{color:#a78bfa}
+#status .stat .cy{color:#34d399}
 #status .stat .am{color:#ffb000}
 #status .err{color:#ff5f56}
 
@@ -36,10 +36,10 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
 #main{display:grid;grid-template-columns:1fr 1fr;gap:4px;flex:1;min-height:0}
 
 /* Panels */
-.panel{border:1px solid #1a3a1a;border-radius:4px;background:rgba(0,0,0,0.3);
+.panel{border:1px solid #1a1a1a;border-radius:4px;background:rgba(0,0,0,0.3);
   display:flex;flex-direction:column;overflow:hidden}
-.panel-head{padding:6px 10px;border-bottom:1px solid #1a3a1a;
-  font-size:10px;color:#3a5a3a;letter-spacing:1px;text-transform:uppercase;
+.panel-head{padding:6px 10px;border-bottom:1px solid #1a1a1a;
+  font-size:10px;color:#444444;letter-spacing:1px;text-transform:uppercase;
   background:rgba(0,0,0,0.2);flex-shrink:0;display:flex;justify-content:space-between;align-items:center}
 .panel-body{flex:1;overflow-y:auto;padding:4px;font-size:12px}
 .panel-body pre{margin:0;white-space:pre-wrap;word-break:break-all}
@@ -48,68 +48,68 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
 #wheel-canvas{width:100%;height:100%;display:block;cursor:grab}
 
 /* ── JOB LIST ───────────────────────────────────── */
-#job-list .job-entry{padding:3px 8px;border-bottom:1px solid #0d1f0d;font-size:11px;
+#job-list .job-entry{padding:3px 8px;border-bottom:1px solid #111111;font-size:11px;
   display:flex;align-items:center;gap:6px}
 #job-list .job-entry:last-child{border:none}
-#job-list .job-id{color:#00cccc;font-family:inherit;font-size:10px;min-width:80px}
+#job-list .job-id{color:#34d399;font-family:inherit;font-size:10px;min-width:80px}
 #job-list .job-type{font-size:9px;padding:1px 5px;border-radius:2px;border:1px solid;min-width:40px;text-align:center}
 #job-list .job-type.unico{color:#ffb000;border-color:#1a4a1a}
-#job-list .job-type.recurrente{color:#00cccc;border-color:#1a4a4a}
+#job-list .job-type.recurrente{color:#34d399;border-color:#2a2a2a}
 #job-list .job-status{font-size:10px;min-width:60px}
-#job-list .job-status.pending{color:#556b55}
+#job-list .job-status.pending{color:#666666}
 #job-list .job-status.in_progress{color:#ffb000}
-#job-list .job-status.completed{color:#00ff41}
+#job-list .job-status.completed{color:#a78bfa}
 #job-list .job-status.failed{color:#ff5f56}
-#job-list .job-status.cancelled{color:#3a5a3a}
-#job-list .job-ts{color:#3a5a3a;font-size:9px;margin-left:auto}
-#job-list .empty{color:#1a3a1a;text-align:center;padding:20px;font-size:11px}
+#job-list .job-status.cancelled{color:#444444}
+#job-list .job-ts{color:#444444;font-size:9px;margin-left:auto}
+#job-list .empty{color:#1a1a1a;text-align:center;padding:20px;font-size:11px}
 
 /* ── EXECUTION LOG ──────────────────────────────── */
-#exec-log .log-entry{padding:2px 8px;font-size:10px;color:#556b55;border-bottom:1px solid #0a1a0a}
-#exec-log .log-entry .ts{color:#3a5a3a;margin-right:8px}
-#exec-log .log-entry.success{color:#00ff41}
+#exec-log .log-entry{padding:2px 8px;font-size:10px;color:#666666;border-bottom:1px solid #0a0a0a}
+#exec-log .log-entry .ts{color:#444444;margin-right:8px}
+#exec-log .log-entry.success{color:#a78bfa}
 #exec-log .log-entry.fail{color:#ff5f56}
-#exec-log .empty{color:#1a3a1a;text-align:center;padding:20px;font-size:11px}
+#exec-log .empty{color:#1a1a1a;text-align:center;padding:20px;font-size:11px}
 
 /* ── BOTTOM BAR ─────────────────────────────────── */
 #bottom{display:flex;gap:4px;flex-shrink:0;min-height:32px}
-#bottom input{flex:1;background:rgba(0,0,0,0.4);border:1px solid #1a3a1a;border-radius:4px;
-  padding:0 10px;color:#00ff41;font-family:'Courier New',monospace;font-size:12px;outline:none}
-#bottom input:focus{border-color:#00ff41}
-#bottom input::placeholder{color:#1a3a1a}
-#bottom button{background:rgba(0,0,0,0.4);border:1px solid #1a3a1a;border-radius:4px;
-  color:#3a5a3a;padding:0 14px;font-family:'Courier New',monospace;font-size:11px;cursor:pointer;
+#bottom input{flex:1;background:rgba(0,0,0,0.4);border:1px solid #1a1a1a;border-radius:4px;
+  padding:0 10px;color:#a78bfa;font-family:'Courier New',monospace;font-size:12px;outline:none}
+#bottom input:focus{border-color:#a78bfa}
+#bottom input::placeholder{color:#1a1a1a}
+#bottom button{background:rgba(0,0,0,0.4);border:1px solid #1a1a1a;border-radius:4px;
+  color:#444444;padding:0 14px;font-family:'Courier New',monospace;font-size:11px;cursor:pointer;
   transition:all .15s;white-space:nowrap}
-#bottom button:hover{border-color:#00ff41;color:#00ff41}
+#bottom button:hover{border-color:#a78bfa;color:#a78bfa}
 #bottom button.danger:hover{border-color:#ff5f56;color:#ff5f56}
-#bottom button.accent{color:#00cccc;border-color:#1a4a4a}
-#bottom button.accent:hover{border-color:#00cccc;color:#00cccc}
+#bottom button.accent{color:#34d399;border-color:#2a2a2a}
+#bottom button.accent:hover{border-color:#34d399;color:#34d399}
 
 /* ── MODAL ──────────────────────────────────────── */
 #modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;
   background:rgba(0,0,0,0.7);z-index:100;justify-content:center;align-items:center}
 #modal-overlay.open{display:flex}
-#modal{border:1px solid #1a3a1a;border-radius:6px;background:#0a0a0a;padding:24px;
+#modal{border:1px solid #1a1a1a;border-radius:6px;background:#0a0a0a;padding:24px;
   min-width:340px;max-width:500px;width:90%}
-#modal h3{font-size:14px;color:#00ff41;margin-bottom:16px;letter-spacing:1px}
-#modal label{display:block;font-size:11px;color:#3a5a3a;margin-bottom:4px;margin-top:12px}
+#modal h3{font-size:14px;color:#a78bfa;margin-bottom:16px;letter-spacing:1px}
+#modal label{display:block;font-size:11px;color:#444444;margin-bottom:4px;margin-top:12px}
 #modal label:first-child{margin-top:0}
-#modal input,#modal select{width:100%;background:rgba(0,0,0,0.4);border:1px solid #1a3a1a;
-  border-radius:3px;padding:8px 10px;color:#b3ffb3;font-family:'Courier New',monospace;font-size:12px;outline:none}
-#modal input:focus,#modal select:focus{border-color:#00ff41}
-#modal select option{background:#0a0a0a;color:#b3ffb3}
+#modal input,#modal select{width:100%;background:rgba(0,0,0,0.4);border:1px solid #1a1a1a;
+  border-radius:3px;padding:8px 10px;color:#e2e8f0;font-family:'Courier New',monospace;font-size:12px;outline:none}
+#modal input:focus,#modal select:focus{border-color:#a78bfa}
+#modal select option{background:#0a0a0a;color:#e2e8f0}
 #modal .btn-row{display:flex;gap:8px;margin-top:20px;justify-content:flex-end}
 #modal .btn-row button{padding:8px 20px;border-radius:3px;font-family:'Courier New',monospace;
   font-size:12px;cursor:pointer;transition:all .15s}
-#modal .btn-cancel{background:none;border:1px solid #1a3a1a;color:#3a5a3a}
-#modal .btn-cancel:hover{border-color:#556b55;color:#556b55}
-#modal .btn-submit{background:#00ff41;border:none;color:#080808;font-weight:700}
-#modal .btn-submit:hover{background:#00cc35}
+#modal .btn-cancel{background:none;border:1px solid #1a1a1a;color:#444444}
+#modal .btn-cancel:hover{border-color:#666666;color:#666666}
+#modal .btn-submit{background:#a78bfa;border:none;color:#000000;font-weight:700}
+#modal .btn-submit:hover{background:#8b5cf6}
 
 /* ── TOAST ──────────────────────────────────────── */
 #toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);
-  background:#0a0a0a;border:1px solid #1a3a1a;border-radius:4px;padding:8px 20px;
-  font-size:11px;color:#00ff41;opacity:0;transition:opacity .3s;pointer-events:none;z-index:50}
+  background:#0a0a0a;border:1px solid #1a1a1a;border-radius:4px;padding:8px 20px;
+  font-size:11px;color:#a78bfa;opacity:0;transition:opacity .3s;pointer-events:none;z-index:50}
 #toast.show{opacity:1}
 #toast.err{color:#ff5f56}
 
@@ -129,7 +129,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
     <div class="stat">⚡ <span id="speed-display" class="cy">1.0x</span></div>
     <div class="stat">◈ <span id="job-count" class="cy">0</span></div>
     <div class="stat">▶ <span id="exec-count" class="am">0</span></div>
-    <div class="stat" id="status-msg" style="color:#1a3a1a;font-size:10px">← type <span style="color:#3a5a3a">help</span> in the terminal</div>
+    <div class="stat" id="status-msg" style="color:#1a1a1a;font-size:10px">← type <span style="color:#444444">help</span> in the terminal</div>
   </div>
 
   <!-- Main Grid -->
@@ -140,7 +140,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
       <div class="panel" style="flex:1">
         <div class="panel-head">
           <span>◆ Timing Wheel</span>
-          <span id="wheel-info" style="color:#1a3a1a;font-size:10px">0 slots</span>
+          <span id="wheel-info" style="color:#1a1a1a;font-size:10px">0 slots</span>
         </div>
         <div class="panel-body" style="padding:0;overflow:hidden">
           <canvas id="wheel-canvas"></canvas>
@@ -150,7 +150,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
       <div class="panel" style="flex:0.8">
         <div class="panel-head">
           <span>■ Execution Log</span>
-          <span style="color:#1a3a1a;font-size:10px">last 50</span>
+          <span style="color:#1a1a1a;font-size:10px">last 50</span>
         </div>
         <div class="panel-body" id="exec-log">
           <div class="empty">⏳ awaiting execution...</div>
@@ -164,7 +164,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
       <div class="panel" style="flex:1">
         <div class="panel-head">
           <span>● Job Queue</span>
-          <span style="color:#1a3a1a;font-size:10px" id="job-count-label">0 jobs</span>
+          <span style="color:#1a1a1a;font-size:10px" id="job-count-label">0 jobs</span>
         </div>
         <div class="panel-body" id="job-list">
           <div class="empty">◇ no jobs scheduled</div>
@@ -174,7 +174,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
       <div class="panel" style="flex:0.6">
         <div class="panel-head">
           <span>▣ Slot Map</span>
-          <span style="color:#1a3a1a;font-size:10px" id="slot-count-label">0 slots</span>
+          <span style="color:#1a1a1a;font-size:10px" id="slot-count-label">0 slots</span>
         </div>
         <div class="panel-body" id="slot-list">
           <div class="empty">◇ no active slots</div>
@@ -273,7 +273,7 @@ async function loadWasm() {
 
   ready = true;
   status.textContent = '✓ simulator ready — try create, tick, or advance';
-  status.style.color = '#00ff41';
+  status.style.color = '#a78bfa';
   toast('simulator loaded');
   refresh();
   startWheelAnimation();
@@ -338,7 +338,7 @@ function refresh() {
         <span class="ts">[${t}]</span>
         ${e.job_id ? e.job_id.slice(0,8) : '???'}
         ${e.success ? '✓ completed' : '✗ failed'}
-        <span style="color:#3a5a3a">${e.response_time || 0}ms</span>
+        <span style="color:#444444">${e.response_time || 0}ms</span>
       </div>`;
     }).join('');
   }
@@ -357,9 +357,9 @@ function refresh() {
       const jobCount = slot.job_ids ? slot.job_ids.length : 0;
       return `<div class="job-entry" style="font-size:10px">
         <span style="color:#ffb000">◈</span>
-        <span style="color:#00cccc;font-size:9px">${minDate}–${maxDate}</span>
-        <span style="color:#556b55">${jobCount} jobs</span>
-        <span style="color:#3a5a3a;margin-left:auto;font-size:8px">key:${key}</span>
+        <span style="color:#34d399;font-size:9px">${minDate}–${maxDate}</span>
+        <span style="color:#666666">${jobCount} jobs</span>
+        <span style="color:#444444;margin-left:auto;font-size:8px">key:${key}</span>
       </div>`;
     }).join('');
   }
@@ -407,7 +407,7 @@ function drawWheel() {
   const outerR = maxR;
   wheelCtx.beginPath();
   wheelCtx.arc(cx, cy, outerR, 0, Math.PI * 2);
-  wheelCtx.strokeStyle = '#1a3a1a';
+  wheelCtx.strokeStyle = '#1a1a1a';
   wheelCtx.lineWidth = 1;
   wheelCtx.stroke();
 
@@ -418,7 +418,7 @@ function drawWheel() {
     wheelCtx.beginPath();
     wheelCtx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
     wheelCtx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR);
-    wheelCtx.strokeStyle = i % 5 === 0 ? '#2a5a2a' : '#1a3a1a';
+    wheelCtx.strokeStyle = i % 5 === 0 ? '#2a5a2a' : '#1a1a1a';
     wheelCtx.lineWidth = 1;
     wheelCtx.stroke();
   }
@@ -427,7 +427,7 @@ function drawWheel() {
   const innerR = outerR * 0.55;
   wheelCtx.beginPath();
   wheelCtx.arc(cx, cy, innerR, 0, Math.PI * 2);
-  wheelCtx.strokeStyle = '#1a3a1a';
+  wheelCtx.strokeStyle = '#1a1a1a';
   wheelCtx.lineWidth = 1;
   wheelCtx.stroke();
 
@@ -444,7 +444,7 @@ function drawWheel() {
       // Arc on outer ring
       wheelCtx.beginPath();
       wheelCtx.arc(cx, cy, outerR - 2, startAngle, endAngle);
-      wheelCtx.strokeStyle = '#00ff41';
+      wheelCtx.strokeStyle = '#a78bfa';
       wheelCtx.lineWidth = 2;
       wheelCtx.globalAlpha = 0.6;
       wheelCtx.stroke();
@@ -453,7 +453,7 @@ function drawWheel() {
       // Arc on inner ring
       wheelCtx.beginPath();
       wheelCtx.arc(cx, cy, innerR + 2, startAngle, endAngle);
-      wheelCtx.strokeStyle = '#00cccc';
+      wheelCtx.strokeStyle = '#34d399';
       wheelCtx.lineWidth = 1.5;
       wheelCtx.globalAlpha = 0.4;
       wheelCtx.stroke();
@@ -464,7 +464,7 @@ function drawWheel() {
       wheelCtx.beginPath();
       wheelCtx.moveTo(cx + Math.cos(midAngle) * innerR, cy + Math.sin(midAngle) * innerR);
       wheelCtx.lineTo(cx + Math.cos(midAngle) * outerR, cy + Math.sin(midAngle) * outerR);
-      wheelCtx.strokeStyle = '#1a3a1a';
+      wheelCtx.strokeStyle = '#1a1a1a';
       wheelCtx.lineWidth = 0.5;
       wheelCtx.stroke();
     });
@@ -475,7 +475,7 @@ function drawWheel() {
   wheelCtx.beginPath();
   wheelCtx.moveTo(cx, cy);
   wheelCtx.lineTo(cx + Math.cos(nowAngle) * outerR, cy + Math.sin(nowAngle) * outerR);
-  wheelCtx.strokeStyle = '#00ff41';
+  wheelCtx.strokeStyle = '#a78bfa';
   wheelCtx.lineWidth = 1.5;
   wheelCtx.globalAlpha = 0.8;
   wheelCtx.stroke();
@@ -484,21 +484,21 @@ function drawWheel() {
   // Center dot
   wheelCtx.beginPath();
   wheelCtx.arc(cx, cy, 3, 0, Math.PI * 2);
-  wheelCtx.fillStyle = '#00ff41';
+  wheelCtx.fillStyle = '#a78bfa';
   wheelCtx.fill();
 
   // Labels
-  wheelCtx.fillStyle = '#1a3a1a';
+  wheelCtx.fillStyle = '#1a1a1a';
   wheelCtx.font = '9px "Courier New", monospace';
   wheelCtx.textAlign = 'center';
   wheelCtx.fillText('SCHEDULED-DB', cx, cy + 3);
-  wheelCtx.fillStyle = '#3a5a3a';
+  wheelCtx.fillStyle = '#444444';
   wheelCtx.font = '7px "Courier New", monospace';
   wheelCtx.fillText(slotCount + ' slots · ' + (state.total_executed || 0) + ' exec', cx, cy + 16);
 
   // HUD in corner
   wheelCtx.textAlign = 'left';
-  wheelCtx.fillStyle = '#1a3a1a';
+  wheelCtx.fillStyle = '#1a1a1a';
   wheelCtx.font = '8px "Courier New", monospace';
   wheelCtx.fillText('T+' + (state.tick_count || 0), 8, 12);
   wheelCtx.fillText('◈' + jobCount(), 8, 22);

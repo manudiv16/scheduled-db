@@ -6,194 +6,168 @@
 <title>Scheduled-DB — Distributed Job Scheduling on Raft</title>
 <meta name="description" content="Reliable distributed job scheduling built on Raft consensus. Schedule once, schedule recurring — your cluster keeps promises even when nodes fail.">
 <style>
-/* ── RESET ───────────────────────────────────────── */
+/* ── RESET ─────────────────────────────────────── */
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{background:#0a0a0a;color:#b3ffb3;font-family:'Courier New',monospace;line-height:1.6;overflow-x:hidden}
+body{background:#000;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;overflow-x:hidden}
 a{color:inherit;text-decoration:none}
-::selection{background:#00ff41;color:#0a0a0a}
+::selection{background:#a78bfa;color:#000}
 ::-webkit-scrollbar{width:6px}
-::-webkit-scrollbar-track{background:#0a0a0a}
-::-webkit-scrollbar-thumb{background:#1a3a1a;border-radius:3px}
-::-webkit-scrollbar-thumb:hover{background:#2a5a2a}
+::-webkit-scrollbar-track{background:#000}
+::-webkit-scrollbar-thumb{background:#333;border-radius:3px}
 
-/* ── CANVAS BACKGROUND ────────────────────────────── */
-#bg-canvas{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:0.35}
-/* Scanlines overlay */
-body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
-  background:repeating-linear-gradient(0deg,rgba(0,0,0,0.15) 0px,rgba(0,0,0,0.15) 1px,transparent 1px,transparent 3px);
-  pointer-events:none;z-index:9999}
-/* CRT vignette */
-body::before{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
-  background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.5) 100%);
-  pointer-events:none;z-index:9998}
-
-/* ── NAV ─────────────────────────────────────────── */
-nav{position:fixed;top:0;left:0;right:0;z-index:100;
-  background:rgba(10,10,10,0.85);backdrop-filter:blur(8px);
-  border-bottom:1px solid #1a3a1a;padding:0 24px}
-nav .inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:52px}
-nav .logo{font-weight:700;font-size:18px;color:#00ff41;letter-spacing:2px}
-nav .logo span{color:#b3ffb3}
-nav .links{display:flex;gap:4px}
-nav .links a{padding:6px 12px;font-size:12px;color:#556b55;transition:color .2s}
-nav .links a:hover{color:#00ff41}
-nav .links a.active{color:#00ff41}
-nav .github-btn{padding:6px 14px;border:1px solid #1a3a1a;border-radius:4px;font-size:11px;color:#556b55;transition:all .2s}
-nav .github-btn:hover{border-color:#00ff41;color:#00ff41}
-.mobile-toggle{display:none;background:none;border:1px solid #1a3a1a;color:#556b55;padding:6px 10px;border-radius:4px;cursor:pointer;font-size:14px}
-.mobile-toggle:hover{color:#00ff41}
-#mobile-menu{display:none;position:fixed;top:52px;left:0;right:0;background:#0a0a0a;border-bottom:1px solid #1a3a1a;padding:12px;z-index:99}
-#mobile-menu a{display:block;padding:8px 12px;font-size:13px;color:#556b55;border-bottom:1px solid #111}
+/* ── NAV ───────────────────────────────────────── */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(0,0,0,0.8);backdrop-filter:blur(12px);border-bottom:1px solid #1a1a1a;padding:0 24px}
+nav .inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:56px}
+nav .logo{font-weight:700;font-size:17px;color:#fff;letter-spacing:-0.5px}
+nav .logo span{color:#a78bfa}
+nav .links{display:flex;gap:2px;align-items:center}
+nav .links a{padding:6px 12px;font-size:13px;color:#666;transition:color .2s;border-radius:6px}
+nav .links a:hover{color:#fff}
+nav .links a.active{color:#a78bfa}
+nav .github-btn{padding:6px 14px;border:1px solid #333;border-radius:8px;font-size:12px;color:#999;transition:all .2s;display:flex;align-items:center;gap:6px}
+nav .github-btn:hover{border-color:#a78bfa;color:#a78bfa}
+.mobile-toggle{display:none;background:none;border:1px solid #333;color:#999;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:14px}
+#mobile-menu{display:none;position:fixed;top:56px;left:0;right:0;background:#000;border-bottom:1px solid #1a1a1a;padding:12px;z-index:99}
+#mobile-menu a{display:block;padding:10px 16px;font-size:14px;color:#666;border-bottom:1px solid #111}
 #mobile-menu a:last-child{border:none}
-#mobile-menu a:hover{color:#00ff41}
+#mobile-menu a:hover{color:#fff}
 
-/* ── SECTIONS ────────────────────────────────────── */
-section{padding:80px 24px;position:relative;z-index:1}
-section .inner{max-width:1000px;margin:0 auto}
-
-/* ── HERO ────────────────────────────────────────── */
-#hero{min-height:100vh;display:flex;align-items:center;padding-top:52px}
-#hero .content{position:relative;z-index:2}
-#hero .ascii-art{font-size:clamp(4px,1.2vw,10px);line-height:1;color:#1a3a1a;white-space:pre;overflow:hidden;user-select:none}
-#hero .ascii-art .g{color:#00ff41}
-#hero .ascii-art .c{color:#00cccc}
-#hero .ascii-art .a{color:#ffb000}
-#hero .ascii-art .m{color:#556b55}
-#hero h1{font-size:clamp(28px,5vw,56px);font-weight:700;letter-spacing:4px;margin:24px 0 8px;color:#00ff41;text-shadow:0 0 20px rgba(0,255,65,0.3)}
-#hero h1 span{color:#b3ffb3}
-#hero .sub{font-size:clamp(14px,1.8vw,20px);color:#556b55;margin-bottom:8px;letter-spacing:2px}
-#hero .tagline{font-size:clamp(13px,1.2vw,15px);color:#3a5a3a;margin-bottom:32px;max-width:600px}
-#hero .ctas{display:flex;flex-wrap:wrap;gap:12px}
-#hero .ctas a{padding:10px 24px;font-size:13px;border:1px solid #1a3a1a;border-radius:4px;transition:all .2s;letter-spacing:1px}
-#hero .ctas .primary{background:#00ff41;color:#0a0a0a;border-color:#00ff41;font-weight:700}
-#hero .ctas .primary:hover{background:#00cc35;box-shadow:0 0 20px rgba(0,255,65,0.3)}
-#hero .ctas .secondary:hover{border-color:#00ff41;color:#00ff41}
-#hero .ctas .sim{color:#00cccc;border-color:#1a4a4a}
-#hero .ctas .sim:hover{border-color:#00cccc;color:#00cccc;box-shadow:0 0 15px rgba(0,204,204,0.15)}
-
-/* Terminal cursor blink */
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
-.cursor{display:inline-block;width:10px;height:1.2em;background:#00ff41;animation:blink 1s step-end infinite;vertical-align:text-bottom;margin-left:4px}
-
-/* ── TERMINAL WINDOW ─────────────────────────────── */
-.term-window{border:1px solid #1a3a1a;border-radius:6px;overflow:hidden;margin:40px 0;background:rgba(10,10,10,0.6);backdrop-filter:blur(4px)}
-.term-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid #1a3a1a;background:rgba(0,0,0,0.3)}
-.term-dot{width:10px;height:10px;border-radius:50%}
-.term-dot.r{background:#ff5f56}
-.term-dot.y{background:#ffbd2e}
-.term-dot.g{background:#27c93f}
-.term-title{font-size:11px;color:#3a5a3a;margin-left:8px;letter-spacing:1px}
-.term-body{padding:20px 24px;font-size:14px;line-height:1.7}
-
-/* ── SECTION HEADERS ─────────────────────────────── */
+/* ── SECTIONS ──────────────────────────────────── */
+section{padding:80px 24px;position:relative}
+section .inner{max-width:1100px;margin:0 auto}
 .section-header{text-align:center;margin-bottom:48px}
-.section-header h2{font-size:clamp(22px,3vw,36px);color:#00ff41;letter-spacing:3px;margin-bottom:8px}
-.section-header h2::before{content:'# ';color:#3a5a3a}
-.section-header p{color:#3a5a3a;font-size:14px}
+.section-header h2{font-size:clamp(24px,3.5vw,40px);font-weight:700;color:#fff;letter-spacing:-0.5px;margin-bottom:8px}
+.section-header p{color:#666;font-size:15px;max-width:500px;margin:0 auto}
 
-/* ── FEATURE GRID ────────────────────────────────── */
-.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
-.feature-card{border:1px solid #1a3a1a;border-radius:6px;padding:24px;transition:all .2s;background:rgba(10,10,10,0.3)}
-.feature-card:hover{border-color:#00ff41;box-shadow:0 0 15px rgba(0,255,65,0.08)}
-.feature-card .icon{font-size:24px;margin-bottom:12px;color:#00ff41}
-.feature-card h3{font-size:14px;color:#b3ffb3;margin-bottom:8px;letter-spacing:1px}
-.feature-card h3::before{content:'> ';color:#3a5a3a}
-.feature-card p{font-size:13px;color:#556b55;line-height:1.7}
+/* ── HERO ──────────────────────────────────────── */
+#hero{min-height:100vh;display:flex;align-items:center;padding-top:56px;background:radial-gradient(ellipse at 70% 30%,rgba(167,139,250,0.04) 0%,transparent 60%)}
+#hero .grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;max-width:1200px;margin:0 auto;width:100%}
+#hero .content{padding:24px}
+#hero .tagline{font-family:'SF Mono',Monaco,'Cascadia Code','JetBrains Mono',monospace;font-size:11px;color:#a78bfa;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+#hero .tagline::before{content:'';width:8px;height:8px;border-radius:50%;background:#a78bfa}
+#hero h1{font-size:clamp(32px,5vw,52px);font-weight:800;color:#fff;letter-spacing:-1px;line-height:1.1;margin-bottom:16px}
+#hero h1 span{color:#a78bfa}
+#hero .desc{font-size:15px;color:#666;line-height:1.7;margin-bottom:32px;max-width:440px}
+#hero .ctas{display:flex;flex-wrap:wrap;gap:12px}
+#hero .ctas a{padding:12px 24px;font-size:14px;font-weight:600;border-radius:10px;transition:all .2s;letter-spacing:0.2px}
+#hero .ctas .primary{background:#a78bfa;color:#000}
+#hero .ctas .primary:hover{background:#8b5cf6;box-shadow:0 0 30px rgba(167,139,250,0.3)}
+#hero .ctas .secondary{border:1px solid #333;color:#999}
+#hero .ctas .secondary:hover{border-color:#a78bfa;color:#a78bfa}
+#hero .ctas .sim{color:#a78bfa;border:1px solid rgba(167,139,250,0.3)}
+#hero .ctas .sim:hover{border-color:#a78bfa;box-shadow:0 0 20px rgba(167,139,250,0.15)}
 
-/* ── ARCHITECTURE DIAGRAM ────────────────────────── */
-.arch-diagram{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:16px 8px;padding:24px;border:1px solid #1a3a1a;border-radius:6px;background:rgba(10,10,10,0.3)}
-.arch-node{border:1px solid #1a3a1a;border-radius:6px;padding:16px 20px;text-align:center;min-width:120px;transition:all .2s;background:rgba(10,10,10,0.2)}
-.arch-node:hover{border-color:#00ff41}
-.arch-node.leader{border-color:#ffb000;box-shadow:0 0 15px rgba(255,176,0,0.1)}
-.arch-node .label{font-size:11px;color:#556b55;letter-spacing:1px;margin-bottom:4px}
-.arch-node .title{font-size:13px;font-weight:700;letter-spacing:1px}
-.arch-node.leader .title{color:#ffb000}
-.arch-node.follower .title{color:#00cccc}
-.arch-node .port{font-size:10px;color:#3a5a3a;margin-top:4px}
-.arch-arrow{color:#1a3a1a;font-size:16px}
+/* Canvas container */
+#hero .canvas-wrap{position:relative;min-height:480px;border-radius:16px;overflow:hidden;background:#050505;border:1px solid #1a1a1a}
+#hero .canvas-wrap::before{content:'';position:absolute;top:12px;right:12px;z-index:10;display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:20px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.15)}
+#hero .canvas-badge{position:absolute;top:12px;right:12px;z-index:10;display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:20px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.15);font-family:'SF Mono',Monaco,monospace;font-size:9px;color:#a78bfa;letter-spacing:1px;text-transform:uppercase}
+#hero .canvas-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:#a78bfa}
+#ascii-canvas{display:block;width:100%;height:100%;cursor:grab}
+#ascii-canvas:active{cursor:grabbing}
+.canvas-badges{position:absolute;bottom:12px;left:12px;right:12px;z-index:10;display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.canvas-badges span{padding:4px 10px;border-radius:6px;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.1);font-family:'SF Mono',Monaco,monospace;font-size:10px;color:rgba(255,255,255,0.5)}
+.canvas-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#050505;color:#444;font-size:13px;font-family:'SF Mono',Monaco,monospace;z-index:5}
 
-/* ── DATA FLOW ───────────────────────────────────── */
-.flow-row{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;margin-top:24px}
-.flow-item{border:1px solid #1a3a1a;border-radius:4px;padding:8px 14px;font-size:11px;color:#556b55;letter-spacing:1px;transition:all .2s}
-.flow-item:hover{border-color:#00ff41;color:#b3ffb3}
-.flow-item.highlight{border-color:#00cccc;color:#00cccc}
-.flow-arr{color:#1a3a1a;font-size:12px}
-.flow-cap{margin-top:24px}
-.flow-cap .flow-item.highlight{color:#ffb000;border-color:#1a4a1a}
-.flow-cap-note{text-align:center;font-size:11px;color:#3a5a3a;margin-top:12px}
+/* CRT overlay on canvas */
+.crt-overlay{position:absolute;inset:0;pointer-events:none;z-index:8;background:repeating-linear-gradient(0deg,rgba(0,0,0,0.08) 0px,rgba(0,0,0,0.08) 1px,transparent 1px,transparent 3px)}
+.crt-vignette{position:absolute;inset:0;pointer-events:none;z-index:9;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.4) 100%)}
 
-/* ── STEPS ───────────────────────────────────────── */
+/* ── FEATURES ──────────────────────────────────── */
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.feature-card{border:1px solid #1a1a1a;border-radius:12px;padding:28px;transition:all .25s;background:#050505}
+.feature-card:hover{border-color:rgba(167,139,250,0.3);transform:translateY(-2px);box-shadow:0 8px 32px rgba(167,139,250,0.06)}
+.feature-card .icon{font-size:22px;margin-bottom:16px;color:#a78bfa}
+.feature-card h3{font-size:15px;font-weight:600;color:#fff;margin-bottom:8px;letter-spacing:-0.2px}
+.feature-card p{font-size:13px;color:#666;line-height:1.7}
+
+/* ── ARCHITECTURE ──────────────────────────────── */
+.arch-diagram{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:12px 6px;padding:32px;border:1px solid #1a1a1a;border-radius:12px;background:#050505}
+.arch-node{border:1px solid #1a1a1a;border-radius:10px;padding:16px 20px;text-align:center;min-width:120px;transition:all .2s;background:#0a0a0a}
+.arch-node:hover{border-color:rgba(167,139,250,0.3)}
+.arch-node.leader{border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.04)}
+.arch-node .label{font-size:9px;color:#444;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px}
+.arch-node .title{font-size:13px;font-weight:700;color:#fff}
+.arch-node.leader .title{color:#a78bfa}
+.arch-node .port{font-size:10px;color:#444;margin-top:4px;font-family:'SF Mono',Monaco,monospace}
+.arch-arrow{color:#333;font-size:16px}
+
+.flow-row{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;margin-top:20px}
+.flow-item{border:1px solid #1a1a1a;border-radius:6px;padding:8px 14px;font-size:11px;color:#666;letter-spacing:0.5px;transition:all .15s;background:#0a0a0a;font-family:'SF Mono',Monaco,monospace}
+.flow-item:hover{border-color:rgba(167,139,250,0.3);color:#fff}
+.flow-item.hl{border-color:rgba(167,139,250,0.3);color:#a78bfa}
+.flow-arr{color:#333;font-size:12px}
+.flow-note{text-align:center;font-size:11px;color:#444;margin-top:16px}
+
+/* ── STEPS ─────────────────────────────────────── */
 .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
-.step{border:1px solid #1a3a1a;border-radius:6px;padding:24px;background:rgba(10,10,10,0.3);transition:all .2s}
-.step:hover{border-color:#00ff41}
-.step .num{font-size:28px;font-weight:700;color:#1a3a1a;margin-bottom:8px}
-.step h3{font-size:14px;color:#00ff41;margin-bottom:8px;letter-spacing:1px}
-.step p{font-size:13px;color:#556b55;margin-bottom:12px;line-height:1.7}
+.step{border:1px solid #1a1a1a;border-radius:12px;padding:28px;background:#050505;transition:all .25s}
+.step:hover{border-color:rgba(167,139,250,0.3);transform:translateY(-2px)}
+.step .num{font-size:24px;font-weight:800;color:#1a1a1a;margin-bottom:8px}
+.step h3{font-size:15px;font-weight:600;color:#a78bfa;margin-bottom:8px}
+.step p{font-size:13px;color:#666;margin-bottom:16px;line-height:1.7}
 
-/* ── CODE BLOCK ──────────────────────────────────── */
-.code-block{background:rgba(0,0,0,0.4);border:1px solid #1a3a1a;border-radius:4px;padding:16px;font-size:12px;line-height:1.8;overflow-x:auto;position:relative;font-family:'Courier New',monospace}
-.code-block .cm{color:#3a5a3a;font-style:italic}
-.code-block .kw{color:#00cccc}
-.code-block .st{color:#ffb000}
-.code-block .fn{color:#00ff41}
-.code-block .bo{color:#556b55}
-.code-copy{position:absolute;top:10px;right:10px;background:rgba(10,10,10,0.5);border:1px solid #1a3a1a;border-radius:3px;color:#3a5a3a;padding:4px 10px;font-size:10px;cursor:pointer;font-family:inherit;transition:all .2s}
-.code-copy:hover{border-color:#00ff41;color:#00ff41}
+/* ── CODE BLOCK ────────────────────────────────── */
+.code-block{background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px;padding:16px;font-family:'SF Mono',Monaco,'Cascadia Code','JetBrains Mono',monospace;font-size:12px;line-height:1.8;overflow-x:auto;position:relative}
+.code-block .cm{color:#444;font-style:italic}
+.code-block .kw{color:#a78bfa}
+.code-block .st{color:#fbbf24}
+.code-block .fn{color:#34d399}
+.code-block .bo{color:#666}
 
-/* ── JOB TYPES ───────────────────────────────────── */
-.job-types{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
-.job-card{border:1px solid #1a3a1a;border-radius:6px;padding:32px;background:rgba(10,10,10,0.3);transition:all .2s}
-.job-card:hover{border-color:#00ff41}
-.job-card h3{font-size:22px;color:#00ff41;letter-spacing:3px;margin-bottom:4px}
-.job-card .type-label{font-size:11px;color:#3a5a3a;margin-bottom:16px;letter-spacing:2px}
-.job-card p{font-size:13px;color:#556b55;line-height:1.7;margin-bottom:16px}
-.job-badge{display:inline-block;padding:4px 12px;border:1px solid #1a3a1a;border-radius:3px;font-size:10px;color:#3a5a3a;letter-spacing:1px;margin-top:8px}
+/* ── JOB TYPES ─────────────────────────────────── */
+.job-types{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
+.job-card{border:1px solid #1a1a1a;border-radius:12px;padding:32px;background:#050505;transition:all .25s}
+.job-card:hover{border-color:rgba(167,139,250,0.3);transform:translateY(-2px)}
+.job-card h3{font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.5px;margin-bottom:4px}
+.job-card .type-label{font-size:11px;color:#444;margin-bottom:16px;letter-spacing:1px;text-transform:uppercase;font-family:'SF Mono',Monaco,monospace}
+.job-card p{font-size:13px;color:#666;line-height:1.7;margin-bottom:16px}
+.job-badge{display:inline-block;padding:4px 12px;border:1px solid #1a1a1a;border-radius:6px;font-size:10px;color:#444;letter-spacing:1px;font-family:'SF Mono',Monaco,monospace}
 
-/* ── API LIST ────────────────────────────────────── */
-.api-list{display:flex;flex-direction:column;gap:4px}
-.api-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 16px;border:1px solid #1a3a1a;border-radius:4px;font-size:12px;transition:all .1s;background:rgba(10,10,10,0.2)}
-.api-row:hover{border-color:#2a5a2a}
-.api-method{font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;letter-spacing:1px;min-width:48px;text-align:center}
-.api-method.post{background:rgba(0,204,204,0.15);color:#00cccc;border:1px solid rgba(0,204,204,0.2)}
-.api-method.get{background:rgba(0,255,65,0.1);color:#00ff41;border:1px solid rgba(0,255,65,0.15)}
-.api-method.delete{background:rgba(255,95,86,0.1);color:#ff5f56;border:1px solid rgba(255,95,86,0.15)}
-.api-path{font-family:'Courier New',monospace;color:#b3ffb3;font-size:12px;flex:1}
-.api-desc{color:#3a5a3a;font-size:11px}
+/* ── API LIST ──────────────────────────────────── */
+.api-list{display:flex;flex-direction:column;gap:6px}
+.api-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;border:1px solid #1a1a1a;border-radius:8px;font-size:13px;transition:all .15s;background:#050505}
+.api-row:hover{border-color:rgba(167,139,250,0.2)}
+.api-method{font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;letter-spacing:1px;min-width:50px;text-align:center;font-family:'SF Mono',Monaco,monospace}
+.api-method.post{background:rgba(167,139,250,0.12);color:#a78bfa;border:1px solid rgba(167,139,250,0.2)}
+.api-method.get{background:rgba(52,211,153,0.1);color:#34d399;border:1px solid rgba(52,211,153,0.15)}
+.api-method.delete{background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.15)}
+.api-path{font-family:'SF Mono',Monaco,monospace;color:#fff;font-size:12px;flex:1}
+.api-desc{color:#444;font-size:11px}
 
-/* ── DEPLOY ──────────────────────────────────────── */
-.deploy-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
-.deploy-card{border:1px solid #1a3a1a;border-radius:6px;padding:32px;background:rgba(10,10,10,0.3);transition:all .2s}
-.deploy-card:hover{border-color:#00ff41}
-.deploy-card .icon{font-size:24px;margin-bottom:12px}
-.deploy-card h3{font-size:15px;color:#b3ffb3;margin-bottom:4px;letter-spacing:1px}
-.deploy-card p{font-size:12px;color:#556b55;margin-bottom:16px;line-height:1.7}
-.deploy-card .deploy-badge{display:inline-block;padding:3px 10px;border:1px solid #1a3a1a;border-radius:3px;font-size:9px;color:#3a5a3a;letter-spacing:1px}
+/* ── DEPLOY ────────────────────────────────────── */
+.deploy-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+.deploy-card{border:1px solid #1a1a1a;border-radius:12px;padding:32px;background:#050505;transition:all .25s}
+.deploy-card:hover{border-color:rgba(167,139,250,0.3);transform:translateY(-2px)}
+.deploy-card .icon{font-size:24px;margin-bottom:16px;color:#a78bfa}
+.deploy-card h3{font-size:16px;font-weight:600;color:#fff;margin-bottom:4px}
+.deploy-card p{font-size:13px;color:#666;margin-bottom:16px;line-height:1.7}
+.deploy-badge{display:inline-block;padding:4px 12px;border:1px solid #1a1a1a;border-radius:6px;font-size:10px;color:#444;letter-spacing:1px;font-family:'SF Mono',Monaco,monospace}
 
-/* ── FOOTER ──────────────────────────────────────── */
-footer{padding:48px 24px;border-top:1px solid #1a3a1a;position:relative;z-index:1}
-footer .inner{max-width:1000px;margin:0 auto}
+/* ── FOOTER ────────────────────────────────────── */
+footer{padding:48px 24px;border-top:1px solid #1a1a1a}
+footer .inner{max-width:1100px;margin:0 auto}
 footer .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:32px;margin-bottom:32px}
-footer h4{font-size:13px;color:#00ff41;letter-spacing:2px;margin-bottom:16px}
-footer p{font-size:12px;color:#3a5a3a;line-height:1.7}
+footer h4{font-size:13px;font-weight:600;color:#fff;margin-bottom:16px;letter-spacing:-0.2px}
+footer p{font-size:12px;color:#444;line-height:1.7}
 footer ul{list-style:none}
 footer ul li{margin-bottom:8px}
-footer ul li a{font-size:12px;color:#3a5a3a;transition:color .2s}
-footer ul li a:hover{color:#00ff41}
-footer .bottom{border:1px solid #1a3a1a;border-radius:6px;padding:24px;text-align:center;background:rgba(10,10,10,0.3)}
-footer .bottom p{font-size:11px;color:#3a5a3a}
-footer .bottom p span{color:#556b55}
+footer ul li a{font-size:12px;color:#444;transition:color .2s}
+footer ul li a:hover{color:#a78bfa}
+footer .bottom{border:1px solid #1a1a1a;border-radius:12px;padding:24px;text-align:center;background:#050505}
+footer .bottom p{font-size:11px;color:#444}
+footer .bottom p span{color:#666}
 
-/* ── RESPONSIVE ──────────────────────────────────── */
-@media(max-width:768px){
+/* ── RESPONSIVE ────────────────────────────────── */
+@media(max-width:900px){
+  #hero .grid{grid-template-columns:1fr}
+  #hero .canvas-wrap{min-height:320px}
   nav .links{display:none}
   .mobile-toggle{display:block}
-  #hero .ascii-art{font-size:3px;line-height:1.1}
-  section{padding:48px 16px}
-  .term-body{padding:14px 16px;font-size:13px}
 }
 @media(max-width:480px){
-  #hero .ascii-art{font-size:2px}
+  section{padding:48px 16px}
+  #hero{padding-top:80px}
 }
 </style>
 </head>
@@ -210,8 +184,8 @@ footer .bottom p span{color:#556b55}
       <a href="#quick-start">Quick Start</a>
       <a href="#api">API</a>
       <a href="#deploy">Deploy</a>
-      <a href="simulator.html" style="color:#00cccc;border:1px solid #1a4a4a;border-radius:4px;padding:6px 12px;font-size:12px">~ Simulator</a>
-      <a href="https://github.com/manudiv16/scheduled-db" class="github-btn" target="_blank">~/ GitHub</a>
+      <a href="simulator.html" style="color:#a78bfa">Simulator</a>
+      <a href="https://github.com/manudiv16/scheduled-db" class="github-btn" target="_blank">GitHub</a>
     </div>
     <button class="mobile-toggle" id="menu-btn" aria-label="Menu">☰</button>
   </div>
@@ -224,40 +198,41 @@ footer .bottom p span{color:#556b55}
   <a href="#quick-start">Quick Start</a>
   <a href="#api">API</a>
   <a href="#deploy">Deploy</a>
-  <a href="simulator.html" style="color:#00cccc">~ Simulator</a>
-  <a href="https://github.com/manudiv16/scheduled-db" target="_blank">~/ GitHub</a>
+  <a href="simulator.html" style="color:#a78bfa">Simulator</a>
+  <a href="https://github.com/manudiv16/scheduled-db" target="_blank">GitHub</a>
 </div>
 
-<canvas id="bg-canvas"></canvas>
-
-<!-- ─── HERO ──────────────────────────────────────── -->
+<!-- ─── HERO ────────────────────────────────────── -->
 <section id="hero">
-  <div class="content inner">
-    <pre class="ascii-art" id="hero-ascii">
-      ███████  ██████  ██   ██ ███████ ██████  ██    ██ ██      ███████ ██████
-      ██      ██    ██ ██   ██ ██      ██   ██ ██    ██ ██      ██      ██   ██
-      ███████ ██    ██ ███████ █████   ██   ██ ██    ██ ██      █████   ██   ██
-           ██ ██    ██ ██   ██ ██      ██   ██ ██    ██ ██      ██      ██   ██
-      ███████  ██████  ██   ██ ███████ ██████   ██████  ███████ ███████ ██████
-
-      ██████  ██████
-      ██   ██ ██   ██
-      ██   ██ ██████
-      ██   ██ ██   ██
-      ██████  ██████
-    </pre>
-    <h1>Scheduled<span>-DB</span></h1>
-    <div class="sub">Distributed Job Scheduling on Raft Consensus</div>
-    <div class="tagline">Schedule once, schedule recurring — your cluster keeps promises even when nodes fail. No split-brain, no data loss, no single point of failure.</div>
-    <div class="ctas">
-      <a href="#quick-start" class="primary">[ Get Started ]</a>
-      <a href="https://github.com/manudiv16/scheduled-db" class="secondary" target="_blank">[ View on GitHub ]</a>
-      <a href="simulator.html" class="sim">[ Live Simulator ]</a>
+  <div class="grid">
+    <div class="content">
+      <div class="tagline">Distributed Job Scheduling</div>
+      <h1>Scheduled<span>-DB</span></h1>
+      <p class="desc">Reliable distributed job scheduling built on Raft consensus. Schedule once, schedule recurring — your cluster keeps promises even when nodes fail. No split-brain, no data loss, no single point of failure.</p>
+      <div class="ctas">
+        <a href="#quick-start" class="primary">Get Started</a>
+        <a href="https://github.com/manudiv16/scheduled-db" class="secondary" target="_blank">View on GitHub</a>
+        <a href="simulator.html" class="sim">Live Simulator</a>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <div class="canvas-badge">3D Canvas</div>
+      <canvas id="ascii-canvas"></canvas>
+      <div class="canvas-loading" id="canvas-loading">Initializing WebGL…</div>
+      <div class="crt-overlay"></div>
+      <div class="crt-vignette"></div>
+      <div class="canvas-badges">
+        <span>Gear Model</span>
+        <span>Drag to rotate</span>
+        <span>Hover to zoom</span>
+        <span>ASCII shader</span>
+        <span>CRT effects</span>
+      </div>
     </div>
   </div>
 </section>
 
-<!-- ─── FEATURES ──────────────────────────────────── -->
+<!-- ─── FEATURES ────────────────────────────────── -->
 <section id="features">
   <div class="inner">
     <div class="section-header">
@@ -273,7 +248,7 @@ footer .bottom p span{color:#556b55}
       <div class="feature-card">
         <div class="icon">◈</div>
         <h3>Two Job Types</h3>
-        <p><strong style="color:#b3ffb3">Unico</strong> for one-time execution. <strong style="color:#b3ffb3">Recurrente</strong> for cron-based recurring schedules with optional end dates.</p>
+        <p><strong style="color:#e2e8f0">Unico</strong> for one-time execution. <strong style="color:#e2e8f0">Recurrente</strong> for cron-based recurring schedules with optional end dates.</p>
       </div>
       <div class="feature-card">
         <div class="icon">◈</div>
@@ -299,74 +274,61 @@ footer .bottom p span{color:#556b55}
   </div>
 </section>
 
-<!-- ─── ARCHITECTURE ─────────────────────────────── -->
+<!-- ─── ARCHITECTURE ────────────────────────────── -->
 <section id="architecture">
   <div class="inner">
     <div class="section-header">
       <h2>Architecture</h2>
       <p>Three nodes, one leader, Raft consensus. Every state change is replicated before it's committed.</p>
     </div>
-
-    <div class="term-window">
-      <div class="term-bar">
-        <div class="term-dot r"></div>
-        <div class="term-dot y"></div>
-        <div class="term-dot g"></div>
-        <span class="term-title">cluster-topology</span>
+    <div class="arch-diagram">
+      <div class="arch-node leader">
+        <div class="label">Leader</div>
+        <div class="title">● Node 1</div>
+        <div class="port">:8080</div>
       </div>
-      <div class="term-body">
-        <div class="arch-diagram">
-          <div class="arch-node leader">
-            <div class="label">LEADER</div>
-            <div class="title">● Node 1</div>
-            <div class="port">:8080</div>
-          </div>
-          <div class="arch-arrow">⟷</div>
-          <div class="arch-node follower">
-            <div class="label">FOLLOWER</div>
-            <div class="title">○ Node 2</div>
-            <div class="port">:8081</div>
-          </div>
-          <div class="arch-arrow">⟷</div>
-          <div class="arch-node follower">
-            <div class="label">FOLLOWER</div>
-            <div class="title">○ Node 3</div>
-            <div class="port">:8082</div>
-          </div>
-        </div>
-
-        <div class="flow-row">
-          <div class="flow-item">Client</div>
-          <span class="flow-arr">→</span>
-          <div class="flow-item">API</div>
-          <span class="flow-arr">→</span>
-          <div class="flow-item highlight">Leader</div>
-          <span class="flow-arr">→</span>
-          <div class="flow-item">FSM</div>
-          <span class="flow-arr">→</span>
-          <div class="flow-item">Slot Queue</div>
-          <span class="flow-arr">→</span>
-          <div class="flow-item">Worker</div>
-          <span class="flow-arr">→</span>
-          <div class="flow-item">Webhook</div>
-        </div>
-
-        <div class="flow-row flow-cap">
-          <div class="flow-item">Limit Manager</div>
-          <span class="flow-arr">→</span>
-          <div class="flow-item">Memory Tracker</div>
-          <span class="flow-arr">→</span>
-          <div class="flow-item" style="color:#00ff41;border-color:#1a3a1a">Hot Memory</div>
-          <span class="flow-arr">⟷</span>
-          <div class="flow-item highlight">Cold (BoltDB)</div>
-        </div>
-        <div class="flow-cap-note">When memory is constrained, old slots spill to BoltDB cold storage. Jobs are promoted back to hot memory as they approach execution time.</div>
+      <div class="arch-arrow">⟷</div>
+      <div class="arch-node">
+        <div class="label">Follower</div>
+        <div class="title">○ Node 2</div>
+        <div class="port">:8081</div>
+      </div>
+      <div class="arch-arrow">⟷</div>
+      <div class="arch-node">
+        <div class="label">Follower</div>
+        <div class="title">○ Node 3</div>
+        <div class="port">:8082</div>
       </div>
     </div>
+    <div class="flow-row">
+      <div class="flow-item">Client</div>
+      <span class="flow-arr">→</span>
+      <div class="flow-item">API</div>
+      <span class="flow-arr">→</span>
+      <div class="flow-item hl">Leader</div>
+      <span class="flow-arr">→</span>
+      <div class="flow-item">FSM</div>
+      <span class="flow-arr">→</span>
+      <div class="flow-item">Slot Queue</div>
+      <span class="flow-arr">→</span>
+      <div class="flow-item">Worker</div>
+      <span class="flow-arr">→</span>
+      <div class="flow-item">Webhook</div>
+    </div>
+    <div class="flow-row">
+      <div class="flow-item">Limit Manager</div>
+      <span class="flow-arr">→</span>
+      <div class="flow-item">Memory Tracker</div>
+      <span class="flow-arr">→</span>
+      <div class="flow-item" style="color:#34d399;border-color:rgba(52,211,153,0.2)">Hot Memory</div>
+      <span class="flow-arr">⟷</span>
+      <div class="flow-item hl">Cold (BoltDB)</div>
+    </div>
+    <div class="flow-note">When memory is constrained, old slots spill to BoltDB cold storage. Jobs are promoted back to hot memory as they approach execution time.</div>
   </div>
 </section>
 
-<!-- ─── HOW IT WORKS ─────────────────────────────── -->
+<!-- ─── HOW IT WORKS ────────────────────────────── -->
 <section id="how-it-works">
   <div class="inner">
     <div class="section-header">
@@ -381,7 +343,7 @@ footer .bottom p span{color:#556b55}
         <div class="code-block">
           <span class="cm"># Create a one-time job</span><br/>
           <span class="fn">curl</span> <span class="st">-X POST</span> <span class="kw">https://cluster:8080/jobs</span> \<br/>
-          &nbsp;&nbsp;-d <span class="st">'{"type":"unico","payload":"...","run_at":"..."}'</span>
+          &nbsp;&nbsp;-d <span class="st">'{"type":"unico","timestamp":"..."}'</span>
         </div>
       </div>
       <div class="step">
@@ -411,7 +373,7 @@ footer .bottom p span{color:#556b55}
   </div>
 </section>
 
-<!-- ─── JOB TYPES ────────────────────────────────── -->
+<!-- ─── JOB TYPES ───────────────────────────────── -->
 <section id="job-types">
   <div class="inner">
     <div class="section-header">
@@ -420,7 +382,6 @@ footer .bottom p span{color:#556b55}
     </div>
     <div class="job-types">
       <div class="job-card">
-        <div class="icon" style="font-size:28px;margin-bottom:8px;color:#00ff41">◷</div>
         <h3>Unico</h3>
         <div class="type-label">One-time execution</div>
         <p>Fire-and-forget scheduling. Set a specific timestamp, and the cluster guarantees execution — exactly once, even on failover.</p>
@@ -434,7 +395,6 @@ footer .bottom p span{color:#556b55}
         <div class="job-badge">Fire &amp; Forget</div>
       </div>
       <div class="job-card">
-        <div class="icon" style="font-size:28px;margin-bottom:8px;color:#00cccc">⟳</div>
         <h3>Recurrente</h3>
         <div class="type-label">Cron-based recurring</div>
         <p>Recurring execution using standard cron expressions. Add an optional end date to gracefully terminate the schedule.</p>
@@ -446,75 +406,62 @@ footer .bottom p span{color:#556b55}
           &nbsp;&nbsp;<span class="st">"webhook_url"</span>: <span class="st">"https://..."</span><br/>
           }
         </div>
-        <div class="job-badge" style="color:#00cccc;border-color:#1a4a4a">Cron-Based</div>
+        <div class="job-badge" style="color:#a78bfa;border-color:rgba(167,139,250,0.2)">Cron-Based</div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ─── QUICK START ──────────────────────────────── -->
+<!-- ─── QUICK START ─────────────────────────────── -->
 <section id="quick-start">
   <div class="inner">
     <div class="section-header">
       <h2>Quick Start</h2>
       <p>From zero to a running 3-node cluster in under a minute.</p>
     </div>
-
-    <div class="term-window">
-      <div class="term-bar">
-        <div class="term-dot r"></div>
-        <div class="term-dot y"></div>
-        <div class="term-dot g"></div>
-        <span class="term-title">quickstart.sh</span>
+    <div class="steps" style="grid-template-columns:1fr;max-width:640px;margin:0 auto">
+      <div class="step">
+        <div class="num" style="color:#a78bfa">01</div>
+        <h3>Launch the Cluster</h3>
+        <div class="code-block">
+          <span class="cm"># Clone and start a 3-node cluster</span><br/>
+          <span class="fn">git</span> clone https://github.com/manudiv16/scheduled-db<br/>
+          <span class="fn">cd</span> scheduled-db<br/>
+          <span class="fn">make</span> dev-up<br/><br/>
+          <span class="cm"># Check cluster health</span><br/>
+          <span class="fn">curl</span> <span class="kw">http://localhost:80/health</span>
+        </div>
       </div>
-      <div class="term-body" style="padding:0">
-        <div class="step" style="border:none;border-radius:0;border-bottom:1px solid #1a3a1a;padding:20px 24px">
-          <div class="num" style="font-size:16px;color:#00ff41">$ 01</div>
-          <h3 style="margin:4px 0 8px">Launch the Cluster</h3>
-          <div class="code-block" style="margin:0">
-            <span class="cm"># Clone and start a 3-node cluster</span><br/>
-            <span class="fn">git</span> clone https://github.com/manudiv16/scheduled-db<br/>
-            <span class="fn">cd</span> scheduled-db<br/>
-            <span class="fn">make</span> dev-up<br/><br/>
-            <span class="cm"># Check cluster health</span><br/>
-            <span class="fn">curl</span> <span class="kw">http://localhost:80/health</span>
-          </div>
+      <div class="step">
+        <div class="num" style="color:#a78bfa">02</div>
+        <h3>Create Jobs</h3>
+        <div class="code-block">
+          <span class="cm"># Create a Unico (one-time) job</span><br/>
+          <span class="fn">curl</span> <span class="st">-X POST</span> <span class="kw">http://localhost:8080/jobs</span> \<br/>
+          &nbsp;&nbsp;-H <span class="st">"Content-Type: application/json"</span> \<br/>
+          &nbsp;&nbsp;-d <span class="st">'{"type":"unico","timestamp":"2025-06-01T12:00:00Z"}'</span><br/><br/>
+          <span class="cm"># Create a Recurrente (recurring) job</span><br/>
+          <span class="fn">curl</span> <span class="st">-X POST</span> <span class="kw">http://localhost:8080/jobs</span> \<br/>
+          &nbsp;&nbsp;-d <span class="st">'{"type":"recurrente","cron_expression":"0 3 * * *"}'</span>
         </div>
-        <div class="step" style="border:none;border-radius:0;border-bottom:1px solid #1a3a1a;padding:20px 24px">
-          <div class="num" style="font-size:16px;color:#00ff41">$ 02</div>
-          <h3 style="margin:4px 0 8px">Create Jobs</h3>
-          <div class="code-block" style="margin:0">
-            <span class="cm"># Create a Unico (one-time) job</span><br/>
-            <span class="fn">curl</span> <span class="st">-X POST</span> <span class="kw">http://localhost:8080/jobs</span> \<br/>
-            &nbsp;&nbsp;-H <span class="st">"Content-Type: application/json"</span> \<br/>
-            &nbsp;&nbsp;-d <span class="st">'{</span><br/>
-            &nbsp;&nbsp;&nbsp;&nbsp;<span class="st">"type": "unico"</span>,<br/>
-            &nbsp;&nbsp;&nbsp;&nbsp;<span class="st">"timestamp": "2025-06-01T12:00:00Z"</span>,<br/>
-            &nbsp;&nbsp;&nbsp;&nbsp;<span class="st">"webhook_url": "https://example.com/hook"</span><br/>
-            &nbsp;&nbsp;<span class="st">}'</span><br/><br/>
-            <span class="cm"># Create a Recurrente (recurring) job</span><br/>
-            <span class="fn">curl</span> <span class="st">-X POST</span> <span class="kw">http://localhost:8080/jobs</span> \<br/>
-            &nbsp;&nbsp;-d <span class="st">'{"type":"recurrente","cron_expression":"0 3 * * *"}'</span>
-          </div>
-        </div>
-        <div class="step" style="border:none;border-radius:0;padding:20px 24px">
-          <div class="num" style="font-size:16px;color:#00ff41">$ 03</div>
-          <h3 style="margin:4px 0 8px">Check Status</h3>
-          <div class="code-block" style="margin:0">
-            <span class="cm"># Get job status</span><br/>
-            <span class="fn">curl</span> <span class="kw">http://localhost:8080/jobs/{id}/status</span><br/><br/>
-            <span class="cm"># View execution history</span><br/>
-            <span class="fn">curl</span> <span class="kw">http://localhost:8080/jobs/{id}/executions</span><br/><br/>
-            <span class="cm"># Check cluster info</span><br/>
-            <span class="fn">curl</span> <span class="kw">http://localhost:8080/debug/cluster</span>
-          </div>
+      </div>
+      <div class="step">
+        <div class="num" style="color:#a78bfa">03</div>
+        <h3>Check Status</h3>
+        <div class="code-block">
+          <span class="cm"># Get job status</span><br/>
+          <span class="fn">curl</span> <span class="kw">http://localhost:8080/jobs/{id}/status</span><br/><br/>
+          <span class="cm"># View execution history</span><br/>
+          <span class="fn">curl</span> <span class="kw">http://localhost:8080/jobs/{id}/executions</span><br/><br/>
+          <span class="cm"># Check cluster info</span><br/>
+          <span class="fn">curl</span> <span class="kw">http://localhost:8080/debug/cluster</span>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ─── API REFERENCE ────────────────────────────── -->
+<!-- ─── API REFERENCE ───────────────────────────── -->
 <section id="api">
   <div class="inner">
     <div class="section-header">
@@ -522,51 +469,19 @@ footer .bottom p span{color:#556b55}
       <p>Clean REST endpoints for complete job lifecycle management.</p>
     </div>
     <div class="api-list">
-      <div class="api-row">
-        <span class="api-method post">POST</span>
-        <span class="api-path">/jobs</span>
-        <span class="api-desc">Create a new job</span>
-      </div>
-      <div class="api-row">
-        <span class="api-method get">GET</span>
-        <span class="api-path">/jobs/{id}</span>
-        <span class="api-desc">Get job details</span>
-      </div>
-      <div class="api-row">
-        <span class="api-method delete">DELETE</span>
-        <span class="api-path">/jobs/{id}</span>
-        <span class="api-desc">Delete a job</span>
-      </div>
-      <div class="api-row">
-        <span class="api-method get">GET</span>
-        <span class="api-path">/jobs/{id}/status</span>
-        <span class="api-desc">Get job status</span>
-      </div>
-      <div class="api-row">
-        <span class="api-method get">GET</span>
-        <span class="api-path">/jobs/{id}/executions</span>
-        <span class="api-desc">Get execution history</span>
-      </div>
-      <div class="api-row">
-        <span class="api-method post">POST</span>
-        <span class="api-path">/jobs/{id}/cancel</span>
-        <span class="api-desc">Cancel a job</span>
-      </div>
-      <div class="api-row">
-        <span class="api-method get">GET</span>
-        <span class="api-path">/health</span>
-        <span class="api-desc">Health check</span>
-      </div>
-      <div class="api-row">
-        <span class="api-method get">GET</span>
-        <span class="api-path">/debug/cluster</span>
-        <span class="api-desc">Cluster info</span>
-      </div>
+      <div class="api-row"><span class="api-method post">POST</span><span class="api-path">/jobs</span><span class="api-desc">Create a new job</span></div>
+      <div class="api-row"><span class="api-method get">GET</span><span class="api-path">/jobs/{id}</span><span class="api-desc">Get job details</span></div>
+      <div class="api-row"><span class="api-method delete">DELETE</span><span class="api-path">/jobs/{id}</span><span class="api-desc">Delete a job</span></div>
+      <div class="api-row"><span class="api-method get">GET</span><span class="api-path">/jobs/{id}/status</span><span class="api-desc">Get job status</span></div>
+      <div class="api-row"><span class="api-method get">GET</span><span class="api-path">/jobs/{id}/executions</span><span class="api-desc">Get execution history</span></div>
+      <div class="api-row"><span class="api-method post">POST</span><span class="api-path">/jobs/{id}/cancel</span><span class="api-desc">Cancel a job</span></div>
+      <div class="api-row"><span class="api-method get">GET</span><span class="api-path">/health</span><span class="api-desc">Health check</span></div>
+      <div class="api-row"><span class="api-method get">GET</span><span class="api-path">/debug/cluster</span><span class="api-desc">Cluster info</span></div>
     </div>
   </div>
 </section>
 
-<!-- ─── DEPLOY ────────────────────────────────────── -->
+<!-- ─── DEPLOY ───────────────────────────────────── -->
 <section id="deploy">
   <div class="inner">
     <div class="section-header">
@@ -575,7 +490,7 @@ footer .bottom p span{color:#556b55}
     </div>
     <div class="deploy-grid">
       <div class="deploy-card">
-        <div class="icon" style="color:#00ff41">⎔</div>
+        <div class="icon">⎔</div>
         <h3>Docker Compose</h3>
         <p>Spin up a local 3-node cluster with a single command. Includes Prometheus and Grafana for monitoring.</p>
         <div class="code-block">
@@ -591,7 +506,7 @@ footer .bottom p span{color:#556b55}
         <div class="deploy-badge">Local Dev</div>
       </div>
       <div class="deploy-card">
-        <div class="icon" style="color:#00cccc">◎</div>
+        <div class="icon">◎</div>
         <h3>Kubernetes</h3>
         <p>StatefulSet deployment with service discovery, staggered startup, and auto-bootstrap for orphaned nodes.</p>
         <div class="code-block">
@@ -604,18 +519,18 @@ footer .bottom p span{color:#556b55}
           <span class="bo">-</span> Staggered pod startup<br/>
           <span class="bo">-</span> Auto-bootstrap on full restart
         </div>
-        <div class="deploy-badge" style="color:#00cccc;border-color:#1a4a4a">Production</div>
+        <div class="deploy-badge" style="color:#a78bfa;border-color:rgba(167,139,250,0.2)">Production</div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ─── FOOTER ────────────────────────────────────── -->
+<!-- ─── FOOTER ───────────────────────────────────── -->
 <footer>
   <div class="inner">
     <div class="grid">
       <div>
-        <h4>Scheduled-DB</h4>
+        <h4>Scheduled<span style="color:#a78bfa">-DB</span></h4>
         <p>Distributed job scheduling built on Raft consensus. Reliable, observable, and production-ready.</p>
       </div>
       <div>
@@ -638,13 +553,13 @@ footer .bottom p span{color:#556b55}
     </div>
     <div class="bottom">
       <p>Built with <span>HashiCorp Raft</span> · <span>Gorilla Mux</span> · <span>Prometheus</span> · <span>OpenTelemetry</span></p>
-      <p style="margin-top:8px;font-size:10px">Made for distributed systems. <span class="cursor"></span></p>
+      <p style="margin-top:8px;font-size:10px">Made for distributed systems.</p>
     </div>
   </div>
 </footer>
 
-<script>
-// ── Mobile Menu ────────────────────────────────
+<script type="module">
+// ── Mobile Menu ──────────────────────────────────
 const menuBtn = document.getElementById('menu-btn');
 const mobileMenu = document.getElementById('mobile-menu');
 let menuOpen = false;
@@ -654,89 +569,209 @@ menuBtn.addEventListener('click', () => {
   menuBtn.textContent = menuOpen ? '✕' : '☰';
 });
 document.querySelectorAll('#mobile-menu a').forEach(a => {
-  a.addEventListener('click', () => {
-    menuOpen = false;
-    mobileMenu.style.display = 'none';
-    menuBtn.textContent = '☰';
-  });
+  a.addEventListener('click', () => { menuOpen = false; mobileMenu.style.display = 'none'; menuBtn.textContent = '☰'; });
 });
 
-// ── Nav Scroll Highlight ───────────────────────
+// ── Nav Scroll Highlight ─────────────────────────
 const sections = document.querySelectorAll('section[id]');
 const navLinks = document.querySelectorAll('nav .links a:not(.github-btn)');
 window.addEventListener('scroll', () => {
   let current = '';
-  sections.forEach(s => {
-    if (window.scrollY >= s.offsetTop - 100) current = s.id;
-  });
-  navLinks.forEach(a => {
-    a.classList.toggle('active', a.getAttribute('href') === '#' + current);
-  });
+  sections.forEach(s => { if (window.scrollY >= s.offsetTop - 100) current = s.id; });
+  navLinks.forEach(a => { a.classList.toggle('active', a.getAttribute('href') === '#' + current); });
 });
 
-// ── Canvas ASCII Animation Engine ──────────────
-const canvas = document.getElementById('bg-canvas');
-const ctx = canvas.getContext('2d');
-let W, H, cols, rows;
+// ── WebGL ASCII Effect ──────────────────────────
+const ASCII_CHARS = ' .\'`^",:;Il!i~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$';
+const CELL_W = 8;
+const CELL_H = 14;
 
-const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()_+-=[]{}|;:,.<>?/~` ' +
-              '▀▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▐░▒▓▔▕▖▗▘▙▚▛▜▝▞▟' +
-              '遅刻実行失敗成功保留解除未完了済取消';
-const colors = ['#00ff41','#00cc35','#00aa2a','#00cccc','#ffb000','#556b55','#b3ffb3'];
+let renderer, scene, camera, gearGroup, renderTarget;
+let asciiCanvas, asciiCtx;
+let canvasW, canvasH, cols, rows;
+let isDragging = false;
+let prevMouse = { x: 0, y: 0 };
+let targetRot = { x: 0.3, y: 0 };
+let currentRot = { x: 0.3, y: 0 };
+let targetZoom = 1, currentZoom = 1;
+let targetSpeed = 1, currentSpeed = 1;
+let time = 0;
 
-let drops = [];
-let columns = [];
+async function initWebGL() {
+  try {
+    const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js');
 
-function resize() {
-  W = canvas.width = window.innerWidth;
-  H = canvas.height = window.innerHeight;
-  cols = Math.floor(W / 14);
-  rows = Math.floor(H / 16);
-  drops = new Array(cols).fill(0).map(() => Math.random() * rows | 0);
-  columns = new Array(cols).fill(0).map(() => ({
-    speed: 0.3 + Math.random() * 0.7,
-    length: 4 + Math.random() * 12 | 0,
-    colorIdx: Math.random() * colors.length | 0,
-    offset: Math.random() * rows | 0,
-  }));
-}
-resize();
-window.addEventListener('resize', resize);
+    asciiCanvas = document.getElementById('ascii-canvas');
+    const container = asciiCanvas.parentElement;
+    canvasW = container.clientWidth;
+    canvasH = container.clientHeight;
 
-function drawMatrix() {
-  ctx.fillStyle = 'rgba(10,10,10,0.05)';
-  ctx.fillRect(0, 0, W, H);
-  ctx.font = '13px "Courier New", monospace';
+    asciiCanvas.width = canvasW;
+    asciiCanvas.height = canvasH;
+    asciiCtx = asciiCanvas.getContext('2d');
 
-  for (let i = 0; i < cols; i++) {
-    const col = columns[i];
-    const drop = drops[i];
+    cols = Math.floor(canvasW / CELL_W);
+    rows = Math.floor(canvasH / CELL_H);
 
-    for (let j = 0; j < col.length; j++) {
-      const y = ((drop - j) % rows + rows) % rows;
-      const char = chars[Math.random() * chars.length | 0];
+    // Three.js setup
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(cols, rows);
+    renderer.domElement.style.display = 'none';
+    document.body.appendChild(renderer.domElement);
 
-      let alpha;
-      if (j === 0) {
-        alpha = 0.95;
-        ctx.fillStyle = '#00ff41';
-      } else if (j < 3) {
-        alpha = 0.8 - j * 0.2;
-        ctx.fillStyle = colors[col.colorIdx];
-      } else {
-        alpha = 0.6 - (j / col.length) * 0.5;
-        ctx.fillStyle = '#1a3a1a';
-      }
-      ctx.globalAlpha = Math.max(alpha, 0.05);
-      ctx.fillText(char, i * 14, y * 16 + 16);
+    renderTarget = new THREE.WebGLRenderTarget(cols, rows);
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+
+    camera = new THREE.PerspectiveCamera(50, cols / rows, 0.1, 100);
+    camera.position.z = 5;
+
+    // Lights
+    const ambient = new THREE.AmbientLight(0x404040, 0.6);
+    scene.add(ambient);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(3, 3, 5);
+    scene.add(dirLight);
+    const pointLight = new THREE.PointLight(0xa78bfa, 0.8, 10);
+    pointLight.position.set(-2, 2, 3);
+    scene.add(pointLight);
+
+    // Create gear shape
+    gearGroup = new THREE.Group();
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xa78bfa,
+      metalness: 0.4,
+      roughness: 0.3,
+    });
+
+    // Main body (torus)
+    const bodyGeo = new THREE.TorusGeometry(1.6, 0.45, 16, 48);
+    const body = new THREE.Mesh(bodyGeo, material);
+    body.rotation.x = Math.PI / 2;
+    gearGroup.add(body);
+
+    // Teeth
+    const teethCount = 14;
+    for (let i = 0; i < teethCount; i++) {
+      const angle = (i / teethCount) * Math.PI * 2;
+      const toothGeo = new THREE.BoxGeometry(0.3, 0.35, 0.55);
+      const tooth = new THREE.Mesh(toothGeo, material);
+      tooth.position.x = Math.cos(angle) * 2.05;
+      tooth.position.y = Math.sin(angle) * 2.05;
+      tooth.rotation.z = angle;
+      gearGroup.add(tooth);
     }
-    ctx.globalAlpha = 1;
 
-    drops[i] = (drop + col.speed * 0.3) % rows;
+    // Center hub
+    const hubGeo = new THREE.CylinderGeometry(0.5, 0.5, 0.5, 32);
+    const hub = new THREE.Mesh(hubGeo, material);
+    hub.rotation.x = Math.PI / 2;
+    gearGroup.add(hub);
+
+    scene.add(gearGroup);
+
+    // Mouse events
+    asciiCanvas.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      prevMouse = { x: e.clientX, y: e.clientY };
+      asciiCanvas.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+      asciiCanvas.style.cursor = 'grab';
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (isDragging) {
+        targetRot.y += (e.clientX - prevMouse.x) * 0.008;
+        targetRot.x += (e.clientY - prevMouse.y) * 0.008;
+        prevMouse = { x: e.clientX, y: e.clientY };
+      }
+    });
+    asciiCanvas.addEventListener('mouseenter', () => { targetZoom = 1.4; targetSpeed = 2.5; });
+    asciiCanvas.addEventListener('mouseleave', () => { targetZoom = 1; targetSpeed = 1; });
+
+    // Touch events
+    asciiCanvas.addEventListener('touchstart', (e) => {
+      isDragging = true;
+      prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    });
+    asciiCanvas.addEventListener('touchmove', (e) => {
+      if (isDragging) {
+        targetRot.y += (e.touches[0].clientX - prevMouse.x) * 0.008;
+        targetRot.x += (e.touches[0].clientY - prevMouse.y) * 0.008;
+        prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    });
+    asciiCanvas.addEventListener('touchend', () => { isDragging = false; });
+
+    // Hide loading, start animation
+    document.getElementById('canvas-loading').style.display = 'none';
+    animate();
+  } catch (err) {
+    console.error('WebGL init failed:', err);
+    document.getElementById('canvas-loading').textContent = 'WebGL not available';
   }
-  requestAnimationFrame(drawMatrix);
 }
-drawMatrix();
+
+function animate() {
+  requestAnimationFrame(animate);
+  time += 0.016;
+
+  // Smooth easing
+  currentRot.x += (targetRot.x - currentRot.x) * 0.08;
+  currentRot.y += (targetRot.y - currentRot.y) * 0.08;
+  currentZoom += (targetZoom - currentZoom) * 0.06;
+  currentSpeed += (targetSpeed - currentSpeed) * 0.06;
+
+  // Apply rotation and auto-spin
+  gearGroup.rotation.x = currentRot.x;
+  gearGroup.rotation.y += 0.004 * currentSpeed;
+
+  // Float animation
+  gearGroup.position.y = Math.sin(time * 0.6) * 0.15;
+
+  // Apply zoom
+  camera.position.z = 5 / currentZoom;
+
+  // Render to target
+  renderer.setRenderTarget(renderTarget);
+  renderer.render(scene, camera);
+
+  // Read pixels and draw ASCII
+  const pixels = new Uint8Array(cols * rows * 4);
+  renderer.readRenderTargetPixels(renderTarget, 0, 0, cols, rows, pixels);
+
+  asciiCtx.fillStyle = '#000';
+  asciiCtx.fillRect(0, 0, canvasW, canvasH);
+  asciiCtx.font = `${CELL_H - 2}px "SF Mono", Monaco, "Cascadia Code", monospace`;
+  asciiCtx.textBaseline = 'top';
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const i = (y * cols + x) * 4;
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      const luminance = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+      const charIdx = Math.floor(luminance * (ASCII_CHARS.length - 1));
+      const char = ASCII_CHARS[charIdx];
+      if (char !== ' ') {
+        // Color intensity based on luminance
+        const alpha = 0.3 + luminance * 0.7;
+        asciiCtx.fillStyle = `rgba(167, 139, 250, ${alpha})`;
+        asciiCtx.fillText(char, x * CELL_W, y * CELL_H);
+      }
+    }
+  }
+}
+
+// Init
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initWebGL);
+} else {
+  initWebGL();
+}
 </script>
 </body>
 </html>
