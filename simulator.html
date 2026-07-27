@@ -242,6 +242,8 @@ async function loadWasm() {
   status.textContent = '⏳ loading WASM...';
   status.style.color = '#ffb000';
 
+  const go = new Go();
+
   if (!WebAssembly.instantiateStreaming) {
     // Fallback for environments without instantiateStreaming
     const resp = await fetch('scheduled-db.wasm');
