@@ -256,6 +256,13 @@ async function loadWasm() {
     go.run(instance);
   }
 
+  // go.run() returns a Promise that never resolves (Go does select{}),
+  // so we poll for window.simulator which is set during main().
+  for (let i = 0; i < 100; i++) {
+    if (window.simulator) break;
+    await new Promise(r => setTimeout(r, 100));
+  }
+
   sim = window.simulator;
   if (!sim) {
     status.textContent = '✗ failed to load simulator';
