@@ -4,166 +4,165 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Scheduled-DB — Distributed Job Scheduling on Raft</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <meta name="description" content="Reliable distributed job scheduling built on Raft consensus. Schedule once, schedule recurring — your cluster keeps promises even when nodes fail.">
 <style>
+:root{--bg:#000;--panel:#050505;--border:#26263a;--faint:#4a4a5e;--dim:#6a6a80;--muted:#9a9aae;--text:#e2e8f0;--accent:#a78bfa;--green:#34d399;--amber:#fbbf24;--red:#f87171;--pxfont:'Press Start 2P',monospace}
 /* ── RESET ─────────────────────────────────────── */
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{background:#000;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;overflow-x:hidden}
 a{color:inherit;text-decoration:none}
-::selection{background:#a78bfa;color:#000}
-::-webkit-scrollbar{width:6px}
+::selection{background:var(--accent);color:#000}
+::-webkit-scrollbar{width:8px}
 ::-webkit-scrollbar-track{background:#000}
-::-webkit-scrollbar-thumb{background:#333;border-radius:3px}
+::-webkit-scrollbar-thumb{background:var(--faint);border-radius:0}
+
+/* CRT scanlines */
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,0.03) 0px,rgba(0,0,0,0.03) 2px,transparent 2px,transparent 4px);pointer-events:none;z-index:60}
 
 /* ── NAV ───────────────────────────────────────── */
-nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(0,0,0,0.8);backdrop-filter:blur(12px);border-bottom:1px solid #1a1a1a;padding:0 24px}
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(0,0,0,0.8);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 24px}
 nav .inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:56px}
-nav .logo{font-weight:700;font-size:17px;color:#fff;letter-spacing:-0.5px}
-nav .logo span{color:#a78bfa}
+nav .logo{font-family:var(--pxfont);font-weight:700;font-size:13px;color:#fff}
+nav .logo span{color:var(--accent)}
 nav .links{display:flex;gap:2px;align-items:center}
-nav .links a{padding:6px 12px;font-size:13px;color:#666;transition:color .2s;border-radius:6px}
+nav .links a{padding:6px 12px;font-size:13px;color:var(--muted);transition:color .2s;border-radius:0}
 nav .links a:hover{color:#fff}
-nav .links a.active{color:#a78bfa}
-nav .github-btn{padding:6px 14px;border:1px solid #333;border-radius:8px;font-size:12px;color:#999;transition:all .2s;display:flex;align-items:center;gap:6px}
-nav .github-btn:hover{border-color:#a78bfa;color:#a78bfa}
-.mobile-toggle{display:none;background:none;border:1px solid #333;color:#999;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:14px}
-#mobile-menu{display:none;position:fixed;top:56px;left:0;right:0;background:#000;border-bottom:1px solid #1a1a1a;padding:12px;z-index:99}
-#mobile-menu a{display:block;padding:10px 16px;font-size:14px;color:#666;border-bottom:1px solid #111}
+nav .links a.active{color:var(--accent)}
+nav .github-btn{padding:6px 14px;border:2px solid var(--faint);border-radius:0;font-size:12px;color:#999;transition:all .2s;display:flex;align-items:center;gap:6px}
+nav .github-btn:hover{border-color:var(--accent);color:var(--accent)}
+.mobile-toggle{display:none;background:none;border:1px solid var(--faint);color:#999;padding:6px 10px;border-radius:0;cursor:pointer;font-size:14px}
+#mobile-menu{display:none;position:fixed;top:56px;left:0;right:0;background:#000;border-bottom:1px solid var(--border);padding:12px;z-index:99}
+#mobile-menu a{display:block;padding:10px 16px;font-size:14px;color:var(--muted);border-bottom:1px solid #111}
 #mobile-menu a:last-child{border:none}
 #mobile-menu a:hover{color:#fff}
 
 /* ── SECTIONS ──────────────────────────────────── */
-section{padding:80px 24px;position:relative}
+section{padding:80px 24px;position:relative;z-index:1}
 section .inner{max-width:1100px;margin:0 auto}
 .section-header{text-align:center;margin-bottom:48px}
-.section-header h2{font-size:clamp(24px,3.5vw,40px);font-weight:700;color:#fff;letter-spacing:-0.5px;margin-bottom:8px}
-.section-header p{color:#666;font-size:15px;max-width:500px;margin:0 auto}
+.section-header h2{font-family:var(--pxfont);font-size:clamp(14px,2vw,20px);font-weight:700;color:#fff;margin-bottom:8px;text-shadow:0 0 8px rgba(167,139,250,0.3)}
+.section-header p{color:var(--muted);font-size:15px;max-width:500px;margin:0 auto}
 
 /* ── HERO ──────────────────────────────────────── */
-#hero{min-height:100vh;display:flex;align-items:center;padding-top:56px;background:radial-gradient(ellipse at 70% 30%,rgba(167,139,250,0.04) 0%,transparent 60%)}
-#hero .grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;max-width:1200px;margin:0 auto;width:100%}
-#hero .content{padding:24px}
-#hero .tagline{font-family:'SF Mono',Monaco,'Cascadia Code','JetBrains Mono',monospace;font-size:11px;color:#a78bfa;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:8px}
-#hero .tagline::before{content:'';width:8px;height:8px;border-radius:50%;background:#a78bfa}
-#hero h1{font-size:clamp(32px,5vw,52px);font-weight:800;color:#fff;letter-spacing:-1px;line-height:1.1;margin-bottom:16px}
-#hero h1 span{color:#a78bfa}
-#hero .desc{font-size:15px;color:#666;line-height:1.7;margin-bottom:32px;max-width:440px}
+#hero{min-height:100vh;display:flex;align-items:center;padding-top:56px;position:relative;overflow:hidden;background:radial-gradient(ellipse at 70% 30%,rgba(167,139,250,0.04) 0%,transparent 60%)}
+#hero .grid{display:grid;grid-template-columns:1fr;gap:40px;align-items:center;max-width:1200px;margin:0 auto;width:100%;position:relative;z-index:1}
+#hero .content{padding:24px;position:relative;z-index:1}
+#ascii-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+#hero .tagline{font-family:var(--pxfont);font-size:8px;color:var(--accent);text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+#hero .tagline::before{content:'';width:8px;height:8px;border-radius:0;background:var(--accent)}
+#hero h1{font-family:var(--pxfont);font-size:clamp(20px,3.5vw,32px);font-weight:800;color:#fff;line-height:1.1;margin-bottom:16px;text-shadow:0 0 12px rgba(167,139,250,0.3)}
+#hero h1 span{color:var(--accent)}
+#hero .desc{font-size:15px;color:var(--muted);line-height:1.7;margin-bottom:32px;max-width:440px}
 #hero .ctas{display:flex;flex-wrap:wrap;gap:12px}
-#hero .ctas a{padding:12px 24px;font-size:14px;font-weight:600;border-radius:10px;transition:all .2s;letter-spacing:0.2px}
-#hero .ctas .primary{background:#a78bfa;color:#000}
-#hero .ctas .primary:hover{background:#8b5cf6;box-shadow:0 0 30px rgba(167,139,250,0.3)}
-#hero .ctas .secondary{border:1px solid #333;color:#999}
-#hero .ctas .secondary:hover{border-color:#a78bfa;color:#a78bfa}
-#hero .ctas .sim{color:#a78bfa;border:1px solid rgba(167,139,250,0.3)}
-#hero .ctas .sim:hover{border-color:#a78bfa;box-shadow:0 0 20px rgba(167,139,250,0.15)}
+#hero .ctas a{padding:12px 24px;font-family:var(--pxfont);font-size:8px;font-weight:600;border:2px solid transparent;border-radius:0;transition:all .2s}
+#hero .ctas .primary{background:var(--accent);color:#000;border-color:var(--accent);box-shadow:4px 4px 0 rgba(167,139,250,0.35)}
+#hero .ctas .primary:hover{background:#8b5cf6}
+#hero .ctas .secondary{border-color:var(--faint);color:#999}
+#hero .ctas .secondary:hover{border-color:var(--accent);color:var(--accent)}
+#hero .ctas .sim{color:var(--accent);border-color:rgba(167,139,250,0.3)}
+#hero .ctas .sim:hover{border-color:var(--accent)}
+#hero .ctas a:active{transform:translate(2px,2px);box-shadow:0 0 0}
 
-/* Canvas container */
-#hero .canvas-wrap{position:relative;min-height:480px;border-radius:16px;overflow:hidden;background:#050505;border:1px solid #1a1a1a}
-#hero .canvas-wrap::before{content:'';position:absolute;top:12px;right:12px;z-index:10;display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:20px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.15)}
-#hero .canvas-badge{position:absolute;top:12px;right:12px;z-index:10;display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:20px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.15);font-family:'SF Mono',Monaco,monospace;font-size:9px;color:#a78bfa;letter-spacing:1px;text-transform:uppercase}
-#hero .canvas-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:#a78bfa}
-#ascii-canvas{display:block;width:100%;height:100%;cursor:grab}
-#ascii-canvas:active{cursor:grabbing}
-.canvas-badges{position:absolute;bottom:12px;left:12px;right:12px;z-index:10;display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
-.canvas-badges span{padding:4px 10px;border-radius:6px;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,0.1);font-family:'SF Mono',Monaco,monospace;font-size:10px;color:rgba(255,255,255,0.5)}
-.canvas-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#050505;color:#444;font-size:13px;font-family:'SF Mono',Monaco,monospace;z-index:5}
 
-/* CRT overlay on canvas */
-.crt-overlay{position:absolute;inset:0;pointer-events:none;z-index:8;background:repeating-linear-gradient(0deg,rgba(0,0,0,0.08) 0px,rgba(0,0,0,0.08) 1px,transparent 1px,transparent 3px)}
-.crt-vignette{position:absolute;inset:0;pointer-events:none;z-index:9;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.4) 100%)}
 
 /* ── FEATURES ──────────────────────────────────── */
 .feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
-.feature-card{border:1px solid #1a1a1a;border-radius:12px;padding:28px;transition:all .25s;background:#050505}
-.feature-card:hover{border-color:rgba(167,139,250,0.3);transform:translateY(-2px);box-shadow:0 8px 32px rgba(167,139,250,0.06)}
-.feature-card .icon{font-size:22px;margin-bottom:16px;color:#a78bfa}
-.feature-card h3{font-size:15px;font-weight:600;color:#fff;margin-bottom:8px;letter-spacing:-0.2px}
-.feature-card p{font-size:13px;color:#666;line-height:1.7}
+.feature-card{border:1px solid var(--border);border-radius:0;padding:28px;transition:all .25s;background:#050505}
+.feature-card,.step,.job-card,.deploy-card{box-shadow:4px 4px 0 #0d0d14}
+.feature-card:hover,.step:hover,.job-card:hover,.deploy-card:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 rgba(167,139,250,0.18);border-color:var(--accent)}
+.feature-card .icon{font-size:22px;margin-bottom:16px;color:var(--accent)}
+.feature-card h3{font-family:var(--pxfont);font-size:9px;font-weight:600;color:#fff;margin-bottom:8px;text-shadow:0 0 6px rgba(167,139,250,0.2)}
+.feature-card p{font-size:13px;color:var(--muted);line-height:1.7}
 
 /* ── ARCHITECTURE ──────────────────────────────── */
-.arch-diagram{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:12px 6px;padding:32px;border:1px solid #1a1a1a;border-radius:12px;background:#050505}
-.arch-node{border:1px solid #1a1a1a;border-radius:10px;padding:16px 20px;text-align:center;min-width:120px;transition:all .2s;background:#0a0a0a}
+.arch-diagram{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:12px 6px;padding:32px;border:1px solid var(--border);border-radius:0;background:#050505}
+.arch-node{border:1px solid var(--border);border-radius:0;padding:16px 20px;text-align:center;min-width:120px;transition:all .2s;background:#0a0a0a}
 .arch-node:hover{border-color:rgba(167,139,250,0.3)}
 .arch-node.leader{border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.04)}
-.arch-node .label{font-size:9px;color:#444;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px}
+.arch-node .label{font-size:9px;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px}
 .arch-node .title{font-size:13px;font-weight:700;color:#fff}
-.arch-node.leader .title{color:#a78bfa}
-.arch-node .port{font-size:10px;color:#444;margin-top:4px;font-family:'SF Mono',Monaco,monospace}
-.arch-arrow{color:#333;font-size:16px}
+.arch-node.leader .title{color:var(--accent)}
+.arch-node .port{font-size:10px;color:var(--dim);margin-top:4px;font-family:'SF Mono',Monaco,monospace}
+.arch-arrow{color:var(--faint);font-size:16px}
 
 .flow-row{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;margin-top:20px}
-.flow-item{border:1px solid #1a1a1a;border-radius:6px;padding:8px 14px;font-size:11px;color:#666;letter-spacing:0.5px;transition:all .15s;background:#0a0a0a;font-family:'SF Mono',Monaco,monospace}
+.flow-item{border:1px solid var(--border);border-radius:0;padding:8px 14px;font-size:11px;color:var(--muted);letter-spacing:0.5px;transition:all .15s;background:#0a0a0a;font-family:'SF Mono',Monaco,monospace}
 .flow-item:hover{border-color:rgba(167,139,250,0.3);color:#fff}
-.flow-item.hl{border-color:rgba(167,139,250,0.3);color:#a78bfa}
-.flow-arr{color:#333;font-size:12px}
-.flow-note{text-align:center;font-size:11px;color:#444;margin-top:16px}
+.flow-item.hl{border-color:rgba(167,139,250,0.3);color:var(--accent)}
+.flow-arr{color:var(--faint);font-size:12px}
+.flow-note{text-align:center;font-size:11px;color:var(--dim);margin-top:16px}
 
 /* ── STEPS ─────────────────────────────────────── */
 .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
-.step{border:1px solid #1a1a1a;border-radius:12px;padding:28px;background:#050505;transition:all .25s}
-.step:hover{border-color:rgba(167,139,250,0.3);transform:translateY(-2px)}
-.step .num{font-size:24px;font-weight:800;color:#1a1a1a;margin-bottom:8px}
-.step h3{font-size:15px;font-weight:600;color:#a78bfa;margin-bottom:8px}
-.step p{font-size:13px;color:#666;margin-bottom:16px;line-height:1.7}
+.step{border:1px solid var(--border);border-radius:0;padding:28px;background:#050505;transition:all .25s}
+.step .num{font-size:24px;font-weight:800;color:var(--border);margin-bottom:8px}
+.step h3{font-family:var(--pxfont);font-size:9px;font-weight:600;color:var(--accent);margin-bottom:8px}
+.step p{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.7}
 
 /* ── CODE BLOCK ────────────────────────────────── */
-.code-block{background:#0a0a0a;border:1px solid #1a1a1a;border-radius:8px;padding:16px;font-family:'SF Mono',Monaco,'Cascadia Code','JetBrains Mono',monospace;font-size:12px;line-height:1.8;overflow-x:auto;position:relative}
-.code-block .cm{color:#444;font-style:italic}
-.code-block .kw{color:#a78bfa}
-.code-block .st{color:#fbbf24}
-.code-block .fn{color:#34d399}
-.code-block .bo{color:#666}
+.code-block{background:#0a0a0a;border:1px solid var(--border);border-radius:0;padding:16px;font-family:'SF Mono',Monaco,'Cascadia Code','JetBrains Mono',monospace;font-size:12px;line-height:1.8;overflow-x:auto;position:relative}
+.code-block .cm{color:var(--dim);font-style:italic}
+.code-block .kw{color:var(--accent)}
+.code-block .st{color:var(--amber)}
+.code-block .fn{color:var(--green)}
+.code-block .bo{color:var(--muted)}
 
 /* ── JOB TYPES ─────────────────────────────────── */
 .job-types{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
-.job-card{border:1px solid #1a1a1a;border-radius:12px;padding:32px;background:#050505;transition:all .25s}
-.job-card:hover{border-color:rgba(167,139,250,0.3);transform:translateY(-2px)}
-.job-card h3{font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.5px;margin-bottom:4px}
-.job-card .type-label{font-size:11px;color:#444;margin-bottom:16px;letter-spacing:1px;text-transform:uppercase;font-family:'SF Mono',Monaco,monospace}
-.job-card p{font-size:13px;color:#666;line-height:1.7;margin-bottom:16px}
-.job-badge{display:inline-block;padding:4px 12px;border:1px solid #1a1a1a;border-radius:6px;font-size:10px;color:#444;letter-spacing:1px;font-family:'SF Mono',Monaco,monospace}
+.job-card{border:1px solid var(--border);border-radius:0;padding:32px;background:#050505;transition:all .25s}
+.job-card h3{font-family:var(--pxfont);font-size:9px;font-weight:700;color:#fff;margin-bottom:4px}
+.job-card .type-label{font-size:11px;color:var(--dim);margin-bottom:16px;letter-spacing:1px;text-transform:uppercase;font-family:'SF Mono',Monaco,monospace}
+.job-card p{font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:16px}
+.job-badge{display:inline-block;padding:4px 12px;border:1px solid var(--border);border-radius:0;font-size:10px;color:var(--dim);letter-spacing:1px;font-family:'SF Mono',Monaco,monospace}
 
 /* ── API LIST ──────────────────────────────────── */
 .api-list{display:flex;flex-direction:column;gap:6px}
-.api-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;border:1px solid #1a1a1a;border-radius:8px;font-size:13px;transition:all .15s;background:#050505}
+.api-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;border:1px solid var(--border);border-radius:0;font-size:13px;transition:all .15s;background:#050505}
 .api-row:hover{border-color:rgba(167,139,250,0.2)}
-.api-method{font-size:10px;font-weight:700;padding:3px 10px;border-radius:5px;letter-spacing:1px;min-width:50px;text-align:center;font-family:'SF Mono',Monaco,monospace}
-.api-method.post{background:rgba(167,139,250,0.12);color:#a78bfa;border:1px solid rgba(167,139,250,0.2)}
-.api-method.get{background:rgba(52,211,153,0.1);color:#34d399;border:1px solid rgba(52,211,153,0.15)}
-.api-method.delete{background:rgba(248,113,113,0.1);color:#f87171;border:1px solid rgba(248,113,113,0.15)}
+.api-method{font-size:10px;font-weight:700;padding:3px 10px;border-radius:0;letter-spacing:1px;min-width:50px;text-align:center;font-family:'SF Mono',Monaco,monospace}
+.api-method.post{background:rgba(167,139,250,0.12);color:var(--accent);border:1px solid rgba(167,139,250,0.2)}
+.api-method.get{background:rgba(52,211,153,0.1);color:var(--green);border:1px solid rgba(52,211,153,0.15)}
+.api-method.delete{background:rgba(248,113,113,0.1);color:var(--red);border:1px solid rgba(248,113,113,0.15)}
 .api-path{font-family:'SF Mono',Monaco,monospace;color:#fff;font-size:12px;flex:1}
-.api-desc{color:#444;font-size:11px}
+.api-desc{color:var(--dim);font-size:11px}
 
 /* ── DEPLOY ────────────────────────────────────── */
 .deploy-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
-.deploy-card{border:1px solid #1a1a1a;border-radius:12px;padding:32px;background:#050505;transition:all .25s}
-.deploy-card:hover{border-color:rgba(167,139,250,0.3);transform:translateY(-2px)}
-.deploy-card .icon{font-size:24px;margin-bottom:16px;color:#a78bfa}
-.deploy-card h3{font-size:16px;font-weight:600;color:#fff;margin-bottom:4px}
-.deploy-card p{font-size:13px;color:#666;margin-bottom:16px;line-height:1.7}
-.deploy-badge{display:inline-block;padding:4px 12px;border:1px solid #1a1a1a;border-radius:6px;font-size:10px;color:#444;letter-spacing:1px;font-family:'SF Mono',Monaco,monospace}
+.deploy-card{border:1px solid var(--border);border-radius:0;padding:32px;background:#050505;transition:all .25s}
+.deploy-card .icon{font-size:24px;margin-bottom:16px;color:var(--accent)}
+.deploy-card h3{font-family:var(--pxfont);font-size:9px;font-weight:600;color:#fff;margin-bottom:4px}
+.deploy-card p{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.7}
+.deploy-badge{display:inline-block;padding:4px 12px;border:1px solid var(--border);border-radius:0;font-size:10px;color:var(--dim);letter-spacing:1px;font-family:'SF Mono',Monaco,monospace}
 
 /* ── FOOTER ────────────────────────────────────── */
-footer{padding:48px 24px;border-top:1px solid #1a1a1a}
+footer{padding:48px 24px;border-top:1px solid var(--border);position:relative;z-index:1}
 footer .inner{max-width:1100px;margin:0 auto}
 footer .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:32px;margin-bottom:32px}
-footer h4{font-size:13px;font-weight:600;color:#fff;margin-bottom:16px;letter-spacing:-0.2px}
-footer p{font-size:12px;color:#444;line-height:1.7}
+footer h4{font-family:var(--pxfont);font-size:8px;font-weight:600;color:#fff;margin-bottom:16px}
+footer p{font-size:12px;color:var(--dim);line-height:1.7}
 footer ul{list-style:none}
 footer ul li{margin-bottom:8px}
-footer ul li a{font-size:12px;color:#444;transition:color .2s}
-footer ul li a:hover{color:#a78bfa}
-footer .bottom{border:1px solid #1a1a1a;border-radius:12px;padding:24px;text-align:center;background:#050505}
-footer .bottom p{font-size:11px;color:#444}
-footer .bottom p span{color:#666}
+footer ul li a{font-size:12px;color:var(--dim);transition:color .2s}
+footer ul li a:hover{color:var(--accent)}
+footer .bottom{border:1px solid var(--border);border-radius:0;padding:24px;text-align:center;background:#050505}
+footer .bottom p{font-size:11px;color:var(--dim)}
+footer .bottom p span{color:var(--muted)}
+
+/* ── REVEAL ANIMATIONS ─────────────────────────── */
+.reveal{opacity:0;transform:translateY(20px);transition:opacity .5s ease,transform .5s ease}
+.reveal.revealed{opacity:1;transform:translateY(0)}
+.api-row.reveal{transform:translateX(-20px)}
+.api-row.reveal.revealed{transform:translateX(0)}
 
 /* ── RESPONSIVE ────────────────────────────────── */
 @media(max-width:900px){
-  #hero .grid{grid-template-columns:1fr}
-  #hero .canvas-wrap{min-height:320px}
   nav .links{display:none}
   .mobile-toggle{display:block}
+}
+@media(max-width:600px){
+  #hero .content{padding:16px}
 }
 @media(max-width:480px){
   section{padding:48px 16px}
@@ -184,7 +183,7 @@ footer .bottom p span{color:#666}
       <a href="#quick-start">Quick Start</a>
       <a href="#api">API</a>
       <a href="#deploy">Deploy</a>
-      <a href="simulator.html" style="color:#a78bfa">Simulator</a>
+      <a href="simulator.html" style="color:var(--accent)">Simulator</a>
       <a href="https://github.com/manudiv16/scheduled-db" class="github-btn" target="_blank">GitHub</a>
     </div>
     <button class="mobile-toggle" id="menu-btn" aria-label="Menu">☰</button>
@@ -198,9 +197,10 @@ footer .bottom p span{color:#666}
   <a href="#quick-start">Quick Start</a>
   <a href="#api">API</a>
   <a href="#deploy">Deploy</a>
-  <a href="simulator.html" style="color:#a78bfa">Simulator</a>
+  <a href="simulator.html" style="color:var(--accent)">Simulator</a>
   <a href="https://github.com/manudiv16/scheduled-db" target="_blank">GitHub</a>
 </div>
+<canvas id="ascii-canvas"></canvas>
 
 <!-- ─── HERO ────────────────────────────────────── -->
 <section id="hero">
@@ -215,20 +215,6 @@ footer .bottom p span{color:#666}
         <a href="simulator.html" class="sim">Live Simulator</a>
       </div>
     </div>
-    <div class="canvas-wrap">
-      <div class="canvas-badge">3D Canvas</div>
-      <canvas id="ascii-canvas"></canvas>
-      <div class="canvas-loading" id="canvas-loading">Initializing WebGL…</div>
-      <div class="crt-overlay"></div>
-      <div class="crt-vignette"></div>
-      <div class="canvas-badges">
-        <span>Gear Model</span>
-        <span>Drag to rotate</span>
-        <span>Hover to zoom</span>
-        <span>ASCII shader</span>
-        <span>CRT effects</span>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -241,32 +227,32 @@ footer .bottom p span{color:#666}
     </div>
     <div class="feature-grid">
       <div class="feature-card">
-        <div class="icon">◈</div>
+        <div class="icon">◆</div>
         <h3>Distributed Consensus</h3>
         <p>Raft-based strong consistency with automatic leader election and log replication. No split-brain, ever.</p>
       </div>
       <div class="feature-card">
-        <div class="icon">◈</div>
+        <div class="icon">◆</div>
         <h3>Two Job Types</h3>
         <p><strong style="color:#e2e8f0">Unico</strong> for one-time execution. <strong style="color:#e2e8f0">Recurrente</strong> for cron-based recurring schedules with optional end dates.</p>
       </div>
       <div class="feature-card">
-        <div class="icon">◈</div>
+        <div class="icon">◆</div>
         <h3>Time-Slotted Queue</h3>
         <p>O(1) slot lookup via cached min key. Hierarchical Timing Wheel (seconds, hours, days) for long-range scheduling.</p>
       </div>
       <div class="feature-card">
-        <div class="icon">◈</div>
+        <div class="icon">◆</div>
         <h3>Capacity Management</h3>
         <p>Memory and job count limits prevent OOM. Cold spilling to BoltDB when capacity is constrained. Hot slots stay in memory.</p>
       </div>
       <div class="feature-card">
-        <div class="icon">◈</div>
+        <div class="icon">◆</div>
         <h3>Split-Brain Prevention</h3>
         <p>RA-style minority partition shutdown. Graceful leader resignation on shutdown. Automatic failover when leaders die.</p>
       </div>
       <div class="feature-card">
-        <div class="icon">◈</div>
+        <div class="icon">◆</div>
         <h3>Observability</h3>
         <p>Prometheus metrics, OpenTelemetry integration, three-tier health status, and structured logging. Grafana-ready out of the box.</p>
       </div>
@@ -320,7 +306,7 @@ footer .bottom p span{color:#666}
       <span class="flow-arr">→</span>
       <div class="flow-item">Memory Tracker</div>
       <span class="flow-arr">→</span>
-      <div class="flow-item" style="color:#34d399;border-color:rgba(52,211,153,0.2)">Hot Memory</div>
+      <div class="flow-item" style="color:var(--green);border-color:rgba(52,211,153,0.2)">Hot Memory</div>
       <span class="flow-arr">⟷</span>
       <div class="flow-item hl">Cold (BoltDB)</div>
     </div>
@@ -406,7 +392,7 @@ footer .bottom p span{color:#666}
           &nbsp;&nbsp;<span class="st">"webhook_url"</span>: <span class="st">"https://..."</span><br/>
           }
         </div>
-        <div class="job-badge" style="color:#a78bfa;border-color:rgba(167,139,250,0.2)">Cron-Based</div>
+        <div class="job-badge" style="color:var(--accent);border-color:rgba(167,139,250,0.2)">Cron-Based</div>
       </div>
     </div>
   </div>
@@ -421,7 +407,7 @@ footer .bottom p span{color:#666}
     </div>
     <div class="steps" style="grid-template-columns:1fr;max-width:640px;margin:0 auto">
       <div class="step">
-        <div class="num" style="color:#a78bfa">01</div>
+        <div class="num" style="color:var(--accent)">01</div>
         <h3>Launch the Cluster</h3>
         <div class="code-block">
           <span class="cm"># Clone and start a 3-node cluster</span><br/>
@@ -433,7 +419,7 @@ footer .bottom p span{color:#666}
         </div>
       </div>
       <div class="step">
-        <div class="num" style="color:#a78bfa">02</div>
+        <div class="num" style="color:var(--accent)">02</div>
         <h3>Create Jobs</h3>
         <div class="code-block">
           <span class="cm"># Create a Unico (one-time) job</span><br/>
@@ -446,7 +432,7 @@ footer .bottom p span{color:#666}
         </div>
       </div>
       <div class="step">
-        <div class="num" style="color:#a78bfa">03</div>
+        <div class="num" style="color:var(--accent)">03</div>
         <h3>Check Status</h3>
         <div class="code-block">
           <span class="cm"># Get job status</span><br/>
@@ -519,7 +505,7 @@ footer .bottom p span{color:#666}
           <span class="bo">-</span> Staggered pod startup<br/>
           <span class="bo">-</span> Auto-bootstrap on full restart
         </div>
-        <div class="deploy-badge" style="color:#a78bfa;border-color:rgba(167,139,250,0.2)">Production</div>
+        <div class="deploy-badge" style="color:var(--accent);border-color:rgba(167,139,250,0.2)">Production</div>
       </div>
     </div>
   </div>
@@ -528,9 +514,10 @@ footer .bottom p span{color:#666}
 <!-- ─── FOOTER ───────────────────────────────────── -->
 <footer>
   <div class="inner">
+    <div style="text-align:center;font-family:'Press Start 2P',monospace;font-size:7px;color:var(--faint);letter-spacing:2px;margin-bottom:24px;padding:12px;border:1px solid var(--border);border-radius:0;background:#050505">[==== SCHEDULED-DB v1.0 ====]</div>
     <div class="grid">
       <div>
-        <h4>Scheduled<span style="color:#a78bfa">-DB</span></h4>
+        <h4>Scheduled<span style="color:var(--accent)">-DB</span></h4>
         <p>Distributed job scheduling built on Raft consensus. Reliable, observable, and production-ready.</p>
       </div>
       <div>
@@ -579,53 +566,45 @@ window.addEventListener('scroll', () => {
   let current = '';
   sections.forEach(s => { if (window.scrollY >= s.offsetTop - 100) current = s.id; });
   navLinks.forEach(a => { a.classList.toggle('active', a.getAttribute('href') === '#' + current); });
-});
+}, { passive: true });
 
-// ── WebGL ASCII Effect ──────────────────────────
+// ── WebGL ASCII Gear (full-page background) ──────
 const ASCII_CHARS = ' .\'`^",:;Il!i~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$';
 const CELL_W = 8;
 const CELL_H = 14;
+const GEAR_OPACITY = 0.9;
+// Vibrant purple ramp: deep violet in shadow -> electric lavender in light
+const GEAR_LO = [124, 58, 237];
+const GEAR_HI = [216, 180, 254];
 
+let THREE_NS = null;
 let renderer, scene, camera, gearGroup, renderTarget;
-let asciiCanvas, asciiCtx;
+let asciiCanvas, asciiCtx, pixelBuf;
 let canvasW, canvasH, cols, rows;
-let isDragging = false;
-let prevMouse = { x: 0, y: 0 };
-let targetRot = { x: 0.3, y: 0 };
-let currentRot = { x: 0.3, y: 0 };
-let targetZoom = 1, currentZoom = 1;
+let targetRotX = 0.3, currentRotX = 0.3;
 let targetSpeed = 1, currentSpeed = 1;
-let time = 0;
+let gearTime = 0;
+let lastScrollY = 0;
+let scrollTimeout = null;
 
-async function initWebGL() {
+async function initGear() {
   try {
-    const THREE = await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js');
+    THREE_NS = await import('https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js');
+    const THREE = THREE_NS;
 
     asciiCanvas = document.getElementById('ascii-canvas');
-    const container = asciiCanvas.parentElement;
-    canvasW = container.clientWidth;
-    canvasH = container.clientHeight;
-
-    asciiCanvas.width = canvasW;
-    asciiCanvas.height = canvasH;
+    if (!asciiCanvas) return;
     asciiCtx = asciiCanvas.getContext('2d');
 
-    cols = Math.floor(canvasW / CELL_W);
-    rows = Math.floor(canvasH / CELL_H);
-
-    // Three.js setup
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(cols, rows);
     renderer.domElement.style.display = 'none';
     document.body.appendChild(renderer.domElement);
-
-    renderTarget = new THREE.WebGLRenderTarget(cols, rows);
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
 
-    camera = new THREE.PerspectiveCamera(50, cols / rows, 0.1, 100);
-    camera.position.z = 5;
+    camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+    camera.position.z = 4.2;
 
     // Lights
     const ambient = new THREE.AmbientLight(0x404040, 0.6);
@@ -633,17 +612,13 @@ async function initWebGL() {
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
     dirLight.position.set(3, 3, 5);
     scene.add(dirLight);
-    const pointLight = new THREE.PointLight(0xa78bfa, 0.8, 10);
+    const pointLight = new THREE.PointLight(0xa78bfa, 2.0, 10);
     pointLight.position.set(-2, 2, 3);
     scene.add(pointLight);
 
-    // Create gear shape
+    // Gear shape
     gearGroup = new THREE.Group();
-    const material = new THREE.MeshStandardMaterial({
-      color: 0xa78bfa,
-      metalness: 0.4,
-      roughness: 0.3,
-    });
+    const material = new THREE.MeshStandardMaterial({ color: 0xa78bfa, metalness: 0.4, roughness: 0.3, emissive: 0x6d28d9, emissiveIntensity: 0.3 });
 
     // Main body (torus)
     const bodyGeo = new THREE.TorusGeometry(1.6, 0.45, 16, 48);
@@ -671,106 +646,128 @@ async function initWebGL() {
 
     scene.add(gearGroup);
 
-    // Mouse events
-    asciiCanvas.addEventListener('mousedown', (e) => {
-      isDragging = true;
-      prevMouse = { x: e.clientX, y: e.clientY };
-      asciiCanvas.style.cursor = 'grabbing';
-    });
-    window.addEventListener('mouseup', () => {
-      isDragging = false;
-      asciiCanvas.style.cursor = 'grab';
-    });
-    window.addEventListener('mousemove', (e) => {
-      if (isDragging) {
-        targetRot.y += (e.clientX - prevMouse.x) * 0.008;
-        targetRot.x += (e.clientY - prevMouse.y) * 0.008;
-        prevMouse = { x: e.clientX, y: e.clientY };
-      }
-    });
-    asciiCanvas.addEventListener('mouseenter', () => { targetZoom = 1.4; targetSpeed = 2.5; });
-    asciiCanvas.addEventListener('mouseleave', () => { targetZoom = 1; targetSpeed = 1; });
-
-    // Touch events
-    asciiCanvas.addEventListener('touchstart', (e) => {
-      isDragging = true;
-      prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    });
-    asciiCanvas.addEventListener('touchmove', (e) => {
-      if (isDragging) {
-        targetRot.y += (e.touches[0].clientX - prevMouse.x) * 0.008;
-        targetRot.x += (e.touches[0].clientY - prevMouse.y) * 0.008;
-        prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      }
-    });
-    asciiCanvas.addEventListener('touchend', () => { isDragging = false; });
-
-    // Hide loading, start animation
-    document.getElementById('canvas-loading').style.display = 'none';
+    resizeGear();
     animate();
   } catch (err) {
     console.error('WebGL init failed:', err);
-    document.getElementById('canvas-loading').textContent = 'WebGL not available';
+    if (asciiCanvas) asciiCanvas.style.display = 'none';
   }
 }
 
+function resizeGear() {
+  if (!renderer || !asciiCanvas) return;
+  canvasW = window.innerWidth;
+  canvasH = window.innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  asciiCanvas.width = canvasW * dpr;
+  asciiCanvas.height = canvasH * dpr;
+  asciiCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  cols = Math.floor(canvasW / CELL_W);
+  rows = Math.floor(canvasH / CELL_H);
+  pixelBuf = new Uint8Array(cols * rows * 4);
+
+  renderer.setSize(cols, rows);
+  if (!renderTarget) {
+    renderTarget = new THREE_NS.WebGLRenderTarget(cols, rows);
+  } else {
+    renderTarget.setSize(cols, rows);
+  }
+  camera.aspect = cols / rows;
+  camera.updateProjectionMatrix();
+}
+
+// Scroll integration: tilt through the page + velocity "wind" boost
+window.addEventListener('scroll', () => {
+  const y = window.scrollY;
+  const delta = Math.abs(y - lastScrollY);
+  lastScrollY = y;
+  const max = document.documentElement.scrollHeight - window.innerHeight;
+  targetRotX = 0.3 + (max > 0 ? (y / max) * 0.9 : 0);
+  if (delta > 5) {
+    targetSpeed = 1 + Math.min(delta * 0.02, 5);
+    clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => { targetSpeed = 1; }, 300);
+  }
+}, { passive: true });
+
 function animate() {
   requestAnimationFrame(animate);
-  time += 0.016;
+  gearTime += 0.016;
 
   // Smooth easing
-  currentRot.x += (targetRot.x - currentRot.x) * 0.08;
-  currentRot.y += (targetRot.y - currentRot.y) * 0.08;
-  currentZoom += (targetZoom - currentZoom) * 0.06;
+  currentRotX += (targetRotX - currentRotX) * 0.08;
   currentSpeed += (targetSpeed - currentSpeed) * 0.06;
 
   // Apply rotation and auto-spin
-  gearGroup.rotation.x = currentRot.x;
+  gearGroup.rotation.x = currentRotX;
   gearGroup.rotation.y += 0.004 * currentSpeed;
 
   // Float animation
-  gearGroup.position.y = Math.sin(time * 0.6) * 0.15;
-
-  // Apply zoom
-  camera.position.z = 5 / currentZoom;
+  gearGroup.position.y = Math.sin(gearTime * 0.6) * 0.15;
 
   // Render to target
   renderer.setRenderTarget(renderTarget);
   renderer.render(scene, camera);
+  renderer.readRenderTargetPixels(renderTarget, 0, 0, cols, rows, pixelBuf);
 
-  // Read pixels and draw ASCII
-  const pixels = new Uint8Array(cols * rows * 4);
-  renderer.readRenderTargetPixels(renderTarget, 0, 0, cols, rows, pixels);
-
+  // Draw ASCII
   asciiCtx.fillStyle = '#000';
   asciiCtx.fillRect(0, 0, canvasW, canvasH);
-  asciiCtx.font = `${CELL_H - 2}px "SF Mono", Monaco, "Cascadia Code", monospace`;
+  asciiCtx.font = (CELL_H - 2) + 'px "SF Mono", Monaco, "Cascadia Code", monospace';
   asciiCtx.textBaseline = 'top';
 
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const i = (y * cols + x) * 4;
-      const r = pixels[i];
-      const g = pixels[i + 1];
-      const b = pixels[i + 2];
+      const r = pixelBuf[i];
+      const g = pixelBuf[i + 1];
+      const b = pixelBuf[i + 2];
       const luminance = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
       const charIdx = Math.floor(luminance * (ASCII_CHARS.length - 1));
       const char = ASCII_CHARS[charIdx];
       if (char !== ' ') {
-        // Color intensity based on luminance
-        const alpha = 0.3 + luminance * 0.7;
-        asciiCtx.fillStyle = `rgba(167, 139, 250, ${alpha})`;
+        const alpha = (0.35 + luminance * 0.65) * GEAR_OPACITY;
+        const lr = Math.round(GEAR_LO[0] + (GEAR_HI[0] - GEAR_LO[0]) * luminance);
+        const lg = Math.round(GEAR_LO[1] + (GEAR_HI[1] - GEAR_LO[1]) * luminance);
+        const lb = Math.round(GEAR_LO[2] + (GEAR_HI[2] - GEAR_LO[2]) * luminance);
+        asciiCtx.fillStyle = 'rgba(' + lr + ',' + lg + ',' + lb + ',' + alpha + ')';
         asciiCtx.fillText(char, x * CELL_W, y * CELL_H);
       }
     }
   }
 }
 
-// Init
+// ── Scroll Reveal Animations ───────────────────
+const revealElements = document.querySelectorAll('.feature-card, .step, .job-card, .api-row');
+revealElements.forEach(el => el.classList.add('reveal'));
+
+const revealObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const delay = parseInt(entry.target.dataset.revealDelay) || 0;
+      setTimeout(() => entry.target.classList.add('revealed'), delay);
+      revealObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+revealElements.forEach(el => {
+  // Add stagger delay based on sibling index
+  const parent = el.parentElement;
+  if (parent) {
+    const idx = Array.from(parent.children).indexOf(el);
+    el.dataset.revealDelay = idx * 80;
+  }
+  revealObserver.observe(el);
+});
+
+// ── Init ────────────────────────────────────────
+window.addEventListener('resize', resizeGear);
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initWebGL);
+  document.addEventListener('DOMContentLoaded', initGear);
 } else {
-  initWebGL();
+  initGear();
 }
 </script>
 </body>

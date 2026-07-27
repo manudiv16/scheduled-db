@@ -4,19 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Scheduled-DB — Live Simulator</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <meta name="description" content="Interactive WebAssembly simulator for visualizing job scheduling with the hierarchical timing wheel engine.">
 <style>
+:root{--bg:#000;--panel:#050505;--border:#34344e;--faint:#4a4a5e;--dim:#6a6a80;--muted:#9a9aae;--text:#e2e8f0;--accent:#a78bfa;--green:#34d399;--amber:#fbbf24;--red:#f87171;--pxfont:'Press Start 2P',monospace}
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-body{background:#000000;color:#e2e8f0;font-family:'Courier New',monospace;font-size:13px;line-height:1.5;
+body{background:#0a0a0a;color:#c0e0d0;font-family:'Courier New',monospace;font-size:13px;line-height:1.5;
   overflow:hidden;height:100vh;display:flex;flex-direction:column}
 ::selection{background:#a78bfa;color:#000000}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:#000000}
-::-webkit-scrollbar-thumb{background:#1a1a1a;border-radius:2px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:0}
 
 /* Scanlines */
 body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
-  background:repeating-linear-gradient(0deg,rgba(0,0,0,0.1) 0px,rgba(0,0,0,0.1) 1px,transparent 1px,transparent 3px);
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,0.03) 0px,rgba(0,0,0,0.03) 2px,transparent 2px,transparent 4px);
   pointer-events:none;z-index:9999}
 
 /* ── LAYOUT ─────────────────────────────────────── */
@@ -24,9 +26,10 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
 
 /* Status bar */
 #status{display:flex;align-items:center;gap:16px;padding:6px 12px;
-  border:1px solid #1a1a1a;border-radius:4px;background:rgba(0,0,0,0.4);
+  border:2px solid var(--border);border-radius:0;background:rgba(0,0,0,0.4);
   font-size:11px;min-height:32px;flex-shrink:0}
-#status .stat{color:#444444}
+#status .stat{color:#a8a8bc}
+#status .stat:first-child{font-family:var(--pxfont);font-size:8px}
 #status .stat span{color:#a78bfa}
 #status .stat .cy{color:#34d399}
 #status .stat .am{color:#ffb000}
@@ -36,79 +39,84 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
 #main{display:grid;grid-template-columns:1fr 1fr;gap:4px;flex:1;min-height:0}
 
 /* Panels */
-.panel{border:1px solid #1a1a1a;border-radius:4px;background:rgba(0,0,0,0.3);
-  display:flex;flex-direction:column;overflow:hidden}
-.panel-head{padding:6px 10px;border-bottom:1px solid #1a1a1a;
-  font-size:10px;color:#444444;letter-spacing:1px;text-transform:uppercase;
-  background:rgba(0,0,0,0.2);flex-shrink:0;display:flex;justify-content:space-between;align-items:center}
+.panel{border:2px solid var(--border);border-radius:0;background:rgba(0,0,0,0.3);box-shadow:4px 4px 0 rgba(0,0,0,0.5);
+  display:flex;flex-direction:column;overflow:hidden;transition:border-color .25s}
+.panel:hover{border-color:var(--faint)}
+.panel-head{padding:6px 10px;border-bottom:2px solid var(--faint);
+  font-family:var(--pxfont);font-size:8px;color:#999999;letter-spacing:0;text-transform:uppercase;
+  background:rgba(0,0,0,0.2);flex-shrink:0;display:flex;justify-content:space-between;align-items:center;
+  text-shadow:0 0 8px rgba(167,139,250,0.3)}
 .panel-body{flex:1;overflow-y:auto;padding:4px;font-size:12px}
 .panel-body pre{margin:0;white-space:pre-wrap;word-break:break-all}
 
 /* ── TIMING WHEEL PANEL ─────────────────────────── */
 #wheel-canvas{width:100%;height:100%;display:block;cursor:grab}
 
+#slot-list .empty{color:var(--faint);text-align:center;padding:20px;font-size:11px}
+
 /* ── JOB LIST ───────────────────────────────────── */
-#job-list .job-entry{padding:3px 8px;border-bottom:1px solid #111111;font-size:11px;
+#job-list .job-entry{padding:3px 8px;border-bottom:1px solid var(--border);font-size:11px;
   display:flex;align-items:center;gap:6px}
 #job-list .job-entry:last-child{border:none}
 #job-list .job-id{color:#34d399;font-family:inherit;font-size:10px;min-width:80px}
-#job-list .job-type{font-size:9px;padding:1px 5px;border-radius:2px;border:1px solid;min-width:40px;text-align:center}
-#job-list .job-type.unico{color:#ffb000;border-color:#1a4a1a}
-#job-list .job-type.recurrente{color:#34d399;border-color:#2a2a2a}
+#job-list .job-type{font-size:9px;padding:1px 5px;border-radius:0;border:1px solid;min-width:40px;text-align:center}
+#job-list .job-type.unico{color:#ffb000;border-color:rgba(255,176,0,0.45)}
+#job-list .job-type.recurrente{color:#34d399;border-color:rgba(52,211,153,0.45)}
 #job-list .job-status{font-size:10px;min-width:60px}
-#job-list .job-status.pending{color:#666666}
+#job-list .job-status.pending{color:var(--muted)}
 #job-list .job-status.in_progress{color:#ffb000}
 #job-list .job-status.completed{color:#a78bfa}
 #job-list .job-status.failed{color:#ff5f56}
-#job-list .job-status.cancelled{color:#444444}
-#job-list .job-ts{color:#444444;font-size:9px;margin-left:auto}
-#job-list .empty{color:#1a1a1a;text-align:center;padding:20px;font-size:11px}
+#job-list .job-status.cancelled{color:var(--dim)}
+#job-list .job-ts{color:var(--dim);font-size:9px;margin-left:auto}
+#job-list .empty{color:var(--faint);text-align:center;padding:20px;font-size:11px}
 
 /* ── EXECUTION LOG ──────────────────────────────── */
-#exec-log .log-entry{padding:2px 8px;font-size:10px;color:#666666;border-bottom:1px solid #0a0a0a}
-#exec-log .log-entry .ts{color:#444444;margin-right:8px}
+#exec-log .log-entry{padding:2px 8px;font-size:10px;color:var(--muted);border-bottom:1px solid #0a0a0a}
+#exec-log .log-entry .ts{color:var(--dim);margin-right:8px}
 #exec-log .log-entry.success{color:#a78bfa}
 #exec-log .log-entry.fail{color:#ff5f56}
-#exec-log .empty{color:#1a1a1a;text-align:center;padding:20px;font-size:11px}
+#exec-log .empty{color:var(--faint);text-align:center;padding:20px;font-size:11px}
 
 /* ── BOTTOM BAR ─────────────────────────────────── */
 #bottom{display:flex;gap:4px;flex-shrink:0;min-height:32px}
-#bottom input{flex:1;background:rgba(0,0,0,0.4);border:1px solid #1a1a1a;border-radius:4px;
-  padding:0 10px;color:#a78bfa;font-family:'Courier New',monospace;font-size:12px;outline:none}
+#bottom input{flex:1;background:rgba(0,0,0,0.4);border:2px solid var(--border);border-radius:0;
+  padding:0 10px;color:#a78bfa;font-family:'Courier New',monospace;font-size:12px;outline:none;caret-color:var(--accent)}
 #bottom input:focus{border-color:#a78bfa}
-#bottom input::placeholder{color:#1a1a1a}
-#bottom button{background:rgba(0,0,0,0.4);border:1px solid #1a1a1a;border-radius:4px;
-  color:#444444;padding:0 14px;font-family:'Courier New',monospace;font-size:11px;cursor:pointer;
+#bottom input::placeholder{color:var(--faint)}
+#bottom button{background:rgba(0,0,0,0.4);border:2px solid var(--border);border-radius:0;
+  color:#a8a8bc;padding:0 14px;font-family:var(--pxfont);font-size:8px;cursor:pointer;
   transition:all .15s;white-space:nowrap}
 #bottom button:hover{border-color:#a78bfa;color:#a78bfa}
 #bottom button.danger:hover{border-color:#ff5f56;color:#ff5f56}
-#bottom button.accent{color:#34d399;border-color:#2a2a2a}
+#bottom button:active{transform:translate(2px,2px)}
+#bottom button.accent{color:#34d399;border-color:var(--faint)}
 #bottom button.accent:hover{border-color:#34d399;color:#34d399}
 
 /* ── MODAL ──────────────────────────────────────── */
 #modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;
   background:rgba(0,0,0,0.7);z-index:100;justify-content:center;align-items:center}
 #modal-overlay.open{display:flex}
-#modal{border:1px solid #1a1a1a;border-radius:6px;background:#0a0a0a;padding:24px;
+#modal{border:2px solid var(--border);border-radius:0;background:#0a0a0a;padding:24px;box-shadow:6px 6px 0 rgba(0,0,0,0.6);
   min-width:340px;max-width:500px;width:90%}
-#modal h3{font-size:14px;color:#a78bfa;margin-bottom:16px;letter-spacing:1px}
-#modal label{display:block;font-size:11px;color:#444444;margin-bottom:4px;margin-top:12px}
+#modal h3{font-family:var(--pxfont);font-size:9px;color:#a78bfa;margin-bottom:16px;letter-spacing:0}
+#modal label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px;margin-top:12px}
 #modal label:first-child{margin-top:0}
-#modal input,#modal select{width:100%;background:rgba(0,0,0,0.4);border:1px solid #1a1a1a;
-  border-radius:3px;padding:8px 10px;color:#e2e8f0;font-family:'Courier New',monospace;font-size:12px;outline:none}
+#modal input,#modal select{width:100%;background:rgba(0,0,0,0.4);border:1px solid var(--border);
+  border-radius:0;padding:8px 10px;color:#e2e8f0;font-family:'Courier New',monospace;font-size:12px;outline:none}
 #modal input:focus,#modal select:focus{border-color:#a78bfa}
 #modal select option{background:#0a0a0a;color:#e2e8f0}
 #modal .btn-row{display:flex;gap:8px;margin-top:20px;justify-content:flex-end}
-#modal .btn-row button{padding:8px 20px;border-radius:3px;font-family:'Courier New',monospace;
+#modal .btn-row button{padding:8px 20px;border-radius:0;font-family:'Courier New',monospace;
   font-size:12px;cursor:pointer;transition:all .15s}
-#modal .btn-cancel{background:none;border:1px solid #1a1a1a;color:#444444}
-#modal .btn-cancel:hover{border-color:#666666;color:#666666}
+#modal .btn-cancel{background:none;border:1px solid var(--border);color:var(--dim)}
+#modal .btn-cancel:hover{border-color:var(--muted);color:var(--muted)}
 #modal .btn-submit{background:#a78bfa;border:none;color:#000000;font-weight:700}
 #modal .btn-submit:hover{background:#8b5cf6}
 
 /* ── TOAST ──────────────────────────────────────── */
 #toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);
-  background:#0a0a0a;border:1px solid #1a1a1a;border-radius:4px;padding:8px 20px;
+  background:#0a0a0a;border:2px solid var(--border);border-radius:0;padding:8px 20px;
   font-size:11px;color:#a78bfa;opacity:0;transition:opacity .3s;pointer-events:none;z-index:50}
 #toast.show{opacity:1}
 #toast.err{color:#ff5f56}
@@ -129,7 +137,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
     <div class="stat">⚡ <span id="speed-display" class="cy">1.0x</span></div>
     <div class="stat">◈ <span id="job-count" class="cy">0</span></div>
     <div class="stat">▶ <span id="exec-count" class="am">0</span></div>
-    <div class="stat" id="status-msg" style="color:#1a1a1a;font-size:10px">← type <span style="color:#444444">help</span> in the terminal</div>
+    <div class="stat" id="status-msg" style="color:var(--muted);font-size:10px">← type <span style="color:var(--dim)">help</span> in the terminal</div>
   </div>
 
   <!-- Main Grid -->
@@ -140,7 +148,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
       <div class="panel" style="flex:1">
         <div class="panel-head">
           <span>◆ Timing Wheel</span>
-          <span id="wheel-info" style="color:#1a1a1a;font-size:10px">0 slots</span>
+          <span id="wheel-info" style="color:var(--muted);font-size:10px">0 slots</span>
         </div>
         <div class="panel-body" style="padding:0;overflow:hidden">
           <canvas id="wheel-canvas"></canvas>
@@ -150,7 +158,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
       <div class="panel" style="flex:0.8">
         <div class="panel-head">
           <span>■ Execution Log</span>
-          <span style="color:#1a1a1a;font-size:10px">last 50</span>
+          <span style="color:var(--dim);font-size:10px">last 50</span>
         </div>
         <div class="panel-body" id="exec-log">
           <div class="empty">⏳ awaiting execution...</div>
@@ -164,7 +172,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
       <div class="panel" style="flex:1">
         <div class="panel-head">
           <span>● Job Queue</span>
-          <span style="color:#1a1a1a;font-size:10px" id="job-count-label">0 jobs</span>
+          <span style="color:var(--dim);font-size:10px" id="job-count-label">0 jobs</span>
         </div>
         <div class="panel-body" id="job-list">
           <div class="empty">◇ no jobs scheduled</div>
@@ -174,7 +182,7 @@ body::after{content:'';position:fixed;top:0;left:0;width:100%;height:100%;
       <div class="panel" style="flex:0.6">
         <div class="panel-head">
           <span>▣ Slot Map</span>
-          <span style="color:#1a1a1a;font-size:10px" id="slot-count-label">0 slots</span>
+          <span style="color:var(--dim);font-size:10px" id="slot-count-label">0 slots</span>
         </div>
         <div class="panel-body" id="slot-list">
           <div class="empty">◇ no active slots</div>
@@ -277,6 +285,7 @@ async function loadWasm() {
   toast('simulator loaded');
   refresh();
   startWheelAnimation();
+  startAutoTime();
 }
 
 // ── Fetch State ────────────────────────────────
@@ -332,13 +341,18 @@ function refresh() {
   } else {
     const recent = log.slice(-50).reverse();
     execLog.innerHTML = recent.map(e => {
-      const cls = e.success ? 'success' : 'fail';
-      const t = new Date(e.timestamp * 1000).toISOString().slice(11,19);
+      // exec_log entries come from a Go struct: PascalCase fields
+      const success = e.Success !== undefined ? e.Success : e.success;
+      const ts = e.Timestamp || e.timestamp || 0;
+      const jobId = e.JobID || e.job_id || '';
+      const ms = e.ResponseTime !== undefined ? e.ResponseTime : (e.response_time || 0);
+      const cls = success ? 'success' : 'fail';
+      const t = ts ? new Date(ts * 1000).toISOString().slice(11,19) : '--:--:--';
       return `<div class="log-entry ${cls}">
         <span class="ts">[${t}]</span>
-        ${e.job_id ? e.job_id.slice(0,8) : '???'}
-        ${e.success ? '✓ completed' : '✗ failed'}
-        <span style="color:#444444">${e.response_time || 0}ms</span>
+        ${jobId ? jobId.slice(0,8) : '???'}
+        ${success ? '✓ completed' : '✗ failed'}
+        <span style="color:var(--dim)">${ms}ms</span>
       </div>`;
     }).join('');
   }
@@ -358,8 +372,8 @@ function refresh() {
       return `<div class="job-entry" style="font-size:10px">
         <span style="color:#ffb000">◈</span>
         <span style="color:#34d399;font-size:9px">${minDate}–${maxDate}</span>
-        <span style="color:#666666">${jobCount} jobs</span>
-        <span style="color:#444444;margin-left:auto;font-size:8px">key:${key}</span>
+        <span style="color:var(--muted)">${jobCount} jobs</span>
+        <span style="color:var(--dim);margin-left:auto;font-size:8px">key:${key}</span>
       </div>`;
     }).join('');
   }
@@ -378,9 +392,41 @@ function resizeWheel() {
   wheelCanvas.height = rect.height * window.devicePixelRatio;
   wheelCanvas.style.width = rect.width + 'px';
   wheelCanvas.style.height = rect.height + 'px';
-  wheelCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  wheelCtx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+  initParticles();
 }
 window.addEventListener('resize', resizeWheel);
+
+// ── Mini ASCII stream particles ────────────────
+const ASCII_PARTICLES = ['·', '.', '°', '·', '.', '°'];
+let asciiParticles = [];
+function initParticles() {
+  if (!wheelCanvas) return;
+  const rect = wheelCanvas.getBoundingClientRect();
+  const count = Math.floor((rect.width * rect.height) / 6000);
+  asciiParticles = [];
+  for (let i = 0; i < count; i++) {
+    asciiParticles.push({
+      x: Math.random() * rect.width,
+      y: Math.random() * rect.height,
+      speed: 0.1 + Math.random() * 0.3,
+      char: ASCII_PARTICLES[Math.floor(Math.random() * ASCII_PARTICLES.length)],
+    });
+  }
+}
+function drawParticles(ctx, w, h) {
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#a78bfa';
+  ctx.font = '9px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  for (const p of asciiParticles) {
+    p.y += p.speed;
+    if (p.y > h) { p.y = -5; p.x = Math.random() * w; }
+    ctx.fillText(p.char, p.x, p.y);
+  }
+  ctx.restore();
+}
 
 let wheelRotation = 0;
 function drawWheel() {
@@ -394,59 +440,89 @@ function drawWheel() {
 
   wheelCtx.clearRect(0, 0, w, h);
 
-  // Background
-  wheelCtx.fillStyle = 'rgba(8,8,8,0.5)';
+  // Background with radial gradient
+  const bgGrad = wheelCtx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+  bgGrad.addColorStop(0, 'rgba(167,139,250,0.05)');
+  bgGrad.addColorStop(0.6, 'rgba(167,139,250,0.02)');
+  bgGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  wheelCtx.fillStyle = bgGrad;
   wheelCtx.fillRect(0, 0, w, h);
+
+  // Mini ASCII particles behind wheel
+  drawParticles(wheelCtx, w, h);
 
   // Get slots data
   const slots = state.slots || {};
   const slotKeys = Object.keys(slots);
   const slotCount = slotKeys.length;
 
-  // Outer ring (timing wheel)
+  // Outer ring with gradient and glow
   const outerR = maxR;
+  const ringGrad = wheelCtx.createLinearGradient(0, cy - outerR, 0, cy + outerR);
+  ringGrad.addColorStop(0, '#a78bfa');
+  ringGrad.addColorStop(0.5, '#7c3aed');
+  ringGrad.addColorStop(1, '#a78bfa');
+
+  // Glow ring (outer)
+  wheelCtx.save();
+  wheelCtx.shadowColor = 'rgba(167,139,250,0.3)';
+  wheelCtx.shadowBlur = 16;
   wheelCtx.beginPath();
   wheelCtx.arc(cx, cy, outerR, 0, Math.PI * 2);
-  wheelCtx.strokeStyle = '#1a1a1a';
-  wheelCtx.lineWidth = 1;
+  wheelCtx.strokeStyle = ringGrad;
+  wheelCtx.lineWidth = 4;
   wheelCtx.stroke();
+  wheelCtx.restore();
 
-  // Tick marks (60 divisions)
+  // Tick marks (60 divisions) - thicker, brighter
   for (let i = 0; i < 60; i++) {
     const angle = (i / 60) * Math.PI * 2 - Math.PI / 2 + wheelRotation;
-    const inner = i % 5 === 0 ? outerR - 10 : outerR - 5;
+    const isMajor = i % 5 === 0;
+    const inner = isMajor ? outerR - 18 : outerR - 10;
     wheelCtx.beginPath();
     wheelCtx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
-    wheelCtx.lineTo(cx + Math.cos(angle) * outerR, cy + Math.sin(angle) * outerR);
-    wheelCtx.strokeStyle = i % 5 === 0 ? '#2a5a2a' : '#1a1a1a';
-    wheelCtx.lineWidth = 1;
+    wheelCtx.lineTo(cx + Math.cos(angle) * (outerR - 2), cy + Math.sin(angle) * (outerR - 2));
+    wheelCtx.strokeStyle = isMajor ? 'rgba(167,139,250,0.85)' : 'rgba(167,139,250,0.28)';
+    wheelCtx.lineWidth = isMajor ? 3 : 2;
     wheelCtx.stroke();
   }
 
-  // Inner ring
+  // Inner ring with glow
   const innerR = outerR * 0.55;
+  wheelCtx.save();
+  wheelCtx.shadowColor = 'rgba(52,211,153,0.25)';
+  wheelCtx.shadowBlur = 8;
   wheelCtx.beginPath();
   wheelCtx.arc(cx, cy, innerR, 0, Math.PI * 2);
-  wheelCtx.strokeStyle = '#1a1a1a';
-  wheelCtx.lineWidth = 1;
+  wheelCtx.strokeStyle = '#34d399';
+  wheelCtx.lineWidth = 3.5;
   wheelCtx.stroke();
+  wheelCtx.restore();
 
-  // Slot arcs
+  // Slot arcs with gradient
   if (slotCount > 0) {
-    // Show up to 16 slots on the wheel
-    const displaySlots = slotKeys.slice(0, 16);
-    const arcSize = (Math.PI * 2) / Math.max(displaySlots.length, 16);
+    const displaySlots = slotKeys.slice(0, 24);
+    const arcSize = (Math.PI * 2) / Math.max(displaySlots.length, 24);
 
     displaySlots.forEach((key, i) => {
       const startAngle = i * arcSize - Math.PI / 2 + wheelRotation;
       const endAngle = startAngle + arcSize * 0.85;
 
-      // Arc on outer ring
+      // Gradient for slot arc on outer ring
+      const slotGrad = wheelCtx.createLinearGradient(
+        cx + Math.cos(startAngle) * outerR,
+        cy + Math.sin(startAngle) * outerR,
+        cx + Math.cos(endAngle) * outerR,
+        cy + Math.sin(endAngle) * outerR
+      );
+      slotGrad.addColorStop(0, '#a78bfa');
+      slotGrad.addColorStop(1, '#34d399');
+
       wheelCtx.beginPath();
       wheelCtx.arc(cx, cy, outerR - 2, startAngle, endAngle);
-      wheelCtx.strokeStyle = '#a78bfa';
-      wheelCtx.lineWidth = 2;
-      wheelCtx.globalAlpha = 0.6;
+      wheelCtx.strokeStyle = slotGrad;
+      wheelCtx.lineWidth = 6;
+      wheelCtx.globalAlpha = 0.9;
       wheelCtx.stroke();
       wheelCtx.globalAlpha = 1;
 
@@ -454,54 +530,80 @@ function drawWheel() {
       wheelCtx.beginPath();
       wheelCtx.arc(cx, cy, innerR + 2, startAngle, endAngle);
       wheelCtx.strokeStyle = '#34d399';
-      wheelCtx.lineWidth = 1.5;
-      wheelCtx.globalAlpha = 0.4;
+      wheelCtx.lineWidth = 3;
+      wheelCtx.globalAlpha = 0.55;
       wheelCtx.stroke();
       wheelCtx.globalAlpha = 1;
 
       // Connecting line
       const midAngle = (startAngle + endAngle) / 2;
       wheelCtx.beginPath();
-      wheelCtx.moveTo(cx + Math.cos(midAngle) * innerR, cy + Math.sin(midAngle) * innerR);
-      wheelCtx.lineTo(cx + Math.cos(midAngle) * outerR, cy + Math.sin(midAngle) * outerR);
-      wheelCtx.strokeStyle = '#1a1a1a';
-      wheelCtx.lineWidth = 0.5;
+      wheelCtx.moveTo(cx + Math.cos(midAngle) * (innerR + 2), cy + Math.sin(midAngle) * (innerR + 2));
+      wheelCtx.lineTo(cx + Math.cos(midAngle) * (outerR - 2), cy + Math.sin(midAngle) * (outerR - 2));
+      wheelCtx.strokeStyle = 'rgba(52,211,153,0.4)';
+      wheelCtx.lineWidth = 2;
       wheelCtx.stroke();
     });
   }
 
-  // Current time indicator
+  // Current time indicator (neon arrow)
   const nowAngle = (state.now % 60 / 60) * Math.PI * 2 - Math.PI / 2;
+  const indicatorLen = outerR - 4;
+  const endX = cx + Math.cos(nowAngle) * indicatorLen;
+  const endY = cy + Math.sin(nowAngle) * indicatorLen;
+
+  wheelCtx.save();
+  wheelCtx.shadowColor = '#ff6b9d';
+  wheelCtx.shadowBlur = 10;
   wheelCtx.beginPath();
   wheelCtx.moveTo(cx, cy);
-  wheelCtx.lineTo(cx + Math.cos(nowAngle) * outerR, cy + Math.sin(nowAngle) * outerR);
-  wheelCtx.strokeStyle = '#a78bfa';
-  wheelCtx.lineWidth = 1.5;
+  wheelCtx.lineTo(endX, endY);
+  wheelCtx.strokeStyle = '#ff6b9d';
+  wheelCtx.lineWidth = 4;
   wheelCtx.globalAlpha = 0.8;
   wheelCtx.stroke();
-  wheelCtx.globalAlpha = 1;
 
-  // Center dot
+  // Arrow head
+  const arrowSize = 8;
+  const arrAngle = nowAngle + Math.PI / 2;
   wheelCtx.beginPath();
-  wheelCtx.arc(cx, cy, 3, 0, Math.PI * 2);
-  wheelCtx.fillStyle = '#a78bfa';
+  wheelCtx.moveTo(endX, endY);
+  wheelCtx.lineTo(endX + Math.cos(nowAngle - 0.4) * arrowSize, endY + Math.sin(nowAngle - 0.4) * arrowSize);
+  wheelCtx.lineTo(endX + Math.cos(nowAngle + 0.4) * arrowSize, endY + Math.sin(nowAngle + 0.4) * arrowSize);
+  wheelCtx.closePath();
+  wheelCtx.fillStyle = '#ff6b9d';
+  wheelCtx.globalAlpha = 0.9;
   wheelCtx.fill();
+  wheelCtx.restore();
 
-  // Labels
-  wheelCtx.fillStyle = '#1a1a1a';
-  wheelCtx.font = '9px "Courier New", monospace';
+  // Center hub with radial gradient
+  const hubGrad = wheelCtx.createRadialGradient(cx - 3, cy - 3, 0, cx, cy, 12);
+  hubGrad.addColorStop(0, 'rgba(167,139,250,0.4)');
+  hubGrad.addColorStop(0.5, 'rgba(167,139,250,0.2)');
+  hubGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  wheelCtx.beginPath();
+  wheelCtx.arc(cx, cy, 12, 0, Math.PI * 2);
+  wheelCtx.fillStyle = hubGrad;
+  wheelCtx.fill();
+  wheelCtx.strokeStyle = 'rgba(167,139,250,0.4)';
+  wheelCtx.lineWidth = 2;
+  wheelCtx.stroke();
+
+  // Labels with Press Start 2P
   wheelCtx.textAlign = 'center';
+  wheelCtx.fillStyle = 'rgba(167,139,250,0.7)';
+  wheelCtx.font = '8px "Press Start 2P", monospace';
   wheelCtx.fillText('SCHEDULED-DB', cx, cy + 3);
-  wheelCtx.fillStyle = '#444444';
-  wheelCtx.font = '7px "Courier New", monospace';
-  wheelCtx.fillText(slotCount + ' slots · ' + (state.total_executed || 0) + ' exec', cx, cy + 16);
+  wheelCtx.fillStyle = '#9a9aae';
+  wheelCtx.font = '6px "Courier New", monospace';
+  wheelCtx.fillText(slotCount + ' slots \u00b7 ' + (state.total_executed || 0) + ' exec', cx, cy + 16);
 
   // HUD in corner
   wheelCtx.textAlign = 'left';
-  wheelCtx.fillStyle = '#1a1a1a';
+  wheelCtx.fillStyle = '#9a9aae';
   wheelCtx.font = '8px "Courier New", monospace';
   wheelCtx.fillText('T+' + (state.tick_count || 0), 8, 12);
-  wheelCtx.fillText('◈' + jobCount(), 8, 22);
+  wheelCtx.fillText('\u25c6' + jobCount(), 8, 22);
 
   // Animate rotation
   wheelRotation += 0.008 * (state.clock_speed || 1);
@@ -529,12 +631,56 @@ function startRefresh() {
   refreshInterval = setInterval(refresh, 500);
 }
 
+// ── WASM Result Unwrap ─────────────────────────
+// Every export returns { ok, data: "<json string>" } or { ok:false, error }.
+function simResult(ret) {
+  if (ret && typeof ret === 'object') {
+    if (ret.error) return { error: ret.error };
+    if (typeof ret.data === 'string') {
+      try { const p = JSON.parse(ret.data); return p && typeof p === 'object' ? p : {}; } catch(e) { return {}; }
+    }
+    if (ret.data && typeof ret.data === 'object') return ret.data;
+    return {};
+  }
+  if (typeof ret === 'string') {
+    try { return JSON.parse(ret); } catch(e) { return {}; }
+  }
+  return {};
+}
+
+// ── Auto Time Driver ───────────────────────────
+// The sim has no internal clock: `now` only moves via advanceTime() and
+// jobs only execute via tick(). Drive both from wall-clock x clock_speed.
+let autoTimeAcc = 0;
+let lastAutoTime = null;
+function startAutoTime() {
+  lastAutoTime = Date.now();
+  setInterval(() => {
+    if (!ready || !sim) return;
+    const wallNow = Date.now();
+    const elapsed = (wallNow - lastAutoTime) / 1000;
+    lastAutoTime = wallNow;
+    const speed = state.clock_speed || 1;
+    if (speed <= 0 || elapsed <= 0) return;
+    // advanceTime() applies clock_speed internally; feed it raw wall-clock seconds
+    autoTimeAcc += elapsed;
+    const whole = Math.floor(autoTimeAcc);
+    if (whole < 1) return;
+    autoTimeAcc -= whole;
+    try {
+      sim.advanceTime(whole);
+      sim.tick();
+    } catch(e) { /* keep driving */ }
+  }, 500);
+}
+
 // ── Simulator Commands ─────────────────────────
 function cmdTick() {
   if (!ready) { toast('simulator not loaded', true); return; }
   try {
-    const result = JSON.parse(sim.tick());
-    toast('tick: ' + result.executed + ' executed, ' + result.rescheduled + ' rescheduled');
+    const result = simResult(sim.tick());
+    if (result.error) { toast('tick failed: ' + result.error, true); return; }
+    toast('tick: ' + (result.executed || 0) + ' executed, ' + (result.rescheduled || 0) + ' rescheduled');
     refresh();
   } catch(e) {
     toast('tick failed: ' + e.message, true);
@@ -544,8 +690,9 @@ function cmdTick() {
 function cmdAdvance(seconds) {
   if (!ready) { toast('simulator not loaded', true); return; }
   try {
-    const result = JSON.parse(sim.advanceTime(seconds));
-    toast('advanced ' + seconds + 's → now ' + result.now);
+    const result = simResult(sim.advanceTime(seconds));
+    if (result.error) { toast('advance failed: ' + result.error, true); return; }
+    toast('advanced ' + seconds + 's → now ' + (result.now !== undefined ? result.now : '?'));
     refresh();
   } catch(e) {
     toast('advance failed: ' + e.message, true);
@@ -577,11 +724,11 @@ function cmdReset() {
 function cmdCreate(jobData) {
   if (!ready) { toast('simulator not loaded', true); return; }
   try {
-    const result = JSON.parse(sim.createJob(JSON.stringify(jobData)));
+    const result = simResult(sim.createJob(JSON.stringify(jobData)));
     if (result.error) {
       toast('create failed: ' + result.error, true);
     } else {
-      toast('job created: ' + (result.data ? result.data.id || result.data.slice(0,8) : 'ok'));
+      toast('job created: ' + (result.id ? result.id.slice(0,8) : 'ok'));
       refresh();
     }
   } catch(e) {
@@ -702,6 +849,7 @@ document.getElementById('btn-reset').addEventListener('click', () => {
 
 // ── Init ───────────────────────────────────────
 initWheelCanvas();
+initParticles();
 setTimeout(() => {
   resizeWheel();
   startRefresh();
